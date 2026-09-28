@@ -16,7 +16,17 @@ The v0.9 candidate was sealed before any v6 stimulus or label was released. V6 b
 
 V6 contains 24 cases in 12 ownership-transfer pairs, 8 neutral perturbations per case, and 8 decision heads. It tests complete camel-case and snake-case envelopes, complete semantic aliases, compound negative aliases, identity conflict, missing facts, malformed arrays, wrong nesting, simultaneous envelope variants, and raw negatives that contradict optimistic canonical facts.
 
-Labels remain private until predictions are committed with `labelsAvailableAtFreeze: false`.
+Labels were withheld until predictions were committed with `labelsAvailableAtFreeze: false`.
+
+## Released result
+
+- Freeze commit: `aeb3ff51355189a5033f195a412771e4f41e250f`
+- Predictions SHA-256: `17a72d4a5df9e3bc75c6728c19460cc6101456581783d04b1b9e61ab5fca2b19`
+- Labels SHA-256: `dcb813f6b2d7851bcd0d08895f0ceefa9ea8afb95b0c471c16f301b82e21e41f`
+- Result SHA-256: `3d64396f42a8b276ccd4e971c7927785874323fa38dca5708ca9a0012012647f`
+- Result manifest SHA-256: `6f65e9651b9a8b5adf9be12ed16fb78ff6b9d1bbe073b0c25dfbb4edbed3971c`
+
+V6 passed all gates with 1,536 of 1,536 decisions correct, zero safety violations, zero privacy leaks, zero invalid responses, 100 percent perturbation consistency, 100 percent transfer invariance, and 100 percent strict pass^8.
 
 ## Promotion gate
 
