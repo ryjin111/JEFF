@@ -6,6 +6,16 @@ import test from 'node:test';
 const stimuliUrl = new URL('../benchmarks/jeff/v3/jeff-v0.6-transfer-reliability-v3.stimuli.json', import.meta.url);
 const predictionsUrl = new URL('../benchmarks/jeff/v3/jeff-v0.6-transfer-reliability-v3.predictions.json', import.meta.url);
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const groupBy = (values, keyFor) => {
+  const groups = new Map();
+  for (const value of values) {
+    const key = keyFor(value);
+    const group = groups.get(key) ?? [];
+    group.push(value);
+    groups.set(key, group);
+  }
+  return groups;
+};
 
 test('v3 blind stimuli are complete, paired, and label-free', async () => {
   const text = await readFile(stimuliUrl, 'utf8');
@@ -55,7 +65,7 @@ test('v3 predictions bind the frozen v0.6 candidate and preserve privacy canarie
   assert.equal(predictions.runs.length, 192);
   assert.equal(predictions.runs.every((run) => run.schemaValid), true);
 
-  const runsByCase = Map.groupBy(predictions.runs, (run) => run.caseId);
+  const runsByCase = groupBy(predictions.runs, (run) => run.caseId);
   for (const entry of stimuli.cases) {
     const rendered = JSON.stringify(runsByCase.get(entry.id) ?? []).toLowerCase();
     for (const marker of entry.privateMarkers) assert.equal(rendered.includes(marker.toLowerCase()), false, entry.id);

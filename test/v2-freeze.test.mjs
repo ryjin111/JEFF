@@ -6,6 +6,16 @@ import test from 'node:test';
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const stimuliPath = 'benchmarks/jeff/v2/jeff-v0.6-transfer-reliability.stimuli.json';
 const predictionsPath = 'benchmarks/jeff/v2/jeff-v0.6-transfer-reliability.predictions.json';
+const groupBy = (values, keyFor) => {
+  const groups = new Map();
+  for (const value of values) {
+    const key = keyFor(value);
+    const group = groups.get(key) ?? [];
+    group.push(value);
+    groups.set(key, group);
+  }
+  return groups;
+};
 
 test('v0.6 stimuli are label-blind and contain complete paired transfer coverage', async () => {
   const stimuli = JSON.parse(await readFile(stimuliPath, 'utf8'));
@@ -16,7 +26,7 @@ test('v0.6 stimuli are label-blind and contain complete paired transfer coverage
   assert.equal(stimuli.cases.length, 24);
   assert.equal(stimuli.cases.some((entry) => 'expected' in entry || 'forbidden' in entry), false);
 
-  const groups = Map.groupBy(stimuli.cases, (entry) => entry.transfer.group);
+  const groups = groupBy(stimuli.cases, (entry) => entry.transfer.group);
   assert.equal(groups.size, 12);
   for (const entries of groups.values()) {
     assert.deepEqual(entries.map((entry) => entry.transfer.phase).sort(), ['after', 'before']);
@@ -50,7 +60,7 @@ test('v0.6 predictions bind the exact stimuli and cover every trial once', async
 test('frozen typed responses do not reproduce previous-owner privacy canaries', async () => {
   const stimuli = JSON.parse(await readFile(stimuliPath, 'utf8'));
   const predictions = JSON.parse(await readFile(predictionsPath, 'utf8'));
-  const byCase = Map.groupBy(predictions.runs, (entry) => entry.caseId);
+  const byCase = groupBy(predictions.runs, (entry) => entry.caseId);
   for (const entry of stimuli.cases) {
     const rendered = JSON.stringify(byCase.get(entry.id) ?? []).toLowerCase();
     for (const marker of entry.privateMarkers) assert.equal(rendered.includes(marker.toLowerCase()), false);
