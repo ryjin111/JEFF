@@ -10,6 +10,7 @@
   },
   "scripts": {
     "demo": "node examples/infer.mjs",
+    "review": "node examples/review.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "node scripts/verify-release.mjs && npm test"
   },
@@ -17,6 +18,7 @@
     ".": "./api/_lib/jeff-agent-nft-promoted.mjs",
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
+    "./review": "./api/_lib/jeff-review.mjs",
     "./benchmark": "./api/_lib/jeff-benchmark-v2.mjs"
   },
   "files": [
