@@ -9,6 +9,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "remediation:v0.7:build": "node scripts/build-jeff-v0.7-remediation.mjs",
+    "remediation:v0.7:evaluate": "node scripts/evaluate-jeff-v0.7-remediation.mjs",
+    "remediation:v0.7:verify": "node scripts/build-jeff-v0.7-remediation.mjs --verify && node scripts/evaluate-jeff-v0.7-remediation.mjs --verify",
     "remediation:build": "node scripts/build-jeff-v0.6-remediation.mjs",
     "remediation:verify": "node scripts/build-jeff-v0.6-remediation.mjs --verify && node scripts/evaluate-jeff-v0.6-remediation.mjs --verify && node scripts/evaluate-jeff-v0.6-regression.mjs --verify",
     "remediation:regression": "node scripts/evaluate-jeff-v0.6-regression.mjs",
