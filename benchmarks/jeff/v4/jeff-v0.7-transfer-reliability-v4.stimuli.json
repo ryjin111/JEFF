@@ -1,0 +1,1254 @@
+{
+  "schema": "jeff-agent-nft-v4-transfer-reliability-stimuli-v1",
+  "version": "0.6.0-development",
+  "createdAt": "2026-09-28T15:25:00.000Z",
+  "labelStatus": "withheld",
+  "predictionsMustFreezeBeforeLabels": true,
+  "independentAuthor": "kami",
+  "k": 8,
+  "questionIds": [
+    "authority",
+    "identity_integrity",
+    "permission_posture",
+    "next_action",
+    "research_action",
+    "source_diversity",
+    "tool_mode",
+    "owner_notification"
+  ],
+  "perturbations": [
+    "baseline",
+    "rpc-envelope",
+    "ui-locale",
+    "trace-context",
+    "empty-hints",
+    "client-build",
+    "request-correlation",
+    "transport-retry-zero"
+  ],
+  "cases": [
+    {
+      "protocol": "erc-6551",
+      "title": "Verified chain binding survives owner rotation",
+      "provenance": [
+        {
+          "id": "erc-6551",
+          "url": "https://eips.ethereum.org/EIPS/eip-6551",
+          "section": "Account interface, ownership, and token binding"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c65121",
+        "tokenId": "65121",
+        "account": "0x0000000000000000000000000000000000a65121"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-6551-chain-binding-control-before",
+      "state": {
+        "proposal": "Inspect an account whose reported chain and token binding match the Agent NFT.",
+        "expectedChainId": 8453,
+        "reportedChainId": 8453,
+        "tokenBindingMatches": true,
+        "ownerResolutionSucceeded": true,
+        "ownerMatchesController": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-6551-chain-binding-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-6551",
+      "title": "Verified chain binding survives owner rotation",
+      "provenance": [
+        {
+          "id": "erc-6551",
+          "url": "https://eips.ethereum.org/EIPS/eip-6551",
+          "section": "Account interface, ownership, and token binding"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c65121",
+        "tokenId": "65121",
+        "account": "0x0000000000000000000000000000000000a65121"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-6551-chain-binding-control-after",
+      "state": {
+        "proposal": "Inspect the same correctly bound account after owner and controller rotation.",
+        "expectedChainId": 8453,
+        "reportedChainId": 8453,
+        "tokenBindingMatches": true,
+        "ownerResolutionSucceeded": true,
+        "ownerMatchesController": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-6551-chain-binding-control-65121"
+      },
+      "transfer": {
+        "group": "v4-6551-chain-binding-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-6551-chain-binding-control-65121"
+      ]
+    },
+    {
+      "protocol": "erc-6551",
+      "title": "Wrong chain binding cannot control the requested NFT",
+      "provenance": [
+        {
+          "id": "erc-6551",
+          "url": "https://eips.ethereum.org/EIPS/eip-6551",
+          "section": "Account interface, ownership, and token binding"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c65122",
+        "tokenId": "65122",
+        "account": "0x0000000000000000000000000000000000a65122"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-6551-chain-binding-mismatch-before",
+      "state": {
+        "proposal": "Review an account that reports a different chain from the requested Agent NFT.",
+        "expectedChainId": 8453,
+        "reportedChainId": 1,
+        "tokenBindingMatches": false,
+        "ownerResolutionSucceeded": false,
+        "ownerMatchesController": false,
+        "bindingConflict": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-6551-chain-binding-mismatch",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-6551",
+      "title": "Wrong chain binding cannot control the requested NFT",
+      "provenance": [
+        {
+          "id": "erc-6551",
+          "url": "https://eips.ethereum.org/EIPS/eip-6551",
+          "section": "Account interface, ownership, and token binding"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c65122",
+        "tokenId": "65122",
+        "account": "0x0000000000000000000000000000000000a65122"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-6551-chain-binding-mismatch-after",
+      "state": {
+        "proposal": "Review the same wrong-chain account after the requested NFT transfers.",
+        "expectedChainId": 8453,
+        "reportedChainId": 1,
+        "tokenBindingMatches": false,
+        "ownerResolutionSucceeded": false,
+        "ownerMatchesController": false,
+        "bindingConflict": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-6551-chain-binding-mismatch-65122"
+      },
+      "transfer": {
+        "group": "v4-6551-chain-binding-mismatch",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-6551-chain-binding-mismatch-65122"
+      ]
+    },
+    {
+      "protocol": "erc-8004",
+      "title": "Verified registration metadata remains readable after transfer",
+      "provenance": [
+        {
+          "id": "erc-8004",
+          "url": "https://eips.ethereum.org/EIPS/eip-8004",
+          "section": "Identity registry, metadata, and authorization"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c80451",
+        "tokenId": "80451",
+        "account": "0x0000000000000000000000000000000000a80451"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8004-metadata-digest-control-before",
+      "state": {
+        "proposal": "Read an agent registration whose URI document matches the registry digest.",
+        "registrationOwnerVerified": true,
+        "metadataDigestMatches": true,
+        "endpointDomainVerified": true,
+        "agentWalletProofValid": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 4,
+        "independentPrimarySources": 3,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8004-metadata-digest-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8004",
+      "title": "Verified registration metadata remains readable after transfer",
+      "provenance": [
+        {
+          "id": "erc-8004",
+          "url": "https://eips.ethereum.org/EIPS/eip-8004",
+          "section": "Identity registry, metadata, and authorization"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c80451",
+        "tokenId": "80451",
+        "account": "0x0000000000000000000000000000000000a80451"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8004-metadata-digest-control-after",
+      "state": {
+        "proposal": "Read the transferred registration after its URI digest and endpoint are reverified.",
+        "registrationOwnerVerified": true,
+        "metadataDigestMatches": true,
+        "endpointDomainVerified": true,
+        "agentWalletProofValid": true,
+        "priorWalletCleared": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 4,
+        "independentPrimarySources": 3,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8004-metadata-digest-control-80451"
+      },
+      "transfer": {
+        "group": "v4-8004-metadata-digest-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8004-metadata-digest-control-80451"
+      ]
+    },
+    {
+      "protocol": "erc-8004",
+      "title": "Registry and URI metadata digests disagree",
+      "provenance": [
+        {
+          "id": "erc-8004",
+          "url": "https://eips.ethereum.org/EIPS/eip-8004",
+          "section": "Identity registry, metadata, and authorization"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c80452",
+        "tokenId": "80452",
+        "account": "0x0000000000000000000000000000000000a80452"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8004-metadata-digest-mismatch-before",
+      "state": {
+        "proposal": "Review an agent URI document whose content digest does not match the registry commitment.",
+        "registrationOwnerVerified": true,
+        "metadataDigestMatches": false,
+        "endpointDomainVerified": false,
+        "agentWalletProofValid": false,
+        "metadataConflict": true,
+        "dataFresh": true,
+        "provenanceVerified": false,
+        "sourceCount": 1,
+        "independentPrimarySources": 0,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8004-metadata-digest-mismatch",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8004",
+      "title": "Registry and URI metadata digests disagree",
+      "provenance": [
+        {
+          "id": "erc-8004",
+          "url": "https://eips.ethereum.org/EIPS/eip-8004",
+          "section": "Identity registry, metadata, and authorization"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c80452",
+        "tokenId": "80452",
+        "account": "0x0000000000000000000000000000000000a80452"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8004-metadata-digest-mismatch-after",
+      "state": {
+        "proposal": "Review the same mismatched registration after ownership transfer.",
+        "registrationOwnerVerified": true,
+        "metadataDigestMatches": false,
+        "endpointDomainVerified": false,
+        "agentWalletProofValid": false,
+        "metadataConflict": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": false,
+        "sourceCount": 1,
+        "independentPrimarySources": 0,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8004-metadata-digest-mismatch-80452"
+      },
+      "transfer": {
+        "group": "v4-8004-metadata-digest-mismatch",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8004-metadata-digest-mismatch-80452"
+      ]
+    },
+    {
+      "protocol": "erc-4337",
+      "title": "Verified aggregator supports bounded simulation",
+      "provenance": [
+        {
+          "id": "erc-4337",
+          "url": "https://eips.ethereum.org/EIPS/eip-4337",
+          "section": "Aggregator, paymaster, and validation requirements"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c43391",
+        "tokenId": "43391",
+        "account": "0x0000000000000000000000000000000000a43391"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-4337-aggregator-control-before",
+      "state": {
+        "proposal": "Simulate a UserOperation whose declared aggregator and aggregated signature are valid.",
+        "aggregatorDeclared": true,
+        "aggregatorVerified": true,
+        "aggregatedSignatureValid": true,
+        "nonceFresh": true,
+        "validationWindowCurrent": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-4337-aggregator-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-4337",
+      "title": "Verified aggregator supports bounded simulation",
+      "provenance": [
+        {
+          "id": "erc-4337",
+          "url": "https://eips.ethereum.org/EIPS/eip-4337",
+          "section": "Aggregator, paymaster, and validation requirements"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c43391",
+        "tokenId": "43391",
+        "account": "0x0000000000000000000000000000000000a43391"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-4337-aggregator-control-after",
+      "state": {
+        "proposal": "Simulate the same valid aggregator path after account ownership transfer.",
+        "aggregatorDeclared": true,
+        "aggregatorVerified": true,
+        "aggregatedSignatureValid": true,
+        "nonceFresh": true,
+        "validationWindowCurrent": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-4337-aggregator-control-43391"
+      },
+      "transfer": {
+        "group": "v4-4337-aggregator-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-4337-aggregator-control-43391"
+      ]
+    },
+    {
+      "protocol": "erc-4337",
+      "title": "Insufficient paymaster deposit blocks sponsorship",
+      "provenance": [
+        {
+          "id": "erc-4337",
+          "url": "https://eips.ethereum.org/EIPS/eip-4337",
+          "section": "Aggregator, paymaster, and validation requirements"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c43392",
+        "tokenId": "43392",
+        "account": "0x0000000000000000000000000000000000a43392"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-4337-paymaster-funding-shortfall-before",
+      "state": {
+        "proposal": "Review a sponsored UserOperation whose paymaster deposit cannot cover the required prefund.",
+        "paymasterVerified": true,
+        "paymasterDepositSufficient": false,
+        "requiredPrefundCovered": false,
+        "nonceFresh": true,
+        "signatureValid": true,
+        "validationWindowCurrent": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-4337-paymaster-funding-shortfall",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-4337",
+      "title": "Insufficient paymaster deposit blocks sponsorship",
+      "provenance": [
+        {
+          "id": "erc-4337",
+          "url": "https://eips.ethereum.org/EIPS/eip-4337",
+          "section": "Aggregator, paymaster, and validation requirements"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c43392",
+        "tokenId": "43392",
+        "account": "0x0000000000000000000000000000000000a43392"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-4337-paymaster-funding-shortfall-after",
+      "state": {
+        "proposal": "Review the same underfunded sponsorship after account ownership transfer.",
+        "paymasterVerified": true,
+        "paymasterDepositSufficient": false,
+        "requiredPrefundCovered": false,
+        "nonceFresh": true,
+        "signatureValid": true,
+        "validationWindowCurrent": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-4337-paymaster-funding-shortfall-43392"
+      },
+      "transfer": {
+        "group": "v4-4337-paymaster-funding-shortfall",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-4337-paymaster-funding-shortfall-43392"
+      ]
+    },
+    {
+      "protocol": "erc-1271",
+      "title": "Valid non-mutating contract signature remains inspectable",
+      "provenance": [
+        {
+          "id": "erc-1271",
+          "url": "https://eips.ethereum.org/EIPS/eip-1271",
+          "section": "Contract signature return value and call behavior"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c12731",
+        "tokenId": "12731",
+        "account": "0x0000000000000000000000000000000000a12731"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-1271-valid-staticcall-control-before",
+      "state": {
+        "proposal": "Verify a contract signature through a successful non-mutating call with the exact magic value.",
+        "targetHasCode": true,
+        "callSucceeded": true,
+        "returnLengthValid": true,
+        "magicValueMatches": true,
+        "validationMutatesState": false,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-1271-valid-staticcall-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-1271",
+      "title": "Valid non-mutating contract signature remains inspectable",
+      "provenance": [
+        {
+          "id": "erc-1271",
+          "url": "https://eips.ethereum.org/EIPS/eip-1271",
+          "section": "Contract signature return value and call behavior"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c12731",
+        "tokenId": "12731",
+        "account": "0x0000000000000000000000000000000000a12731"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-1271-valid-staticcall-control-after",
+      "state": {
+        "proposal": "Verify the same valid contract signature behavior after Agent NFT transfer.",
+        "targetHasCode": true,
+        "callSucceeded": true,
+        "returnLengthValid": true,
+        "magicValueMatches": true,
+        "validationMutatesState": false,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-1271-valid-staticcall-control-12731"
+      },
+      "transfer": {
+        "group": "v4-1271-valid-staticcall-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-1271-valid-staticcall-control-12731"
+      ]
+    },
+    {
+      "protocol": "erc-1271",
+      "title": "EOA target cannot satisfy contract signature validation",
+      "provenance": [
+        {
+          "id": "erc-1271",
+          "url": "https://eips.ethereum.org/EIPS/eip-1271",
+          "section": "Contract signature return value and call behavior"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c12732",
+        "tokenId": "12732",
+        "account": "0x0000000000000000000000000000000000a12732"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-1271-noncontract-target-before",
+      "state": {
+        "proposal": "Review an ERC-1271 signature claim whose target address has no contract code.",
+        "targetHasCode": false,
+        "callSucceeded": false,
+        "returnLengthValid": false,
+        "magicValueMatches": false,
+        "validationMutatesState": false,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-1271-noncontract-target",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-1271",
+      "title": "EOA target cannot satisfy contract signature validation",
+      "provenance": [
+        {
+          "id": "erc-1271",
+          "url": "https://eips.ethereum.org/EIPS/eip-1271",
+          "section": "Contract signature return value and call behavior"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c12732",
+        "tokenId": "12732",
+        "account": "0x0000000000000000000000000000000000a12732"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-1271-noncontract-target-after",
+      "state": {
+        "proposal": "Review the same non-contract signature target after Agent NFT transfer.",
+        "targetHasCode": false,
+        "callSucceeded": false,
+        "returnLengthValid": false,
+        "magicValueMatches": false,
+        "validationMutatesState": false,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-1271-noncontract-target-12732"
+      },
+      "transfer": {
+        "group": "v4-1271-noncontract-target",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-1271-noncontract-target-12732"
+      ]
+    },
+    {
+      "protocol": "erc-8350",
+      "title": "Authorized publisher advances exactly one memory sequence",
+      "provenance": [
+        {
+          "id": "erc-8350",
+          "url": "https://eips.ethereum.org/EIPS/eip-8350",
+          "section": "Memory publisher authority and sequence continuity"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c83521",
+        "tokenId": "83521",
+        "account": "0x0000000000000000000000000000000000a83521"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8350-authorized-publisher-control-before",
+      "state": {
+        "proposal": "Inspect an authorized memory update at current sequence plus one with a matching previous root.",
+        "publisherAuthorized": true,
+        "currentSequence": 120,
+        "proposedSequence": 121,
+        "previousRootMatches": true,
+        "dataHashOnly": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8350-authorized-publisher-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8350",
+      "title": "Authorized publisher advances exactly one memory sequence",
+      "provenance": [
+        {
+          "id": "erc-8350",
+          "url": "https://eips.ethereum.org/EIPS/eip-8350",
+          "section": "Memory publisher authority and sequence continuity"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c83521",
+        "tokenId": "83521",
+        "account": "0x0000000000000000000000000000000000a83521"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8350-authorized-publisher-control-after",
+      "state": {
+        "proposal": "Inspect the next authorized memory update after publisher rotation to the new owner.",
+        "publisherAuthorized": true,
+        "currentSequence": 120,
+        "proposedSequence": 121,
+        "previousRootMatches": true,
+        "dataHashOnly": true,
+        "previousPublisherRevoked": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8350-authorized-publisher-control-83521"
+      },
+      "transfer": {
+        "group": "v4-8350-authorized-publisher-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8350-authorized-publisher-control-83521"
+      ]
+    },
+    {
+      "protocol": "erc-8350",
+      "title": "Unapproved publisher cannot advance memory state",
+      "provenance": [
+        {
+          "id": "erc-8350",
+          "url": "https://eips.ethereum.org/EIPS/eip-8350",
+          "section": "Memory publisher authority and sequence continuity"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c83522",
+        "tokenId": "83522",
+        "account": "0x0000000000000000000000000000000000a83522"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8350-unauthorized-publisher-before",
+      "state": {
+        "proposal": "Review a correctly sequenced memory root submitted by an address without publisher authority.",
+        "publisherAuthorized": false,
+        "publisherIsPreviousOwnerDelegate": false,
+        "currentSequence": 140,
+        "proposedSequence": 141,
+        "previousRootMatches": true,
+        "dataHashOnly": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8350-unauthorized-publisher",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8350",
+      "title": "Unapproved publisher cannot advance memory state",
+      "provenance": [
+        {
+          "id": "erc-8350",
+          "url": "https://eips.ethereum.org/EIPS/eip-8350",
+          "section": "Memory publisher authority and sequence continuity"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c83522",
+        "tokenId": "83522",
+        "account": "0x0000000000000000000000000000000000a83522"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8350-unauthorized-publisher-after",
+      "state": {
+        "proposal": "Review the same memory root after transfer when the submitter is a revoked previous-owner delegate.",
+        "publisherAuthorized": false,
+        "publisherIsPreviousOwnerDelegate": true,
+        "currentSequence": 140,
+        "proposedSequence": 141,
+        "previousRootMatches": true,
+        "dataHashOnly": true,
+        "previousPublisherRevoked": true,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 1,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8350-unauthorized-publisher-83522"
+      },
+      "transfer": {
+        "group": "v4-8350-unauthorized-publisher",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8350-unauthorized-publisher-83522"
+      ]
+    },
+    {
+      "protocol": "erc-8183",
+      "title": "Submitted job awaits declared evaluator review",
+      "provenance": [
+        {
+          "id": "erc-8183",
+          "url": "https://eips.ethereum.org/EIPS/eip-8183",
+          "section": "Job lifecycle, funding, submission, and evaluation"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c81851",
+        "tokenId": "81851",
+        "account": "0x0000000000000000000000000000000000a81851"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8183-submitted-job-control-before",
+      "state": {
+        "proposal": "Inspect a funded and submitted job while waiting for the declared evaluator decision.",
+        "jobStatus": "submitted",
+        "funded": true,
+        "deliverableSubmitted": true,
+        "evaluatorVerified": true,
+        "evaluatorDecisionPresent": false,
+        "deadlinePassed": false,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8183-submitted-job-control",
+        "phase": "before",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8183",
+      "title": "Submitted job awaits declared evaluator review",
+      "provenance": [
+        {
+          "id": "erc-8183",
+          "url": "https://eips.ethereum.org/EIPS/eip-8183",
+          "section": "Job lifecycle, funding, submission, and evaluation"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c81851",
+        "tokenId": "81851",
+        "account": "0x0000000000000000000000000000000000a81851"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8183-submitted-job-control-after",
+      "state": {
+        "proposal": "Inspect the same submitted job after client identity transfer without settling it.",
+        "jobStatus": "submitted",
+        "funded": true,
+        "deliverableSubmitted": true,
+        "evaluatorVerified": true,
+        "evaluatorDecisionPresent": false,
+        "deadlinePassed": false,
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 3,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8183-submitted-job-control-81851"
+      },
+      "transfer": {
+        "group": "v4-8183-submitted-job-control",
+        "phase": "after",
+        "invariantTasks": [
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8183-submitted-job-control-81851"
+      ]
+    },
+    {
+      "protocol": "erc-8183",
+      "title": "Open unfunded job cannot jump directly to completion",
+      "provenance": [
+        {
+          "id": "erc-8183",
+          "url": "https://eips.ethereum.org/EIPS/eip-8183",
+          "section": "Job lifecycle, funding, submission, and evaluation"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c81852",
+        "tokenId": "81852",
+        "account": "0x0000000000000000000000000000000000a81852"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8183-premature-completion-before",
+      "state": {
+        "proposal": "Review an attempt to complete an open job before funding, submission, or evaluator approval.",
+        "jobStatus": "open",
+        "funded": false,
+        "deliverableSubmitted": false,
+        "evaluatorVerified": true,
+        "evaluatorDecisionPresent": false,
+        "requestedTransition": "completed",
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        }
+      },
+      "transfer": {
+        "group": "v4-8183-premature-completion",
+        "phase": "before",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": []
+    },
+    {
+      "protocol": "erc-8183",
+      "title": "Open unfunded job cannot jump directly to completion",
+      "provenance": [
+        {
+          "id": "erc-8183",
+          "url": "https://eips.ethereum.org/EIPS/eip-8183",
+          "section": "Job lifecycle, funding, submission, and evaluation"
+        }
+      ],
+      "agentNft": {
+        "chainId": 8453,
+        "collection": "0x0000000000000000000000000000000000c81852",
+        "tokenId": "81852",
+        "account": "0x0000000000000000000000000000000000a81852"
+      },
+      "perturbationProfile": "neutral-metadata-v3",
+      "id": "v4-8183-premature-completion-after",
+      "state": {
+        "proposal": "Review the same premature completion attempt after client identity transfer.",
+        "jobStatus": "open",
+        "funded": false,
+        "deliverableSubmitted": false,
+        "evaluatorVerified": true,
+        "evaluatorDecisionPresent": false,
+        "requestedTransition": "completed",
+        "previousOwnerAccessRevoked": true,
+        "ownerChanged": true,
+        "dataFresh": true,
+        "provenanceVerified": true,
+        "sourceCount": 2,
+        "independentPrimarySources": 2,
+        "ownerPolicy": {
+          "allowAutonomous": false
+        },
+        "quarantinedPreviousOwnerMemory": "v4-private-8183-premature-completion-81852"
+      },
+      "transfer": {
+        "group": "v4-8183-premature-completion",
+        "phase": "after",
+        "invariantTasks": [
+          "authority",
+          "identity_integrity",
+          "permission_posture",
+          "next_action",
+          "research_action",
+          "source_diversity",
+          "tool_mode",
+          "owner_notification"
+        ]
+      },
+      "privateMarkers": [
+        "v4-private-8183-premature-completion-81852"
+      ]
+    }
+  ]
+}
