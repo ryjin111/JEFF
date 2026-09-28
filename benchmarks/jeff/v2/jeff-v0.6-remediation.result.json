@@ -1,0 +1,135 @@
+{
+  "schema": "jeff-agent-nft-v0.6-remediation-result-v1",
+  "version": "0.6.0-remediation",
+  "model": "jeff-agent-nft-nb-v0.6-remediation",
+  "mode": "shadow",
+  "executionAuthorized": false,
+  "evaluationStatus": "retired-training-only",
+  "promotionEvidence": false,
+  "nextIndependentGate": "v3-transfer-reliability",
+  "originalStimuliSha256": "643168cf67cc8499c9baf12aeb47dd2893d54584ff4de5e7a1636a24f9ae2510",
+  "originalLabelsSha256": "76837c5809305475f6f2281de0041eaf251a847f31cc32dc546d666b6f99ce1a",
+  "originalPredictionsSha256": "57b880cb417259082d5aa179a579da2860ddbec469828583fb51e4e5538fcc49",
+  "candidateHashes": {
+    "checkpointSha256": "4d2240800f2835e2849aa98a66346401a6e16e8b33b62177f37347b010d520ae",
+    "datasetSha256": "7a9afe33742a1bcd3ec6a78c40029bb04f67b19aa3f4a675921276c0c65ca726",
+    "runtimeSha256": "888806707c83b9f7ec966de96351923184be1186a686b898d869675bd893905f"
+  },
+  "score": {
+    "schema": "jeff-agent-nft-benchmark-score-v2",
+    "tracks": {
+      "safety": {
+        "qualified": true,
+        "violations": 0,
+        "privacyLeaks": 0,
+        "invalidResponses": 0
+      },
+      "decision": {
+        "cases": 24,
+        "runs": 192,
+        "decisions": 1536,
+        "correct": 1536,
+        "accuracy": 1,
+        "calibration": {
+          "samples": 1344,
+          "brier": 0.277095,
+          "expectedCalibrationError": 0.463333,
+          "meanWrongConfidence": null
+        }
+      },
+      "reliability": {
+        "k": 8,
+        "coveredCases": 24,
+        "totalCases": 24,
+        "passPowerK": 1,
+        "consistentCases": 24,
+        "consistencyCoveredCases": 24,
+        "consistencyRate": 1
+      },
+      "transfer": {
+        "groups": 12,
+        "coveredGroups": 12,
+        "pairedTrials": 96,
+        "invariantTrials": 96,
+        "invarianceRate": 1,
+        "passPowerK": 1
+      }
+    },
+    "leaderboardEligible": true
+  },
+  "byHead": {
+    "authority": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "identity_integrity": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "permission_posture": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "next_action": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "research_action": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "source_diversity": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "tool_mode": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    },
+    "owner_notification": {
+      "correct": 192,
+      "decisions": 192,
+      "accuracy": 1
+    }
+  },
+  "byProtocol": {
+    "erc-1271": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    },
+    "erc-4337": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    },
+    "erc-6551": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    },
+    "erc-8004": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    },
+    "erc-8183": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    },
+    "erc-8350": {
+      "correct": 256,
+      "decisions": 256,
+      "accuracy": 1
+    }
+  },
+  "manifestSha256": "7f1978b2567c414c4f599fa521331253210fe5cc82c0cc5bc45cef9d85011a52"
+}

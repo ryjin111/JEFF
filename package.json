@@ -9,6 +9,16 @@
     "node": ">=20"
   },
   "scripts": {
+    "remediation:build": "node scripts/build-jeff-v0.6-remediation.mjs",
+    "remediation:verify": "node scripts/build-jeff-v0.6-remediation.mjs --verify && node scripts/evaluate-jeff-v0.6-remediation.mjs --verify && node scripts/evaluate-jeff-v0.6-regression.mjs --verify",
+    "remediation:regression": "node scripts/evaluate-jeff-v0.6-regression.mjs",
+    "benchmark:v2:remediation": "node scripts/evaluate-jeff-v0.6-remediation.mjs",
+    "benchmark:v2:verify-remediation": "node scripts/evaluate-jeff-v0.6-remediation.mjs --verify",
+    "benchmark:v3:build": "node scripts/build-jeff-v3-blind-stimuli.mjs",
+    "benchmark:v3:freeze": "node scripts/run-jeff-v3-blind.mjs",
+    "benchmark:v3:score": "node scripts/score-jeff-v3-blind.mjs",
+    "benchmark:v3:verify-score": "node scripts/score-jeff-v3-blind.mjs --verify",
+    "benchmark:v3:verify-freeze": "node scripts/build-jeff-v3-blind-stimuli.mjs --verify && node scripts/run-jeff-v3-blind.mjs --verify",
     "benchmark:v2:build": "node scripts/build-jeff-v2-reliability-stimuli.mjs",
     "benchmark:v2:freeze": "node scripts/run-jeff-v2-reliability.mjs",
     "benchmark:v2:score": "node scripts/score-jeff-v2-reliability.mjs",
