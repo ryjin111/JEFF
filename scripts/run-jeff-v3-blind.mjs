@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { JEFF_AGENT_NFT_CAPABILITY_QUESTIONS } from '../api/_lib/jeff-agent-nft-capabilities.mjs';
+import { inferJeffAgentNftCandidateV06, JEFF_V06_CANDIDATE } from '../api/_lib/jeff-agent-nft-candidate-v0.6.mjs';
 import { validateJeffAgentNftResponse } from '../api/_lib/jeff-agent-nft-contract.mjs';
-import { inferJeffAgentNftPromoted, JEFF_PROMOTED_MODEL } from '../api/_lib/jeff-agent-nft-promoted.mjs';
 import { canonicalJeffBenchmarkJson } from '../api/_lib/jeff-benchmark-v2.mjs';
 
 const stimuliPath = new URL('../benchmarks/jeff/v3/jeff-v0.6-transfer-reliability-v3.stimuli.json', import.meta.url);
@@ -40,7 +40,7 @@ function buildPredictions(stimuli, stimuliText) {
         state: perturbState(entry.state, trial),
         questions,
       };
-      const response = inferJeffAgentNftPromoted(request);
+      const response = inferJeffAgentNftCandidateV06(request);
       runs.push({
         caseId: entry.id,
         trial,
@@ -57,11 +57,11 @@ function buildPredictions(stimuli, stimuliText) {
     frozenAt: new Date().toISOString(),
     labelsAvailableAtFreeze: false,
     stimuliSha256: sha256(stimuliText),
-    model: JEFF_PROMOTED_MODEL.model,
-    mode: JEFF_PROMOTED_MODEL.mode,
-    executionAuthorized: JEFF_PROMOTED_MODEL.executionAuthorized,
-    checkpointSha256: JEFF_PROMOTED_MODEL.hashes.checkpointSha256,
-    runtimeSha256: JEFF_PROMOTED_MODEL.hashes.runtimeSha256,
+    model: JEFF_V06_CANDIDATE.model,
+    mode: JEFF_V06_CANDIDATE.mode,
+    executionAuthorized: JEFF_V06_CANDIDATE.executionAuthorized,
+    checkpointSha256: JEFF_V06_CANDIDATE.hashes.checkpointSha256,
+    runtimeSha256: JEFF_V06_CANDIDATE.hashes.runtimeSha256,
     k: stimuli.k,
     questionIds: stimuli.questionIds,
     runs,
