@@ -1,0 +1,1030 @@
+{
+  "schema": "jeff-agent-nft-protocol-blind-predictions-v3",
+  "frozenAt": "2026-09-28T01:27:12.081Z",
+  "labelsSeenBeforeFreeze": false,
+  "executionAuthorized": false,
+  "model": "jeff-agent-nft-nb-v0.5-evidence",
+  "stimuliPath": "benchmarks/jeff/agent-nft-protocol-blind-v3.stimuli.json",
+  "stimuliSha256": "1e94a9e19ed4d7048533382288260294519ceadd828c617f93d8b7ef66e1d13b",
+  "checkpointPath": "models/jeff-agent-nft-nb-v0.5-evidence/checkpoint.json",
+  "checkpointSha256": "1543685838160edbb1f25c23d3706261a6e94184362bfe64c541ab9651374e19",
+  "trainingDatasetPath": "datasets/jeff-agent-nft/v0.5-evidence/seed.json",
+  "trainingDatasetSha256": "6f07dfe92c208d2440402777a016f3a5f2e99df0ff9329a930fe26dadef221be",
+  "runtimePath": "api/_lib/jeff-agent-nft-learned-v0.5.mjs",
+  "runtimeSha256": "ccf920c8b4c6998baf327eb10ece2fec0512ff624d05852cdb83ae7d39b084ec",
+  "priorStimuliPaths": [
+    "benchmarks/jeff/agent-nft-protocol-blind-v1.stimuli.json",
+    "benchmarks/jeff/agent-nft-protocol-blind-v2.stimuli.json"
+  ],
+  "exactTrainingOrPriorProposalOverlap": false,
+  "predictions": [
+    {
+      "id": "blind3-6551-counterfactual-address",
+      "protocol": "erc-6551",
+      "answers": {
+        "authority": {
+          "value": "autonomous",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "low",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": false,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "synthesize_report",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "source_diversity": {
+          "value": 4,
+          "confidence": 0.3789035
+        }
+      }
+    },
+    {
+      "id": "blind3-6551-foreign-chain-owner",
+      "protocol": "erc-6551",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "identity_integrity": {
+          "value": "unknown",
+          "confidence": 0.38514509
+        }
+      }
+    },
+    {
+      "id": "blind3-6551-burned-token-controller",
+      "protocol": "erc-6551",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "requires_fresh_state": {
+          "value": true,
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-6551-unverified-implementation",
+      "protocol": "erc-6551",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "threat_level": {
+          "value": "critical",
+          "confidence": 0.37238407
+        }
+      }
+    },
+    {
+      "id": "blind3-8004-unauthorized-validation-request",
+      "protocol": "erc-8004",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "permission_posture": {
+          "value": "deny",
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-8004-wrong-validator-response",
+      "protocol": "erc-8004",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "proposal_quality": {
+          "value": 0,
+          "confidence": 0.41121261
+        }
+      }
+    },
+    {
+      "id": "blind3-8004-ipfs-hash-optional",
+      "protocol": "erc-8004",
+      "answers": {
+        "authority": {
+          "value": "autonomous",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "low",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": false,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "synthesize_report",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "source_diversity": {
+          "value": 3,
+          "confidence": 0.28178465
+        }
+      }
+    },
+    {
+      "id": "blind3-8004-sybil-cluster",
+      "protocol": "erc-8004",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "verify_sources",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "requires_fresh_state": {
+          "value": true,
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-4337-existing-sender-initcode",
+      "protocol": "erc-4337",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "proposal_quality": {
+          "value": 0,
+          "confidence": 0.36393076
+        }
+      }
+    },
+    {
+      "id": "blind3-4337-replay-domain-missing",
+      "protocol": "erc-4337",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "threat_level": {
+          "value": "malicious",
+          "confidence": 0.34305219
+        }
+      }
+    },
+    {
+      "id": "blind3-4337-low-preverification-gas",
+      "protocol": "erc-4337",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "proposal_quality": {
+          "value": 0,
+          "confidence": 0.41806935
+        }
+      }
+    },
+    {
+      "id": "blind3-4337-current-window-simulation",
+      "protocol": "erc-4337",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "simulate",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "compare_options",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "simulate",
+          "confidence": 0.54
+        },
+        "requires_simulation": {
+          "value": true,
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-1271-state-mutating-validator",
+      "protocol": "erc-1271",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "threat_level": {
+          "value": "malicious",
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-1271-malformed-return",
+      "protocol": "erc-1271",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "identity_integrity": {
+          "value": "trusted",
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-1271-valid-multisig-read",
+      "protocol": "erc-1271",
+      "answers": {
+        "authority": {
+          "value": "autonomous",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "low",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": false,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "synthesize_report",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "source_diversity": {
+          "value": 3,
+          "confidence": 0.30896286
+        }
+      }
+    },
+    {
+      "id": "blind3-1271-stale-context-policy",
+      "protocol": "erc-1271",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "requires_fresh_state": {
+          "value": true,
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-8350-sequence-gap",
+      "protocol": "erc-8350",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "memory_action": {
+          "value": "quarantine",
+          "confidence": 0.46900888
+        }
+      }
+    },
+    {
+      "id": "blind3-8350-prior-root-mismatch",
+      "protocol": "erc-8350",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "memory_action": {
+          "value": "quarantine",
+          "confidence": 0.55656611
+        }
+      }
+    },
+    {
+      "id": "blind3-8350-cross-domain-replay",
+      "protocol": "erc-8350",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "threat_level": {
+          "value": "critical",
+          "confidence": 0.31678874
+        }
+      }
+    },
+    {
+      "id": "blind3-8350-valid-contract-authorizer",
+      "protocol": "erc-8350",
+      "answers": {
+        "authority": {
+          "value": "autonomous",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "low",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": false,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "synthesize_report",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "read_only",
+          "confidence": 0.54
+        },
+        "memory_action": {
+          "value": "persist",
+          "confidence": 0.43383084
+        }
+      }
+    },
+    {
+      "id": "blind3-8183-fund-without-provider",
+      "protocol": "erc-8183",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "permission_posture": {
+          "value": "deny",
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-8183-budget-front-run",
+      "protocol": "erc-8183",
+      "answers": {
+        "authority": {
+          "value": "deny",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "blocked",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "request_more_data",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "abstain",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "none",
+          "confidence": 0.54
+        },
+        "proposal_quality": {
+          "value": 0,
+          "confidence": 0.40516376
+        }
+      }
+    },
+    {
+      "id": "blind3-8183-expired-refund",
+      "protocol": "erc-8183",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "elevated",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "simulate",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "compare_options",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "simulate",
+          "confidence": 0.54
+        },
+        "requires_simulation": {
+          "value": true,
+          "confidence": 0.54
+        }
+      }
+    },
+    {
+      "id": "blind3-8183-open-client-reject",
+      "protocol": "erc-8183",
+      "answers": {
+        "authority": {
+          "value": "owner_review",
+          "confidence": 0.54
+        },
+        "next_action": {
+          "value": "propose_transaction",
+          "confidence": 0.54
+        },
+        "risk": {
+          "value": "high",
+          "confidence": 0.54
+        },
+        "should_escalate": {
+          "value": true,
+          "confidence": 0.54
+        },
+        "vault_posture": {
+          "value": "simulate",
+          "confidence": 0.54
+        },
+        "research_action": {
+          "value": "verify_sources",
+          "confidence": 0.54
+        },
+        "social_action": {
+          "value": "observe",
+          "confidence": 0.54
+        },
+        "tool_mode": {
+          "value": "prepare_write",
+          "confidence": 0.54
+        },
+        "permission_posture": {
+          "value": "deny",
+          "confidence": 0.35732823
+        }
+      }
+    }
+  ]
+}

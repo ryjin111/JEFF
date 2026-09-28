@@ -1,0 +1,213 @@
+{
+  "schema": "jeff-primary-source-manifest-v1",
+  "retrievedAt": "2026-09-28T00:00:00+08:00",
+  "purpose": "Reproducible primary-source ground truth for JEFF protocol evaluation and calibration policy.",
+  "repositories": {
+    "ercs": {
+      "url": "https://github.com/ethereum/ERCs",
+      "commit": "bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f"
+    },
+    "eips": {
+      "url": "https://github.com/ethereum/EIPs",
+      "commit": "0b8184b1d6ed9fba836222684fd082b32782d4ef"
+    }
+  },
+  "protocolSources": [
+    {
+      "id": "erc-6551",
+      "title": "Non-fungible Token Bound Accounts",
+      "status": "Review",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-6551",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-6551.md",
+      "sha256": "315055a2cc230ddb30fa93bac6dc053cac0d961c2b10ad694593740278355815",
+      "bytes": 31235,
+      "decisionRules": [
+        { "id": "registry", "rule": "Use the canonical ownerless singleton registry and verify the implementation, salt, chain ID, token contract, and token ID before trusting an account address." },
+        { "id": "counterfactual", "rule": "A canonical account address can be computed before deployment, but the selected implementation remains part of the trust boundary." },
+        { "id": "ownership", "rule": "Resolve control from the NFT on the chain named by the account, not from an assumed local-chain holder." },
+        { "id": "ambiguity", "rule": "Do not assume one NFT has exactly one token-bound account because different implementations and salts are valid." },
+        { "id": "cycle", "rule": "Reject ownership cycles because they can permanently lock assets." }
+      ]
+    },
+    {
+      "id": "erc-8004",
+      "title": "Trustless Agents",
+      "status": "Draft",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-8004",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-8004.md",
+      "sha256": "249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9",
+      "bytes": 24470,
+      "decisionRules": [
+        { "id": "decimals", "rule": "Accept valueDecimals only in the inclusive range 0 through 18." },
+        { "id": "feedback-conflict", "rule": "Reject feedback submitted by the agent owner or operator." },
+        { "id": "capability-claim", "rule": "Treat registration and advertised capabilities as claims, not proof that an agent is safe or functional." },
+        { "id": "trust-model", "rule": "Keep identity, reputation, and validation evidence distinct and scale the trust model to value at risk." },
+        { "id": "sybil", "rule": "Do not treat raw reputation count as independent evidence without Sybil analysis." }
+      ]
+    },
+    {
+      "id": "erc-4337",
+      "title": "Account Abstraction Using Alt Mempool",
+      "status": "Final",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-4337",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-4337.md",
+      "sha256": "baaa07330dcb67838234774ee8cf8022b5e16e68ddbfa4958913505dc7d44562",
+      "bytes": 48990,
+      "decisionRules": [
+        { "id": "domain", "rule": "Bind signatures to the current chain ID and EntryPoint." },
+        { "id": "simulation", "rule": "Run the complete validation simulation and drop a UserOperation when validation reverts or fails." },
+        { "id": "validity-window", "rule": "Require the operation validity interval to contain the current time." },
+        { "id": "paymaster", "rule": "Require sufficient paymaster deposit and treat returned context as a requirement to run postOp." },
+        { "id": "reputation", "rule": "Apply ERC-7562 validation-scope and reputation rules to shared mempool admission." }
+      ]
+    },
+    {
+      "id": "erc-1271",
+      "title": "Standard Signature Validation Method for Contracts",
+      "status": "Final",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-1271",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-1271.md",
+      "sha256": "99641cf0c535eed30843e61e3202bd8824b9d50004abe147532400b3f4f632ea",
+      "bytes": 8115,
+      "decisionRules": [
+        { "id": "magic", "rule": "Accept a contract signature only when isValidSignature returns exactly 0x1626ba7e." },
+        { "id": "static", "rule": "Call signature validation with STATICCALL because validation must not modify state." },
+        { "id": "context", "rule": "Revalidate against current contract state and context because validity can change over time." },
+        { "id": "failure", "rule": "Treat revert, malformed return data, and every non-magic return value as invalid." }
+      ]
+    },
+    {
+      "id": "erc-8350",
+      "title": "Agent Memory State Registry",
+      "status": "Draft",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-8350",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-8350.md",
+      "sha256": "9aa44fe3854a7ae553cc77a5a59c072f36a405869a7d3c5e082addbda3d995ca",
+      "bytes": 22080,
+      "decisionRules": [
+        { "id": "linear-state", "rule": "Require sequence to equal current sequence plus one and prevStateRoot to equal the current state root." },
+        { "id": "private-data", "rule": "Never place raw memory, salts, keys, or raw locators in calldata." },
+        { "id": "immutable-enforcement", "rule": "Reject registries whose enforcing logic or upgrade authority can change after deployment." },
+        { "id": "domain", "rule": "Bind EIP-712 authorization to the chain and registry contract." },
+        { "id": "commitment", "rule": "Protect low-entropy commitments with encryption or a secret salt because public salts permit targeted guessing." },
+        { "id": "delegation", "rule": "Do not infer authorization from EIP-7702 code presence alone." }
+      ]
+    },
+    {
+      "id": "erc-8183",
+      "title": "Agentic Commerce",
+      "status": "Draft",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-8183",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-8183.md",
+      "sha256": "257c35bbaecab58d0c36823fe8fb2d0fffc83d6f1fd7301d97674707784efa3a",
+      "bytes": 41976,
+      "decisionRules": [
+        { "id": "state-machine", "rule": "Enforce the exact job state transitions and caller roles for open, fund, submit, complete, reject, and expire." },
+        { "id": "evaluator", "rule": "Require a nonzero evaluator and treat evaluator selection as an explicit trust decision." },
+        { "id": "funded-withdrawal", "rule": "Do not allow the client to unilaterally withdraw a funded job outside the specified terminal paths." },
+        { "id": "hooks", "rule": "Treat hooks as trusted code, bound their gas, audit or allowlist them, and reject upgradeable hooks for high-value use." },
+        { "id": "reentrancy", "rule": "Use safe token transfer handling and reentrancy protection around settlement." }
+      ]
+    },
+    {
+      "id": "erc-7562",
+      "title": "Account Abstraction Validation Scope Rules",
+      "status": "Review",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-7562",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-7562.md",
+      "sha256": "7e8c7498dc736e0f33da2add5889707850c0742ad7cac8c37eefd6d7c40010d3",
+      "bytes": 34625,
+      "decisionRules": [
+        { "id": "mempool-validation", "rule": "Apply opcode, code, storage, stake, and reputation constraints before admitting shared-mempool UserOperations." }
+      ]
+    },
+    {
+      "id": "erc-2771",
+      "title": "Secure Protocol for Native Meta Transactions",
+      "status": "Final",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-2771",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/ERCs/bd8c36bcb4abd17ff8843f35db3ffb62eec00c9f/ERCS/erc-2771.md",
+      "sha256": "036f7c1eba1cd75205e4663ed49c82a3c239ed31a5fed5d6a13ec64964845990",
+      "bytes": 8017,
+      "decisionRules": [
+        { "id": "forwarder", "rule": "Accept an appended signer only from a recipient-approved trusted forwarder that verifies signatures and nonces." }
+      ]
+    },
+    {
+      "id": "eip-712",
+      "title": "Typed structured data hashing and signing",
+      "status": "Final",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-712",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/EIPs/0b8184b1d6ed9fba836222684fd082b32782d4ef/EIPS/eip-712.md",
+      "sha256": "459086f5a0b2d6a0ac4e404faebf3660a49aa4b1712711521093380689f02304",
+      "bytes": 22637,
+      "decisionRules": [
+        { "id": "replay", "rule": "Add application-level nonce or idempotency checks because EIP-712 does not itself provide replay protection." },
+        { "id": "domain", "rule": "Verify domain chainId and verifyingContract and refuse a mismatched signing domain." }
+      ]
+    },
+    {
+      "id": "eip-7702",
+      "title": "Set Code for EOAs",
+      "status": "Final",
+      "canonicalUrl": "https://eips.ethereum.org/EIPS/eip-7702",
+      "pinnedRawUrl": "https://raw.githubusercontent.com/ethereum/EIPs/0b8184b1d6ed9fba836222684fd082b32782d4ef/EIPS/eip-7702.md",
+      "sha256": "3d46953e13ebc7ebe229971b301ede853aad6e29f4faf4db1eb9a2085accde1b",
+      "bytes": 29313,
+      "decisionRules": [
+        { "id": "delegation", "rule": "Resolve and validate the delegated implementation; code presence alone does not prove current authority or safe behavior." }
+      ]
+    }
+  ],
+  "researchSources": [
+    {
+      "id": "guo-2017-calibration",
+      "title": "On Calibration of Modern Neural Networks",
+      "kind": "peer-reviewed-paper",
+      "url": "https://proceedings.mlr.press/v70/guo17a.html",
+      "use": "Temperature scaling, reliability diagrams, expected calibration error, negative log likelihood, and calibration limits under shift."
+    },
+    {
+      "id": "el-yaniv-2010-selective",
+      "title": "On the Foundations of Noise-free Selective Classification",
+      "kind": "peer-reviewed-paper",
+      "url": "https://jmlr.org/papers/v11/el-yaniv10a.html",
+      "use": "Risk versus coverage evaluation for abstaining decision systems."
+    },
+    {
+      "id": "angelopoulos-2024-conformal-risk",
+      "title": "Conformal Risk Control",
+      "kind": "peer-reviewed-paper",
+      "url": "https://arxiv.org/abs/2208.02814",
+      "use": "Finite-sample risk control subject to calibration and exchangeability assumptions."
+    },
+    {
+      "id": "sainz-2023-contamination",
+      "title": "Position: Data Contamination Through the Lens of Time",
+      "kind": "research-paper",
+      "url": "https://arxiv.org/abs/2310.18018",
+      "use": "Evaluation contamination and the need to retire exposed test sets."
+    },
+    {
+      "id": "nist-ai-rmf-1",
+      "title": "Artificial Intelligence Risk Management Framework (AI RMF 1.0)",
+      "kind": "government-standard",
+      "url": "https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-ai-rmf-10",
+      "use": "Govern, map, measure, and manage lifecycle controls plus testing, evaluation, verification, and validation."
+    },
+    {
+      "id": "nist-ai-600-1",
+      "title": "Artificial Intelligence Risk Management Framework: Generative Artificial Intelligence Profile",
+      "kind": "government-standard",
+      "url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
+      "use": "Generative AI risk taxonomy, measurement, provenance, and deployment controls."
+    },
+    {
+      "id": "owasp-agentic-2026",
+      "title": "OWASP Top 10 for Agentic Applications 2026",
+      "kind": "security-guidance",
+      "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+      "use": "Agent-specific threat modeling for tool use, identity, memory, and autonomous actions."
+    }
+  ]
+}

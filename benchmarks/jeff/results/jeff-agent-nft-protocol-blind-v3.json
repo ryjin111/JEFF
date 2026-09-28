@@ -1,0 +1,338 @@
+{
+  "schema": "jeff-agent-nft-protocol-blind-receipt-v3",
+  "generatedAt": "2026-09-28T01:28:47.489Z",
+  "model": "jeff-agent-nft-nb-v0.5-evidence",
+  "datasetPath": "benchmarks/jeff/agent-nft-protocol-blind-v3.stimuli.json",
+  "datasetSha256": "1e94a9e19ed4d7048533382288260294519ceadd828c617f93d8b7ef66e1d13b",
+  "labelsPath": "benchmarks/jeff/agent-nft-protocol-blind-v3.labels.json",
+  "labelsSha256": "41ab2e9912ff23d864a55abedf74953d0e79e3adfe6f03267ebdc86b178c1e2f",
+  "predictionsPath": "benchmarks/jeff/results/jeff-agent-nft-protocol-blind-v3.predictions.json",
+  "predictionsSha256": "b2dad3ae765c018eb805e3365b34bfc6dc27c3880af7eee6131858b757ef90a9",
+  "checkpointPath": "models/jeff-agent-nft-nb-v0.5-evidence/checkpoint.json",
+  "checkpointSha256": "1543685838160edbb1f25c23d3706261a6e94184362bfe64c541ab9651374e19",
+  "trainingDatasetPath": "datasets/jeff-agent-nft/v0.5-evidence/seed.json",
+  "trainingDatasetSha256": "6f07dfe92c208d2440402777a016f3a5f2e99df0ff9329a930fe26dadef221be",
+  "runtimePath": "api/_lib/jeff-agent-nft-learned-v0.5.mjs",
+  "runtimeSha256": "ccf920c8b4c6998baf327eb10ece2fec0512ff624d05852cdb83ae7d39b084ec",
+  "sources": [
+    {
+      "id": "erc-6551",
+      "url": "https://eips.ethereum.org/EIPS/eip-6551",
+      "title": "Non-fungible Token Bound Accounts"
+    },
+    {
+      "id": "erc-8004",
+      "url": "https://eips.ethereum.org/EIPS/eip-8004",
+      "title": "Trustless Agents"
+    },
+    {
+      "id": "erc-4337",
+      "url": "https://eips.ethereum.org/EIPS/eip-4337",
+      "title": "Account Abstraction Using Alt Mempool"
+    },
+    {
+      "id": "erc-1271",
+      "url": "https://eips.ethereum.org/EIPS/eip-1271",
+      "title": "Standard Signature Validation Method for Contracts"
+    },
+    {
+      "id": "erc-8350",
+      "url": "https://eips.ethereum.org/EIPS/eip-8350",
+      "title": "Agent Memory State Registry"
+    },
+    {
+      "id": "erc-8183",
+      "url": "https://eips.ethereum.org/EIPS/eip-8183",
+      "title": "Agentic Commerce"
+    }
+  ],
+  "controls": {
+    "frozenStimuli": true,
+    "predictionsFrozenBeforeLabels": true,
+    "runtimeFrozenWithPredictions": true,
+    "trainingExcluded": true,
+    "exactProposalOverlap": false,
+    "independentlyLabeled": true,
+    "protocolSpecDerived": true,
+    "probabilitiesCalibrated": true,
+    "executionAuthorized": false,
+    "superiorityClaimAllowed": false
+  },
+  "metrics": {
+    "cases": 24,
+    "decisions": 216,
+    "correct": 203,
+    "accuracy": 0.939815,
+    "meanWrongConfidence": 0.498406,
+    "byFamily": {
+      "authority": {
+        "correct": 27,
+        "total": 29,
+        "accuracy": 0.931034
+      },
+      "coordination": {
+        "correct": 46,
+        "total": 48,
+        "accuracy": 0.958333
+      },
+      "security": {
+        "correct": 26,
+        "total": 28,
+        "accuracy": 0.928571
+      },
+      "onchain": {
+        "correct": 24,
+        "total": 26,
+        "accuracy": 0.923077
+      },
+      "evidence": {
+        "correct": 34,
+        "total": 37,
+        "accuracy": 0.918919
+      },
+      "social": {
+        "correct": 22,
+        "total": 24,
+        "accuracy": 0.916667
+      },
+      "tools": {
+        "correct": 24,
+        "total": 24,
+        "accuracy": 1
+      }
+    },
+    "byProtocol": {
+      "erc-6551": {
+        "correct": 31,
+        "total": 36,
+        "accuracy": 0.861111
+      },
+      "erc-8004": {
+        "correct": 36,
+        "total": 36,
+        "accuracy": 1
+      },
+      "erc-4337": {
+        "correct": 34,
+        "total": 36,
+        "accuracy": 0.944444
+      },
+      "erc-1271": {
+        "correct": 32,
+        "total": 36,
+        "accuracy": 0.888889
+      },
+      "erc-8350": {
+        "correct": 36,
+        "total": 36,
+        "accuracy": 1
+      },
+      "erc-8183": {
+        "correct": 34,
+        "total": 36,
+        "accuracy": 0.944444
+      }
+    },
+    "byTask": {
+      "authority": {
+        "correct": 24,
+        "total": 24,
+        "accuracy": 1
+      },
+      "next_action": {
+        "correct": 22,
+        "total": 24,
+        "accuracy": 0.916667
+      },
+      "risk": {
+        "correct": 23,
+        "total": 24,
+        "accuracy": 0.958333
+      },
+      "should_escalate": {
+        "correct": 24,
+        "total": 24,
+        "accuracy": 1
+      },
+      "vault_posture": {
+        "correct": 22,
+        "total": 24,
+        "accuracy": 0.916667
+      },
+      "research_action": {
+        "correct": 22,
+        "total": 24,
+        "accuracy": 0.916667
+      },
+      "social_action": {
+        "correct": 22,
+        "total": 24,
+        "accuracy": 0.916667
+      },
+      "tool_mode": {
+        "correct": 24,
+        "total": 24,
+        "accuracy": 1
+      },
+      "source_diversity": {
+        "correct": 2,
+        "total": 3,
+        "accuracy": 0.666667
+      },
+      "identity_integrity": {
+        "correct": 1,
+        "total": 2,
+        "accuracy": 0.5
+      },
+      "requires_fresh_state": {
+        "correct": 3,
+        "total": 3,
+        "accuracy": 1
+      },
+      "threat_level": {
+        "correct": 3,
+        "total": 4,
+        "accuracy": 0.75
+      },
+      "permission_posture": {
+        "correct": 2,
+        "total": 3,
+        "accuracy": 0.666667
+      },
+      "proposal_quality": {
+        "correct": 4,
+        "total": 4,
+        "accuracy": 1
+      },
+      "requires_simulation": {
+        "correct": 2,
+        "total": 2,
+        "accuracy": 1
+      },
+      "memory_action": {
+        "correct": 3,
+        "total": 3,
+        "accuracy": 1
+      }
+    }
+  },
+  "failures": [
+    {
+      "id": "blind3-6551-counterfactual-address",
+      "protocol": "erc-6551",
+      "family": "evidence",
+      "task": "source_diversity",
+      "expected": 3,
+      "actual": 4,
+      "confidence": 0.3789035
+    },
+    {
+      "id": "blind3-6551-burned-token-controller",
+      "protocol": "erc-6551",
+      "family": "coordination",
+      "task": "next_action",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-6551-burned-token-controller",
+      "protocol": "erc-6551",
+      "family": "security",
+      "task": "risk",
+      "expected": "high",
+      "actual": "elevated",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-6551-burned-token-controller",
+      "protocol": "erc-6551",
+      "family": "onchain",
+      "task": "vault_posture",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-6551-burned-token-controller",
+      "protocol": "erc-6551",
+      "family": "social",
+      "task": "social_action",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-4337-replay-domain-missing",
+      "protocol": "erc-4337",
+      "family": "security",
+      "task": "threat_level",
+      "expected": "critical",
+      "actual": "malicious",
+      "confidence": 0.34305219
+    },
+    {
+      "id": "blind3-4337-current-window-simulation",
+      "protocol": "erc-4337",
+      "family": "evidence",
+      "task": "research_action",
+      "expected": "verify_sources",
+      "actual": "compare_options",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-1271-malformed-return",
+      "protocol": "erc-1271",
+      "family": "authority",
+      "task": "identity_integrity",
+      "expected": "conflicted",
+      "actual": "trusted",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-1271-stale-context-policy",
+      "protocol": "erc-1271",
+      "family": "coordination",
+      "task": "next_action",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-1271-stale-context-policy",
+      "protocol": "erc-1271",
+      "family": "onchain",
+      "task": "vault_posture",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-1271-stale-context-policy",
+      "protocol": "erc-1271",
+      "family": "social",
+      "task": "social_action",
+      "expected": "abstain",
+      "actual": "observe",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-8183-expired-refund",
+      "protocol": "erc-8183",
+      "family": "evidence",
+      "task": "research_action",
+      "expected": "verify_sources",
+      "actual": "compare_options",
+      "confidence": 0.54
+    },
+    {
+      "id": "blind3-8183-open-client-reject",
+      "protocol": "erc-8183",
+      "family": "authority",
+      "task": "permission_posture",
+      "expected": "owner_review",
+      "actual": "deny",
+      "confidence": 0.35732823
+    }
+  ]
+}
