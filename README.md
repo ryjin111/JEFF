@@ -30,15 +30,15 @@ cd JEFF
 npm test
 npm run verify
 npm run demo
+npm run review
 ```
 
-Use the promoted, hash-bound checkpoint:
+Use the stable review helper. It applies the promoted, hash-bound checkpoint, validates the typed response, and creates a privacy-preserving receipt that contains hashes rather than the submitted state:
 
 ```js
-import { inferJeffAgentNftPromoted } from './api/_lib/jeff-agent-nft-promoted.mjs';
-import { JEFF_AGENT_NFT_CAPABILITY_QUESTIONS } from './api/_lib/jeff-agent-nft-capabilities.mjs';
+import { reviewJeffAgentNft } from 'jeff-agent-nft/review';
 
-const result = inferJeffAgentNftPromoted({
+const { response, receipt } = reviewJeffAgentNft({
   agentNft: {
     chainId: 1,
     collection: '0x0000000000000000000000000000000000000001',
@@ -52,22 +52,24 @@ const result = inferJeffAgentNftPromoted({
     dataFresh: true,
     evidence: [{ verified: true }],
     ownerPolicy: { allowAutonomous: false }
-  },
-  questions: JEFF_AGENT_NFT_CAPABILITY_QUESTIONS
+  }
 });
 
-console.log(result.mode);                // shadow
-console.log(result.executionAuthorized); // false
-console.log(result.answers);
+console.log(response.mode);                // shadow
+console.log(response.executionAuthorized); // false
+console.log(receipt.executionAuthorized);  // false
+console.log(receipt.receiptSha256);
 ```
+
+The receipt never authorizes execution. An integration must run its own policy checks and obtain any required owner approval. See [the integration guide](docs/INTEGRATION.md).
 
 ## What is included
 
-- `api/_lib/`: typed contract, 28 capability questions, v0.5 inference runtime, promotion gate, promoted loader, and benchmark v2 scorer.
+- `api/_lib/`: typed contract, 28 capability questions, v0.5 inference runtime, promotion gate, promoted loader, review and receipt helper, and benchmark v2 scorer.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
-- `docs/`: model architecture, release readiness, and primary-source audit.
+- `docs/`: model architecture, integration guide, release readiness, and primary-source audit.
 - `test/`: contract, runtime, benchmark, and release-integrity tests.
 
 ## Integrity and verification
