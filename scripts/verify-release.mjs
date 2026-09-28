@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { JEFF_PROMOTED_MODEL } from '../api/_lib/jeff-agent-nft-promoted.mjs';
 import { assessJeffModelPromotion } from '../api/_lib/jeff-model-promotion.mjs';
@@ -69,6 +71,6 @@ export async function verifyRelease() {
   };
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replaceAll('\\', '/')}`).href) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.stdout.write(`${JSON.stringify(await verifyRelease(), null, 2)}\n`);
 }
