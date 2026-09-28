@@ -1,4 +1,4 @@
-# JEFF Agent NFT
+# JEFF
 
 ![JEFF v0.5 sealed v3 benchmark result](public/media/jeff-v0.5-sealed-v3-benchmark-2026-09-28.png)
 
@@ -25,8 +25,8 @@ This result supports the released shadow model only. It is not evidence of auton
 Requires Node.js 20 or newer. There are no runtime dependencies.
 
 ```bash
-git clone https://github.com/ryjin111/jeff-agent-nft.git
-cd jeff-agent-nft
+git clone https://github.com/ryjin111/JEFF.git
+cd JEFF
 npm test
 npm run verify
 npm run demo
