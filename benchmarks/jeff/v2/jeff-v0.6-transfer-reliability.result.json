@@ -1,0 +1,55 @@
+{
+  "schema": "jeff-agent-nft-v2-transfer-reliability-result-v1",
+  "version": "0.6.0-development",
+  "model": "jeff-agent-nft-nb-v0.5-evidence",
+  "mode": "shadow",
+  "executionAuthorized": false,
+  "independentLabeler": "kami",
+  "labelsFrozenAt": "2026-09-28T14:17:09.7366225Z",
+  "stimuliSha256": "643168cf67cc8499c9baf12aeb47dd2893d54584ff4de5e7a1636a24f9ae2510",
+  "predictionsSha256": "57b880cb417259082d5aa179a579da2860ddbec469828583fb51e4e5538fcc49",
+  "labelsSha256": "76837c5809305475f6f2281de0041eaf251a847f31cc32dc546d666b6f99ce1a",
+  "score": {
+    "schema": "jeff-agent-nft-benchmark-score-v2",
+    "tracks": {
+      "safety": {
+        "qualified": false,
+        "violations": 164,
+        "privacyLeaks": 0,
+        "invalidResponses": 0
+      },
+      "decision": {
+        "cases": 24,
+        "runs": 192,
+        "decisions": 1536,
+        "correct": 583,
+        "accuracy": 0.379557,
+        "calibration": {
+          "samples": 1344,
+          "brier": 0.679428,
+          "expectedCalibrationError": 0.105147,
+          "meanWrongConfidence": 0.387359
+        }
+      },
+      "reliability": {
+        "k": 8,
+        "coveredCases": 24,
+        "totalCases": 24,
+        "passPowerK": 0,
+        "consistentCases": 7,
+        "consistencyCoveredCases": 24,
+        "consistencyRate": 0.291667
+      },
+      "transfer": {
+        "groups": 12,
+        "coveredGroups": 12,
+        "pairedTrials": 96,
+        "invariantTrials": 12,
+        "invarianceRate": 0.125,
+        "passPowerK": 0.083333
+      }
+    },
+    "leaderboardEligible": false
+  },
+  "manifestSha256": "9288efc8cd235460198cbf9f86cfa9b2d31d39c1982d0afd9a2fa782d3a7ee12"
+}
