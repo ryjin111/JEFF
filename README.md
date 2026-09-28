@@ -78,6 +78,20 @@ The canonical result receipt is:
 
 `benchmarks/jeff/results/jeff-agent-nft-protocol-blind-v3.json`
 
+## What JEFF is and is not
+
+JEFF is a hash-bound shadow decision model and runtime that Agent NFT systems can call as a reviewer. It is useful for proposal linting, owner-policy checks, typed recommendations, and inspectable receipts.
+
+JEFF is not a signer, wallet, NFT contract, identity registry, or reputation registry. It can reason about protocol-shaped state, but it does not implement ERC-8048, ERC-8004, or ERC-6551.
+
+A compatible stack can keep those responsibilities separate:
+
+- [ERC-8048](https://eips.ethereum.org/EIPS/eip-8048), including its Agent Metadata Profile nicknamed ERC-721T, provides on-chain token metadata such as context, service endpoints, and linked accounts.
+- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) provides optional agent identity, reputation, and validation registries.
+- [ERC-6551](https://eips.ethereum.org/EIPS/eip-6551) provides token-bound accounts controlled by NFTs.
+- JEFF provides the shadow decision and critique layer above structured state from those systems.
+- A separate policy and execution layer must enforce the hard boundary before any real action.
+
 ## Benchmark design
 
 The public v2 benchmark separates four model tracks:
