@@ -59,6 +59,7 @@
   "exports": {
     ".": "./api/_lib/jeff-agent-nft-promoted.mjs",
     "./brain": "./api/_lib/jeff-brain-v1.mjs",
+    "./brain-http": "./api/_lib/jeff-brain-http.mjs",
     "./brain-memory": "./api/_lib/jeff-authorized-memory.mjs",
     "./mcp-context": "./api/_lib/jeff-mcp-context.mjs",
     "./learning": "./api/_lib/jeff-learning-feedback.mjs",

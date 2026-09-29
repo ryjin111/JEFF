@@ -8,6 +8,8 @@ JEFF v0.5 is intentionally shadow-only. It cannot sign, submit, publish, spend, 
 
 The development branch also includes [JEFF Brain v1](docs/JEFF_BRAIN_V1.md), which adds authorized encrypted recall, MCP context intake, planning, critique, proposal-only tools, review-gated learning feedback, and hash-bound brain receipts above the v0.9 decision core. Brain v1 is also shadow-only.
 
+The integration branch also provides a server-authenticated [Brain shadow HTTP API](docs/JEFF_BRAIN_HTTP.md) for calling the complete non-executing reasoning loop through `https://your-domain.example/api/jeff-brain`.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
@@ -67,7 +69,7 @@ The receipt never authorizes execution. An integration must run its own policy c
 
 ## What is included
 
-- `api/_lib/`: typed contract, 28 capability questions, inference runtimes, Brain v1, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
+- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
