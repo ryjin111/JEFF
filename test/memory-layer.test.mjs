@@ -13,6 +13,15 @@ import {
 } from '../api/_lib/jeff-memory-layer.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const canonicalize = (value) => {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(canonicalize);
+  return Object.keys(value).sort().reduce((result, key) => {
+    result[key] = canonicalize(value[key]);
+    return result;
+  }, {});
+};
+const canonicalSha256 = (value) => sha256(JSON.stringify(canonicalize(value)));
 const agentNft = Object.freeze({
   chainId: 8453,
   collection: '0x0000000000000000000000000000000000000001',
@@ -67,6 +76,24 @@ const baseProposal = Object.freeze({
 const observedAt = '2026-09-30T00:00:00.000Z';
 const committedAt = '2026-09-30T00:01:00.000Z';
 
+function trustedOwnershipResolver({
+  owner = currentOwner,
+  epoch = ownerEpoch,
+  attestedAt = committedAt,
+} = {}) {
+  return {
+    async resolveCurrentOwner(resolvedAgentNft) {
+      return {
+        schema: 'jeff-memory-ownership-attestation-v1',
+        agentNftSha256: canonicalSha256(resolvedAgentNft),
+        currentOwner: owner,
+        ownerEpoch: epoch,
+        observedAt: attestedAt,
+      };
+    },
+  };
+}
+
 function rebindProposal(proposal) {
   proposal.ownership.ownerScopeSha256 = deriveJeffMemoryOwnerScope({
     agentNft: proposal.agentNft,
@@ -107,16 +134,16 @@ test('verified hash-only memory can be prepared for owner-approved persistence',
     },
   };
   await assert.rejects(commitJeffMemoryRecord(record, adapter), /JEFF_MEMORY_OWNER_APPROVAL_REQUIRED/);
-  const storageReceipt = await commitJeffMemoryRecord(record, adapter, {
+  const storageReceipt = await commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
     committedAt,
-    ownerScope: { currentOwner, ownerEpoch },
     proposal: baseProposal,
     reviewReceipt: reviewed.receipt,
   });
   assert.equal(stored.recordSha256, record.recordSha256);
   assert.equal(storageReceipt.executionAuthorized, false);
   assert.equal(storageReceipt.ownerApproved, true);
+  assert.match(storageReceipt.ownershipAttestationSha256, /^[a-f0-9]{64}$/);
 });
 
 test('raw owner-private memory is discarded and cannot become a record', () => {
@@ -180,32 +207,39 @@ test('owner scope and derived root are required and transfer-bound', () => {
   assert.equal(reviewed.receipt.ownerScopeSha256, ownerScopeSha256);
 });
 
-test('commit rejects expired reviews and changed owner epochs before storage', async () => {
+test('commit rejects expired reviews and authoritative post-transfer ownership before storage', async () => {
   const reviewed = reviewJeffMemoryProposal(baseProposal, { observedAt });
   const record = prepareJeffMemoryRecord(baseProposal, reviewed.receipt);
   let adapterCalls = 0;
   const adapter = { async put() { adapterCalls += 1; throw new Error('must not run'); } };
   const reviewBinding = { proposal: baseProposal, reviewReceipt: reviewed.receipt };
 
-  await assert.rejects(commitJeffMemoryRecord(record, adapter, {
+  await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
     committedAt: '2026-09-30T00:05:00.000Z',
-    ownerScope: { currentOwner, ownerEpoch },
     ...reviewBinding,
   }), /JEFF_MEMORY_REVIEW_STALE/);
-  await assert.rejects(commitJeffMemoryRecord(record, adapter, {
+  await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver({
+    owner: '0x0000000000000000000000000000000000000004',
+    epoch: ownerEpoch + 1,
+  }), {
     ownerApproved: true,
     committedAt,
-    ownerScope: { currentOwner, ownerEpoch: ownerEpoch + 1 },
     ...reviewBinding,
   }), /JEFF_MEMORY_CURRENT_OWNER_SCOPE_MISMATCH/);
-  await assert.rejects(commitJeffMemoryRecord(record, adapter, {
+  await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
     committedAt,
-    ownerScope: { currentOwner, ownerEpoch },
     proposal: baseProposal,
     reviewReceipt: { ...reviewed.receipt, commitAllowed: false },
   }), /JEFF_MEMORY_COMMIT_RECEIPT_INVALID/);
+  await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver({
+    attestedAt: '2026-09-29T23:59:59.000Z',
+  }), {
+    ownerApproved: true,
+    committedAt,
+    ...reviewBinding,
+  }), /JEFF_MEMORY_OWNERSHIP_ATTESTATION_STALE/);
   assert.equal(adapterCalls, 0);
 });
 
@@ -215,7 +249,6 @@ test('storage acknowledgement must exactly echo the committed record', async () 
   const options = {
     ownerApproved: true,
     committedAt,
-    ownerScope: { currentOwner, ownerEpoch },
     proposal: baseProposal,
     reviewReceipt: reviewed.receipt,
   };
@@ -231,7 +264,12 @@ test('storage acknowledgement must exactly echo the committed record', async () 
   ];
   for (const acknowledgement of acknowledgements) {
     await assert.rejects(
-      commitJeffMemoryRecord(record, { async put() { return acknowledgement; } }, options),
+      commitJeffMemoryRecord(
+        record,
+        { async put() { return acknowledgement; } },
+        trustedOwnershipResolver(),
+        options,
+      ),
       /JEFF_MEMORY_ADAPTER_RECEIPT_INVALID/,
     );
   }
@@ -252,13 +290,17 @@ test('storage adapter rejects records with undeclared fields', async () => {
   const record = prepareJeffMemoryRecord(baseProposal, reviewed.receipt);
   const smuggled = { ...record, rawContent: 'must-not-reach-storage' };
   await assert.rejects(
-    commitJeffMemoryRecord(smuggled, { async put() { throw new Error('adapter must not run'); } }, {
-      ownerApproved: true,
-      committedAt,
-      ownerScope: { currentOwner, ownerEpoch },
-      proposal: baseProposal,
-      reviewReceipt: reviewed.receipt,
-    }),
+    commitJeffMemoryRecord(
+      smuggled,
+      { async put() { throw new Error('adapter must not run'); } },
+      trustedOwnershipResolver(),
+      {
+        ownerApproved: true,
+        committedAt,
+        proposal: baseProposal,
+        reviewReceipt: reviewed.receipt,
+      },
+    ),
     /JEFF_MEMORY_RECORD_INVALID/,
   );
 });

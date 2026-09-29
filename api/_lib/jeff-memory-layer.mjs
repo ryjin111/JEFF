@@ -11,7 +11,9 @@ const STORAGE_ACK_SCHEMA = 'jeff-memory-storage-ack-v1';
 const STORAGE_RECEIPT_SCHEMA = 'jeff-memory-storage-receipt-v1';
 const OWNER_SCOPE_SCHEMA = 'jeff-memory-owner-scope-v1';
 const ROOT_SCHEMA = 'jeff-memory-root-v1';
+const OWNERSHIP_ATTESTATION_SCHEMA = 'jeff-memory-ownership-attestation-v1';
 const REVIEW_TTL_MS = 5 * 60 * 1_000;
+const OWNERSHIP_ATTESTATION_TTL_MS = 60 * 1_000;
 const HASH_64 = /^[a-f0-9]{64}$/;
 const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 const TOKEN_ID = /^(?:0|[1-9]\d*)$/;
@@ -70,8 +72,14 @@ const ROOT_INPUT_KEYS = [
   'scope',
   'sequence',
 ];
-const COMMIT_OWNER_SCOPE_KEYS = ['currentOwner', 'ownerEpoch'];
 const STORAGE_ACK_KEYS = ['recordSha256', 'referenceSha256', 'schema'];
+const OWNERSHIP_ATTESTATION_KEYS = [
+  'agentNftSha256',
+  'currentOwner',
+  'observedAt',
+  'ownerEpoch',
+  'schema',
+];
 
 function isPlainRecord(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -426,7 +434,7 @@ export function prepareJeffMemoryRecord(proposal, receipt) {
   return Object.freeze({ ...record, recordSha256: hash(record) });
 }
 
-export async function commitJeffMemoryRecord(record, adapter, options = {}) {
+export async function commitJeffMemoryRecord(record, adapter, ownershipResolver, options = {}) {
   if (options.ownerApproved !== true) throw new Error('JEFF_MEMORY_OWNER_APPROVAL_REQUIRED');
   if (!validateMemoryRecord(record)) throw new Error('JEFF_MEMORY_RECORD_INVALID');
   if (!verifyJeffMemoryReceipt(options.reviewReceipt, options.proposal)) {
@@ -437,22 +445,6 @@ export async function commitJeffMemoryRecord(record, adapter, options = {}) {
     throw new Error('JEFF_MEMORY_COMMIT_RECORD_MISMATCH');
   }
   if (!validTimestamp(options.committedAt)) throw new Error('JEFF_MEMORY_COMMIT_TIME_REQUIRED');
-  if (!hasExactKeys(options.ownerScope, COMMIT_OWNER_SCOPE_KEYS)) {
-    throw new Error('JEFF_MEMORY_CURRENT_OWNER_SCOPE_REQUIRED');
-  }
-  let currentOwnerScopeSha256;
-  try {
-    currentOwnerScopeSha256 = deriveJeffMemoryOwnerScope({
-      agentNft: record.agentNft,
-      currentOwner: options.ownerScope.currentOwner,
-      ownerEpoch: options.ownerScope.ownerEpoch,
-    });
-  } catch {
-    throw new Error('JEFF_MEMORY_CURRENT_OWNER_SCOPE_INVALID');
-  }
-  if (currentOwnerScopeSha256 !== record.ownerScopeSha256) {
-    throw new Error('JEFF_MEMORY_CURRENT_OWNER_SCOPE_MISMATCH');
-  }
   const committedMs = Date.parse(options.committedAt);
   if (committedMs < Date.parse(record.reviewedAt)
     || committedMs >= Date.parse(record.reviewValidUntil)
@@ -462,6 +454,38 @@ export async function commitJeffMemoryRecord(record, adapter, options = {}) {
   const { recordSha256, ...body } = record;
   if (hash(body) !== recordSha256) throw new Error('JEFF_MEMORY_RECORD_HASH_MISMATCH');
   if (!adapter || typeof adapter.put !== 'function') throw new Error('JEFF_MEMORY_ADAPTER_INVALID');
+  if (!ownershipResolver || typeof ownershipResolver.resolveCurrentOwner !== 'function') {
+    throw new Error('JEFF_MEMORY_OWNERSHIP_RESOLVER_REQUIRED');
+  }
+  let ownershipAttestation;
+  try {
+    ownershipAttestation = await ownershipResolver.resolveCurrentOwner(
+      Object.freeze(structuredClone(record.agentNft)),
+    );
+  } catch {
+    throw new Error('JEFF_MEMORY_OWNERSHIP_RESOLUTION_FAILED');
+  }
+  if (!hasExactKeys(ownershipAttestation, OWNERSHIP_ATTESTATION_KEYS)
+    || ownershipAttestation.schema !== OWNERSHIP_ATTESTATION_SCHEMA
+    || ownershipAttestation.agentNftSha256 !== hash(record.agentNft)
+    || !validAddress(ownershipAttestation.currentOwner)
+    || !validOwnerEpoch(ownershipAttestation.ownerEpoch)
+    || !validTimestamp(ownershipAttestation.observedAt)) {
+    throw new Error('JEFF_MEMORY_OWNERSHIP_ATTESTATION_INVALID');
+  }
+  const ownershipObservedMs = Date.parse(ownershipAttestation.observedAt);
+  if (ownershipObservedMs > committedMs
+    || committedMs - ownershipObservedMs > OWNERSHIP_ATTESTATION_TTL_MS) {
+    throw new Error('JEFF_MEMORY_OWNERSHIP_ATTESTATION_STALE');
+  }
+  const currentOwnerScopeSha256 = deriveJeffMemoryOwnerScope({
+    agentNft: record.agentNft,
+    currentOwner: ownershipAttestation.currentOwner,
+    ownerEpoch: ownershipAttestation.ownerEpoch,
+  });
+  if (currentOwnerScopeSha256 !== record.ownerScopeSha256) {
+    throw new Error('JEFF_MEMORY_CURRENT_OWNER_SCOPE_MISMATCH');
+  }
   const acknowledgement = await adapter.put(Object.freeze(structuredClone(record)));
   if (!hasExactKeys(acknowledgement, STORAGE_ACK_KEYS)
     || acknowledgement.schema !== STORAGE_ACK_SCHEMA
@@ -475,6 +499,7 @@ export async function commitJeffMemoryRecord(record, adapter, options = {}) {
     ownerScopeSha256: record.ownerScopeSha256,
     referenceSha256: acknowledgement.referenceSha256,
     acknowledgementSha256: hash(acknowledgement),
+    ownershipAttestationSha256: hash(ownershipAttestation),
     committedAt: options.committedAt,
     ownerApproved: true,
     executionAuthorized: false,
@@ -490,7 +515,9 @@ export const JEFF_MEMORY_CONTRACT = Object.freeze({
   storageReceiptSchema: STORAGE_RECEIPT_SCHEMA,
   ownerScopeSchema: OWNER_SCOPE_SCHEMA,
   rootSchema: ROOT_SCHEMA,
+  ownershipAttestationSchema: OWNERSHIP_ATTESTATION_SCHEMA,
   reviewTtlMs: REVIEW_TTL_MS,
+  ownershipAttestationTtlMs: OWNERSHIP_ATTESTATION_TTL_MS,
   scopes: Object.freeze([...SCOPES]),
   mode: 'shadow',
   executionAuthorized: false,
