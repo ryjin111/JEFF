@@ -436,6 +436,7 @@ export function prepareJeffMemoryRecord(proposal, receipt) {
 
 export async function commitJeffMemoryRecord(record, adapter, ownershipResolver, options = {}) {
   if (options.ownerApproved !== true) throw new Error('JEFF_MEMORY_OWNER_APPROVAL_REQUIRED');
+  if (Object.hasOwn(options, 'committedAt')) throw new Error('JEFF_MEMORY_CALLER_TIME_FORBIDDEN');
   if (!validateMemoryRecord(record)) throw new Error('JEFF_MEMORY_RECORD_INVALID');
   if (!verifyJeffMemoryReceipt(options.reviewReceipt, options.proposal)) {
     throw new Error('JEFF_MEMORY_COMMIT_RECEIPT_INVALID');
@@ -443,13 +444,6 @@ export async function commitJeffMemoryRecord(record, adapter, ownershipResolver,
   const expectedRecord = prepareJeffMemoryRecord(options.proposal, options.reviewReceipt);
   if (expectedRecord.recordSha256 !== record.recordSha256) {
     throw new Error('JEFF_MEMORY_COMMIT_RECORD_MISMATCH');
-  }
-  if (!validTimestamp(options.committedAt)) throw new Error('JEFF_MEMORY_COMMIT_TIME_REQUIRED');
-  const committedMs = Date.parse(options.committedAt);
-  if (committedMs < Date.parse(record.reviewedAt)
-    || committedMs >= Date.parse(record.reviewValidUntil)
-    || committedMs >= Date.parse(record.expiresAt)) {
-    throw new Error('JEFF_MEMORY_REVIEW_STALE');
   }
   const { recordSha256, ...body } = record;
   if (hash(body) !== recordSha256) throw new Error('JEFF_MEMORY_RECORD_HASH_MISMATCH');
@@ -465,6 +459,8 @@ export async function commitJeffMemoryRecord(record, adapter, ownershipResolver,
   } catch {
     throw new Error('JEFF_MEMORY_OWNERSHIP_RESOLUTION_FAILED');
   }
+  const committedAt = new Date().toISOString();
+  const committedMs = Date.parse(committedAt);
   if (!hasExactKeys(ownershipAttestation, OWNERSHIP_ATTESTATION_KEYS)
     || ownershipAttestation.schema !== OWNERSHIP_ATTESTATION_SCHEMA
     || ownershipAttestation.agentNftSha256 !== hash(record.agentNft)
@@ -477,6 +473,11 @@ export async function commitJeffMemoryRecord(record, adapter, ownershipResolver,
   if (ownershipObservedMs > committedMs
     || committedMs - ownershipObservedMs > OWNERSHIP_ATTESTATION_TTL_MS) {
     throw new Error('JEFF_MEMORY_OWNERSHIP_ATTESTATION_STALE');
+  }
+  if (committedMs < Date.parse(record.reviewedAt)
+    || committedMs >= Date.parse(record.reviewValidUntil)
+    || committedMs >= Date.parse(record.expiresAt)) {
+    throw new Error('JEFF_MEMORY_REVIEW_STALE');
   }
   const currentOwnerScopeSha256 = deriveJeffMemoryOwnerScope({
     agentNft: record.agentNft,
@@ -500,7 +501,7 @@ export async function commitJeffMemoryRecord(record, adapter, ownershipResolver,
     referenceSha256: acknowledgement.referenceSha256,
     acknowledgementSha256: hash(acknowledgement),
     ownershipAttestationSha256: hash(ownershipAttestation),
-    committedAt: options.committedAt,
+    committedAt,
     ownerApproved: true,
     executionAuthorized: false,
   };

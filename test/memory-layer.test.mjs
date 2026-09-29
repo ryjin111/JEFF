@@ -34,8 +34,9 @@ const ownerEpoch = 4;
 const ownerScopeSha256 = deriveJeffMemoryOwnerScope({ agentNft, currentOwner, ownerEpoch });
 const previousRootSha256 = sha256('root-1');
 const contentSha256 = sha256('verified-public-memory');
-const capturedAt = '2026-09-29T00:00:00.000Z';
-const expiresAt = '2026-10-29T00:00:00.000Z';
+const testNowMs = Date.now();
+const capturedAt = new Date(testNowMs - 10 * 60 * 1_000).toISOString();
+const expiresAt = new Date(testNowMs + 24 * 60 * 60 * 1_000).toISOString();
 const rootSha256 = deriveJeffMemoryRoot({
   previousRootSha256,
   contentSha256,
@@ -73,13 +74,12 @@ const baseProposal = Object.freeze({
     previousOwnerAccessRevoked: true,
   }),
 });
-const observedAt = '2026-09-30T00:00:00.000Z';
-const committedAt = '2026-09-30T00:01:00.000Z';
+const observedAt = new Date(testNowMs - 30 * 1_000).toISOString();
 
 function trustedOwnershipResolver({
   owner = currentOwner,
   epoch = ownerEpoch,
-  attestedAt = committedAt,
+  attestedAt,
 } = {}) {
   return {
     async resolveCurrentOwner(resolvedAgentNft) {
@@ -88,7 +88,7 @@ function trustedOwnershipResolver({
         agentNftSha256: canonicalSha256(resolvedAgentNft),
         currentOwner: owner,
         ownerEpoch: epoch,
-        observedAt: attestedAt,
+        observedAt: attestedAt ?? new Date().toISOString(),
       };
     },
   };
@@ -136,7 +136,6 @@ test('verified hash-only memory can be prepared for owner-approved persistence',
   await assert.rejects(commitJeffMemoryRecord(record, adapter), /JEFF_MEMORY_OWNER_APPROVAL_REQUIRED/);
   const storageReceipt = await commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
-    committedAt,
     proposal: baseProposal,
     reviewReceipt: reviewed.receipt,
   });
@@ -144,6 +143,7 @@ test('verified hash-only memory can be prepared for owner-approved persistence',
   assert.equal(storageReceipt.executionAuthorized, false);
   assert.equal(storageReceipt.ownerApproved, true);
   assert.match(storageReceipt.ownershipAttestationSha256, /^[a-f0-9]{64}$/);
+  assert.ok(Date.parse(storageReceipt.committedAt) >= testNowMs);
 });
 
 test('raw owner-private memory is discarded and cannot become a record', () => {
@@ -163,7 +163,7 @@ test('raw owner-private memory is discarded and cannot become a record', () => {
 
 test('expired, unverified, or sequence-invalid memory is quarantined', () => {
   const variants = [
-    (proposal) => { proposal.memory.expiresAt = '2026-09-29T12:00:00.000Z'; },
+    (proposal) => { proposal.memory.expiresAt = new Date(testNowMs - 60 * 1_000).toISOString(); },
     (proposal) => { proposal.memory.provenance.verified = false; },
     (proposal) => { proposal.memory.proposedSequence = 3; },
     (proposal) => { proposal.memory.previousRootSha256 = sha256('wrong-root'); },
@@ -210,34 +210,35 @@ test('owner scope and derived root are required and transfer-bound', () => {
 test('commit rejects expired reviews and authoritative post-transfer ownership before storage', async () => {
   const reviewed = reviewJeffMemoryProposal(baseProposal, { observedAt });
   const record = prepareJeffMemoryRecord(baseProposal, reviewed.receipt);
+  const staleReviewed = reviewJeffMemoryProposal(baseProposal, {
+    observedAt: new Date(testNowMs - 6 * 60 * 1_000).toISOString(),
+  });
+  const staleRecord = prepareJeffMemoryRecord(baseProposal, staleReviewed.receipt);
   let adapterCalls = 0;
   const adapter = { async put() { adapterCalls += 1; throw new Error('must not run'); } };
   const reviewBinding = { proposal: baseProposal, reviewReceipt: reviewed.receipt };
 
-  await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
+  await assert.rejects(commitJeffMemoryRecord(staleRecord, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
-    committedAt: '2026-09-30T00:05:00.000Z',
-    ...reviewBinding,
+    proposal: baseProposal,
+    reviewReceipt: staleReviewed.receipt,
   }), /JEFF_MEMORY_REVIEW_STALE/);
   await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver({
     owner: '0x0000000000000000000000000000000000000004',
     epoch: ownerEpoch + 1,
   }), {
     ownerApproved: true,
-    committedAt,
     ...reviewBinding,
   }), /JEFF_MEMORY_CURRENT_OWNER_SCOPE_MISMATCH/);
   await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver(), {
     ownerApproved: true,
-    committedAt,
     proposal: baseProposal,
     reviewReceipt: { ...reviewed.receipt, commitAllowed: false },
   }), /JEFF_MEMORY_COMMIT_RECEIPT_INVALID/);
   await assert.rejects(commitJeffMemoryRecord(record, adapter, trustedOwnershipResolver({
-    attestedAt: '2026-09-29T23:59:59.000Z',
+    attestedAt: new Date(testNowMs - 61 * 1_000).toISOString(),
   }), {
     ownerApproved: true,
-    committedAt,
     ...reviewBinding,
   }), /JEFF_MEMORY_OWNERSHIP_ATTESTATION_STALE/);
   assert.equal(adapterCalls, 0);
@@ -248,7 +249,6 @@ test('storage acknowledgement must exactly echo the committed record', async () 
   const record = prepareJeffMemoryRecord(baseProposal, reviewed.receipt);
   const options = {
     ownerApproved: true,
-    committedAt,
     proposal: baseProposal,
     reviewReceipt: reviewed.receipt,
   };
@@ -275,6 +275,38 @@ test('storage acknowledgement must exactly echo the committed record', async () 
   }
 });
 
+test('caller cannot backdate commit of an expired historical record', async () => {
+  const historicalProposal = structuredClone(baseProposal);
+  historicalProposal.memory.capturedAt = '2026-01-01T00:00:00.000Z';
+  historicalProposal.memory.expiresAt = '2026-01-31T00:00:00.000Z';
+  rebindProposal(historicalProposal);
+  const historicalReview = reviewJeffMemoryProposal(historicalProposal, {
+    observedAt: '2026-01-02T00:00:00.000Z',
+  });
+  const historicalRecord = prepareJeffMemoryRecord(historicalProposal, historicalReview.receipt);
+  let adapterCalls = 0;
+  const adapter = { async put() { adapterCalls += 1; throw new Error('must not run'); } };
+  const options = {
+    ownerApproved: true,
+    proposal: historicalProposal,
+    reviewReceipt: historicalReview.receipt,
+  };
+
+  await assert.rejects(commitJeffMemoryRecord(
+    historicalRecord,
+    adapter,
+    trustedOwnershipResolver(),
+    { ...options, committedAt: '2026-01-02T00:01:00.000Z' },
+  ), /JEFF_MEMORY_CALLER_TIME_FORBIDDEN/);
+  await assert.rejects(commitJeffMemoryRecord(
+    historicalRecord,
+    adapter,
+    trustedOwnershipResolver(),
+    options,
+  ), /JEFF_MEMORY_REVIEW_STALE/);
+  assert.equal(adapterCalls, 0);
+});
+
 test('undeclared proposal fields and oversized token ids fail closed', () => {
   const rawSmuggling = structuredClone(baseProposal);
   rawSmuggling.memory.rawContent = 'must-not-cross-the-boundary';
@@ -296,7 +328,6 @@ test('storage adapter rejects records with undeclared fields', async () => {
       trustedOwnershipResolver(),
       {
         ownerApproved: true,
-        committedAt,
         proposal: baseProposal,
         reviewReceipt: reviewed.receipt,
       },
