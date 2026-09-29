@@ -9,6 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "soak:v0.9:audit": "node scripts/verify-jeff-v09-live-shadow-soak.mjs",
     "benchmark:v7:freeze": "node scripts/run-jeff-v7-blind.mjs",
     "benchmark:v7:verify-freeze": "node scripts/run-jeff-v7-blind.mjs --verify",
     "benchmark:v7:score": "node scripts/score-jeff-v7-blind.mjs",
