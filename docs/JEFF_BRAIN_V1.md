@@ -6,7 +6,7 @@ Brain v1 remains non-executing. It proposes and reviews actions but never calls 
 
 ## Architecture
 
-1. Authorized memory recall loads only the current owner scope and owner epoch through a caller-provided encrypted storage adapter.
+1. Authorized memory recall loads only the current owner scope and owner epoch through an encrypted storage adapter after a mandatory server-controlled authorization verifier approves the exact capability.
 2. MCP context intake admits only allowlisted servers, URI prefixes, MIME types, and hash-matched safe text.
 3. The sealed v0.9 runtime produces the authoritative 28 typed decisions.
 4. A pinned open-weight model produces two to five bounded alternatives.
@@ -22,7 +22,7 @@ Brain v1 supports two separate memory planes:
 - The memory commitment layer stores hash-only public or owner-scoped commitments with provenance and owner approval.
 - The authorized recall adapter stores encrypted content through caller-provided storage and cryptography interfaces. Scope includes agent ID, owner ID, and owner epoch so a transfer starts a new memory boundary.
 
-Production integrations must use authenticated encryption and an access-controlled durable adapter. The included in-memory adapter is for tests and local development only.
+Production integrations must use authenticated encryption, an access-controlled durable adapter, and a server-controlled authorization verifier backed by authenticated sessions, signatures, or equivalent owner evidence. Caller-supplied capability flags are never sufficient. The included in-memory adapter is for tests and local development only.
 
 ## Example
 

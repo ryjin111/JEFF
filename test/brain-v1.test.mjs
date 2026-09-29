@@ -23,9 +23,15 @@ import { createJeffOpenWeightsProvider } from '../api/_lib/jeff-open-weights-pro
 const scope = { agentId: 'agent:1', ownerId: 'owner:alice', ownerEpoch: 7 };
 const memoryAuthorization = {
   ...scope,
+  grant: 'server-issued-test-grant',
   canReadMemory: true,
   canWriteMemory: true,
 };
+const serverAuthorizationVerifier = Object.freeze({
+  async verify({ authorization, capability }) {
+    return authorization.grant === 'server-issued-test-grant' && authorization[capability] === true;
+  },
+});
 const reversibleCrypto = {
   async seal({ plaintext, scopeSha256 }) {
     return Buffer.from(`${scopeSha256}:${plaintext}`, 'utf8').toString('base64');
@@ -106,7 +112,12 @@ function providerWith({ planned = plan(), verdict = 'accept' } = {}) {
 
 test('authorized memory persists encrypted records and isolates owner epochs', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
-  const first = createJeffAuthorizedMemory({ adapter, crypto: reversibleCrypto, now: () => '2026-09-29T00:00:00.000Z' });
+  const first = createJeffAuthorizedMemory({
+    adapter,
+    crypto: reversibleCrypto,
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => '2026-09-29T00:00:00.000Z',
+  });
   const record = await first.remember({
     scope,
     authorization: memoryAuthorization,
@@ -116,7 +127,11 @@ test('authorized memory persists encrypted records and isolates owner epochs', a
   assert.equal(JSON.stringify(persisted).includes('Vault policy requires'), false);
   assert.match(record.recordSha256, /^[a-f0-9]{64}$/);
 
-  const second = createJeffAuthorizedMemory({ adapter, crypto: reversibleCrypto });
+  const second = createJeffAuthorizedMemory({
+    adapter,
+    crypto: reversibleCrypto,
+    authorizationVerifier: serverAuthorizationVerifier,
+  });
   const recalled = await second.recall({ scope, authorization: memoryAuthorization, objective: 'Review vault policy.' });
   assert.deepEqual(recalled.selected.map(({ id }) => id), ['policy_note']);
   assert.equal(recalled.selected[0].text, 'Vault policy requires verified evidence.');
@@ -130,7 +145,12 @@ test('authorized memory persists encrypted records and isolates owner epochs', a
 
 test('memory quarantine and revocation prevent unsafe context from reaching the planner', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
-  const memory = createJeffAuthorizedMemory({ adapter, crypto: reversibleCrypto, now: () => '2026-09-29T00:00:00.000Z' });
+  const memory = createJeffAuthorizedMemory({
+    adapter,
+    crypto: reversibleCrypto,
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => '2026-09-29T00:00:00.000Z',
+  });
   await memory.remember({
     scope, authorization: memoryAuthorization,
     memory: { id: 'safe', content: 'Use verified vault policy.', source: 'owner', verified: true, expiresAt: '2026-10-29T00:00:00.000Z' },
@@ -171,6 +191,31 @@ test('MCP intake admits only authorized, hash-matched, safe text resources', () 
     'server_not_authorized', 'instruction_injection', 'content_hash_mismatch',
   ]);
   assert.equal(result.executionAuthorized, false);
+});
+
+test('caller cannot self-assert memory authorization', async () => {
+  const adapter = createInMemoryJeffMemoryAdapter();
+  const memory = createJeffAuthorizedMemory({
+    adapter,
+    crypto: reversibleCrypto,
+    authorizationVerifier: serverAuthorizationVerifier,
+  });
+  await memory.remember({
+    scope,
+    authorization: memoryAuthorization,
+    memory: {
+      id: 'private',
+      content: 'alice-private-canary',
+      source: 'owner',
+      verified: true,
+      expiresAt: '2099-10-29T00:00:00.000Z',
+    },
+  });
+  await assert.rejects(memory.recall({
+    scope,
+    authorization: { ...scope, canReadMemory: true },
+    objective: 'private',
+  }), /JEFF_MEMORY_AUTHORIZATION_DENIED/);
 });
 
 test('learning feedback never trains silently and requires opt-in plus independent review', () => {
@@ -293,7 +338,11 @@ test('hard safety objectives and denied state short-circuit before model invocat
 
 test('authorized memory and MCP context reach the planner while receipts retain hashes only', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
-  const memoryService = createJeffAuthorizedMemory({ adapter, crypto: reversibleCrypto });
+  const memoryService = createJeffAuthorizedMemory({
+    adapter,
+    crypto: reversibleCrypto,
+    authorizationVerifier: serverAuthorizationVerifier,
+  });
   await memoryService.remember({
     scope, authorization: memoryAuthorization,
     memory: { id: 'policy', content: 'Vault policy needs verified evidence.', source: 'owner', verified: true, expiresAt: '2099-10-29T00:00:00.000Z' },
