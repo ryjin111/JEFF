@@ -29,6 +29,7 @@ function hasExactKeys(value, keys) {
 function ownerIntent(event) {
   return {
     scopeSha256: event.scopeSha256,
+    ownerIdSha256: event.ownerIdSha256,
     decisionReceiptSha256: event.decisionReceiptSha256,
     outcome: event.outcome,
     correctionSha256: event.correction === null ? null : hashJeffBrainValue(event.correction),
@@ -71,6 +72,12 @@ function validateFeedbackEvent(event, { reviewed }) {
       || !Number.isFinite(Date.parse(event.independentReview.reviewedAt))
       || !JEFF_HASH.test(event.independentReview.reviewedEventSha256)
       || hashJeffBrainValue(event.independentReview.reviewer) === event.ownerIdSha256) return false;
+    const { eventSha256: _eventSha256, ...reviewedBody } = event;
+    const canonicalUnreviewedSha256 = hashJeffBrainValue({
+      ...reviewedBody,
+      independentReview: null,
+    });
+    if (event.independentReview.reviewedEventSha256 !== canonicalUnreviewedSha256) return false;
     if (!validateJeffAuthorizationAttestation(event.independentReview.authorizationAttestation, {
       scope: reviewerIntent(event.independentReview),
       operation: 'review_feedback',
@@ -116,6 +123,7 @@ export async function createJeffFeedbackEvent({
   const normalizedObservedAt = assertJeffIsoTimestamp(observedAt ?? now(), 'JEFF_FEEDBACK_TIME_INVALID');
   const intent = {
     scopeSha256: hashJeffBrainValue(scope),
+    ownerIdSha256: hashJeffBrainValue(scope.ownerId),
     decisionReceiptSha256,
     outcome,
     correctionSha256: normalizedCorrection === null ? null : hashJeffBrainValue(normalizedCorrection),

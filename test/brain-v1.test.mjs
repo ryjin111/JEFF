@@ -402,6 +402,41 @@ test('learning feedback never trains silently and requires verified opt-in plus 
   assessment = await assessJeffLearningCandidate([tamperedReviewer], eligibilityOptions);
   assert.equal(assessment.eligible, false);
   assert.ok(assessment.reasons.includes('EVENT_INVALID'));
+
+  const secondEvent = await createJeffFeedbackEvent({
+    scope,
+    authorization: feedbackAuthorization,
+    decisionReceiptSha256: 'c'.repeat(64),
+    outcome: 'helpful',
+    ownerOptInForTraining: true,
+    observedAt: '2026-09-29T00:02:00.000Z',
+  }, {
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  });
+  const { eventSha256: _secondHash, ...splicedBody } = secondEvent;
+  splicedBody.independentReview = structuredClone(reviewed.independentReview);
+  const splicedReview = {
+    ...splicedBody,
+    eventSha256: hashJeffBrainValue(splicedBody),
+  };
+  assessment = await assessJeffLearningCandidate([splicedReview], eligibilityOptions);
+  assert.equal(assessment.eligible, false);
+  assert.ok(assessment.reasons.includes('EVENT_INVALID'));
+
+  const { eventSha256: _ownerHash, ...changedOwnerBody } = event;
+  changedOwnerBody.ownerIdSha256 = hashJeffBrainValue('owner:mallory');
+  const changedOwner = {
+    ...changedOwnerBody,
+    eventSha256: hashJeffBrainValue(changedOwnerBody),
+  };
+  await assert.rejects(reviewJeffFeedbackEvent(changedOwner, {
+    reviewer: scope.ownerId,
+    approved: true,
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  }), /JEFF_FEEDBACK_EVENT_INVALID/);
 });
 
 test('Brain v1 combines deterministic decisions, planning, critique, and proposal-only tools', async () => {
