@@ -6,16 +6,45 @@ import {
   jeffRelevance,
   JEFF_HASH,
 } from './jeff-brain-common.mjs';
+import { requireJeffAuthorization } from './jeff-trusted-authorization.mjs';
 
 const ALLOWED_MIME_TYPES = new Set(['text/plain', 'text/markdown', 'application/json']);
 
-export function ingestJeffMcpContext({ objective, resources, authorization, maximum = 8 } = {}) {
+export async function ingestJeffMcpContext({
+  objective,
+  resources,
+  authorization,
+  authorizationVerifier,
+  maximum = 8,
+  now = () => new Date().toISOString(),
+} = {}) {
   const goal = assertJeffText(objective, 'JEFF_MCP_OBJECTIVE_INVALID', 4_096);
   if (!Array.isArray(resources) || resources.length > 64) throw new Error('JEFF_MCP_RESOURCES_INVALID');
   if (!isJeffRecord(authorization)
     || !Array.isArray(authorization.allowedServers)
-    || !Array.isArray(authorization.allowedUriPrefixes)) throw new Error('JEFF_MCP_AUTHORIZATION_INVALID');
+    || !Array.isArray(authorization.allowedUriPrefixes)
+    || authorization.allowedServers.some((entry) => typeof entry !== 'string')
+    || authorization.allowedUriPrefixes.some((entry) => typeof entry !== 'string')
+    || !Number.isSafeInteger(authorization.ownerEpoch)
+    || authorization.ownerEpoch < 0
+    || typeof authorization.subject !== 'string') throw new Error('JEFF_MCP_AUTHORIZATION_INVALID');
   if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 24) throw new Error('JEFF_MCP_LIMIT_INVALID');
+  let attestation;
+  try {
+    attestation = await requireJeffAuthorization({
+      verifier: authorizationVerifier,
+      scope: {
+        allowedServers: [...new Set(authorization.allowedServers)].sort(),
+        allowedUriPrefixes: [...new Set(authorization.allowedUriPrefixes)].sort(),
+      },
+      subject: authorization.subject,
+      operation: 'read_mcp_context',
+      ownerEpoch: authorization.ownerEpoch,
+      now,
+    });
+  } catch {
+    throw new Error('JEFF_MCP_AUTHORIZATION_DENIED');
+  }
   const servers = new Set(authorization.allowedServers);
   const selected = [];
   const quarantined = [];
@@ -54,6 +83,7 @@ export function ingestJeffMcpContext({ objective, resources, authorization, maxi
     selected: Object.freeze(selected.slice(0, maximum)),
     quarantined: Object.freeze(quarantined),
     executionAuthorized: false,
+    authorizationAttestationSha256: attestation.attestationSha256,
   });
 }
 

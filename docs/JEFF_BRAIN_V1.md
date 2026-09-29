@@ -7,13 +7,13 @@ Brain v1 remains non-executing. It proposes and reviews actions but never calls 
 ## Architecture
 
 1. Authorized memory recall loads only the current owner scope and owner epoch through an encrypted storage adapter after a mandatory server-controlled authorization verifier approves the exact capability.
-2. MCP context intake admits only allowlisted servers, URI prefixes, MIME types, and hash-matched safe text.
+2. MCP context intake requires a fresh server-verified subject, operation, owner epoch, and allowlist scope before it reads or selects hash-matched safe text.
 3. The sealed v0.9 runtime produces the authoritative 28 typed decisions.
 4. A pinned open-weight model produces two to five bounded alternatives.
 5. A second model pass critiques the recommended alternative.
 6. The deterministic supervisor blocks unknown tools, policy violations, execution material, and every unapproved write.
 7. A hash-only receipt binds the request, decision, context records, plan, critique, selected plan, and safety result.
-8. Owner feedback can become a curriculum candidate only after explicit opt-in and independent review. Training remains a separate build and blind-evaluation process.
+8. Owner feedback can become a curriculum candidate only after server-verified owner opt-in and a separately verified reviewer identity. Training remains a separate build and blind-evaluation process.
 
 ## Memory boundaries
 
@@ -23,6 +23,8 @@ Brain v1 supports two separate memory planes:
 - The authorized recall adapter stores encrypted content through caller-provided storage and cryptography interfaces. Scope includes agent ID, owner ID, and owner epoch so a transfer starts a new memory boundary.
 
 Production integrations must use authenticated encryption, an access-controlled durable adapter, and a server-controlled authorization verifier backed by authenticated sessions, signatures, or equivalent owner evidence. Caller-supplied capability flags are never sufficient. The included in-memory adapter is for tests and local development only.
+
+The same verifier boundary applies to MCP context policy, owner feedback submission, and independent review identity. JEFF validates exact-shape attestations bound to subject, operation, scope, owner epoch, and a maximum five-minute freshness window. Brain receipts retain only their hashes.
 
 ## Example
 

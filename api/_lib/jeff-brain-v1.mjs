@@ -248,7 +248,7 @@ function reviewPrompt(input, candidate, decisionResponse) {
   });
 }
 
-async function loadContext(request, memoryService) {
+async function loadContext(request, memoryService, mcpAuthorizationVerifier) {
   const memory = request.memory
     ? await (() => {
       if (!memoryService || typeof memoryService.recall !== 'function') throw new Error('JEFF_BRAIN_MEMORY_SERVICE_REQUIRED');
@@ -261,11 +261,12 @@ async function loadContext(request, memoryService) {
     })()
     : { selected: [], quarantined: [], scopeSha256: null };
   const mcp = request.mcp
-    ? ingestJeffMcpContext({
+    ? await ingestJeffMcpContext({
       objective: request.objective,
       resources: request.mcp.resources,
       authorization: request.mcp.authorization,
       maximum: request.mcp.maximum ?? 8,
+      authorizationVerifier: mcpAuthorizationVerifier,
     })
     : { selected: [], quarantined: [] };
   return {
@@ -296,6 +297,8 @@ function auditReceipt({ request, provider, context, decisionResponse, rawPlan, r
     memoryScopeSha256: context.memory.scopeSha256,
     selectedMemoryRecordSha256s: context.memory.selected.map(({ recordSha256 }) => recordSha256),
     selectedMcpContentSha256s: context.mcp.selected.map(({ contentSha256 }) => contentSha256),
+    memoryAuthorizationAttestationSha256: context.memory.authorizationAttestationSha256 ?? null,
+    mcpAuthorizationAttestationSha256: context.mcp.authorizationAttestationSha256 ?? null,
     quarantinedContext: [
       ...context.memory.quarantined.map(({ id, reason }) => ({ kind: 'memory', id, reason })),
       ...context.mcp.quarantined.map(({ id, reason }) => ({ kind: 'mcp', id, reason })),
@@ -304,11 +307,16 @@ function auditReceipt({ request, provider, context, decisionResponse, rawPlan, r
   return Object.freeze({ ...body, receiptSha256: hashJeffBrainValue(body) });
 }
 
-export async function deliberateJeffBrain({ request, provider, memoryService } = {}) {
+export async function deliberateJeffBrain({
+  request,
+  provider,
+  memoryService,
+  mcpAuthorizationVerifier,
+} = {}) {
   const input = normalizeRequest(request);
   if (!isJeffRecord(provider) || typeof provider.complete !== 'function') throw new Error('JEFF_BRAIN_PROVIDER_INVALID');
   const plannerModel = assertJeffText(provider.model, 'JEFF_BRAIN_PROVIDER_INVALID', 200);
-  const context = await loadContext(request, memoryService);
+  const context = await loadContext(request, memoryService, mcpAuthorizationVerifier);
   const decisionResponse = inferJeffAgentNftCandidateV09(input.contractRequest);
   if (!validateJeffAgentNftResponse(decisionResponse, input.contractRequest)) {
     throw new Error('JEFF_BRAIN_DECISION_RESPONSE_INVALID');

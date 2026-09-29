@@ -63,6 +63,7 @@
     "./mcp-context": "./api/_lib/jeff-mcp-context.mjs",
     "./learning": "./api/_lib/jeff-learning-feedback.mjs",
     "./open-weights": "./api/_lib/jeff-open-weights-provider.mjs",
+    "./authorization": "./api/_lib/jeff-trusted-authorization.mjs",
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",

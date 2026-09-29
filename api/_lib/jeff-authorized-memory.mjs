@@ -7,6 +7,7 @@ import {
   isJeffRecord,
   jeffRelevance,
 } from './jeff-brain-common.mjs';
+import { requireJeffAuthorization } from './jeff-trusted-authorization.mjs';
 
 const MEMORY_SCHEMA = 'jeff-authorized-memory-record-v1';
 
@@ -21,7 +22,7 @@ function normalizeScope(scope) {
   });
 }
 
-async function assertAuthorization(scope, authorization, capability, authorizationVerifier) {
+async function assertAuthorization(scope, authorization, capability, authorizationVerifier, now) {
   if (!isJeffRecord(authorization)
     || authorization.agentId !== scope.agentId
     || authorization.ownerId !== scope.ownerId
@@ -29,17 +30,18 @@ async function assertAuthorization(scope, authorization, capability, authorizati
     || authorization[capability] !== true) {
     throw new Error('JEFF_MEMORY_AUTHORIZATION_DENIED');
   }
-  let verified = false;
   try {
-    verified = await authorizationVerifier.verify(Object.freeze({
-      scope: Object.freeze(structuredClone(scope)),
-      authorization: Object.freeze(structuredClone(authorization)),
-      capability,
-    }));
+    return await requireJeffAuthorization({
+      verifier: authorizationVerifier,
+      scope,
+      subject: authorization.subject,
+      operation: capability,
+      ownerEpoch: scope.ownerEpoch,
+      now,
+    });
   } catch {
     throw new Error('JEFF_MEMORY_AUTHORIZATION_DENIED');
   }
-  if (verified !== true) throw new Error('JEFF_MEMORY_AUTHORIZATION_DENIED');
 }
 
 function recordBody(fields) {
@@ -56,6 +58,7 @@ function recordBody(fields) {
     createdAt: fields.createdAt,
     expiresAt: fields.expiresAt,
     previousRecordSha256: fields.previousRecordSha256,
+    authorizationAttestationSha256: fields.authorizationAttestationSha256,
   };
 }
 
@@ -89,7 +92,7 @@ export function createJeffAuthorizedMemory({
   if (!crypto || typeof crypto.seal !== 'function' || typeof crypto.open !== 'function') {
     throw new Error('JEFF_MEMORY_CRYPTO_REQUIRED');
   }
-  if (!authorizationVerifier || typeof authorizationVerifier.verify !== 'function') {
+  if (!authorizationVerifier || typeof authorizationVerifier.attest !== 'function') {
     throw new Error('JEFF_MEMORY_AUTHORIZATION_VERIFIER_REQUIRED');
   }
 
@@ -121,7 +124,9 @@ export function createJeffAuthorizedMemory({
   return Object.freeze({
     async remember({ scope: rawScope, authorization, memory }) {
       const scope = normalizeScope(rawScope);
-      await assertAuthorization(scope, authorization, 'canWriteMemory', authorizationVerifier);
+      const attestation = await assertAuthorization(
+        scope, authorization, 'canWriteMemory', authorizationVerifier, now,
+      );
       if (!isJeffRecord(memory)) throw new Error('JEFF_MEMORY_INPUT_INVALID');
       const id = assertJeffName(memory.id, 'JEFF_MEMORY_INPUT_INVALID');
       const content = assertJeffText(memory.content, 'JEFF_MEMORY_INPUT_INVALID', 8_192);
@@ -139,22 +144,28 @@ export function createJeffAuthorizedMemory({
         kind: 'memory', id, sourceSha256: hashJeffBrainValue(source),
         contentSha256: hashJeffBrainValue(content), ciphertext,
         verified: memory.verified, createdAt, expiresAt,
+        authorizationAttestationSha256: attestation.attestationSha256,
       });
     },
 
     async revoke({ scope: rawScope, authorization, id }) {
       const scope = normalizeScope(rawScope);
-      await assertAuthorization(scope, authorization, 'canWriteMemory', authorizationVerifier);
+      const attestation = await assertAuthorization(
+        scope, authorization, 'canWriteMemory', authorizationVerifier, now,
+      );
       return append(scope, {
         kind: 'revoke', id: assertJeffName(id, 'JEFF_MEMORY_INPUT_INVALID'),
         sourceSha256: null, contentSha256: null, ciphertext: null,
         verified: true, createdAt: assertJeffIsoTimestamp(now(), 'JEFF_MEMORY_TIME_INVALID'), expiresAt: null,
+        authorizationAttestationSha256: attestation.attestationSha256,
       });
     },
 
     async recall({ scope: rawScope, authorization, objective, maximum = 6 }) {
       const scope = normalizeScope(rawScope);
-      await assertAuthorization(scope, authorization, 'canReadMemory', authorizationVerifier);
+      const attestation = await assertAuthorization(
+        scope, authorization, 'canReadMemory', authorizationVerifier, now,
+      );
       const goal = assertJeffText(objective, 'JEFF_MEMORY_OBJECTIVE_INVALID', 4_096);
       if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 24) throw new Error('JEFF_MEMORY_LIMIT_INVALID');
       const { records, scopeSha256 } = await recordsFor(scope);
@@ -193,6 +204,7 @@ export function createJeffAuthorizedMemory({
         scopeSha256,
         selected: Object.freeze(selected.slice(0, maximum)),
         quarantined: Object.freeze(quarantined),
+        authorizationAttestationSha256: attestation.attestationSha256,
       });
     },
   });

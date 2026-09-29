@@ -19,17 +19,26 @@ import {
 } from '../api/_lib/jeff-learning-feedback.mjs';
 import { ingestJeffMcpContext } from '../api/_lib/jeff-mcp-context.mjs';
 import { createJeffOpenWeightsProvider } from '../api/_lib/jeff-open-weights-provider.mjs';
+import { createJeffAuthorizationAttestation } from '../api/_lib/jeff-trusted-authorization.mjs';
 
 const scope = { agentId: 'agent:1', ownerId: 'owner:alice', ownerEpoch: 7 };
 const memoryAuthorization = {
   ...scope,
-  grant: 'server-issued-test-grant',
+  subject: 'session:alice',
   canReadMemory: true,
   canWriteMemory: true,
 };
+const authorizationNow = new Date().toISOString();
 const serverAuthorizationVerifier = Object.freeze({
-  async verify({ authorization, capability }) {
-    return authorization.grant === 'server-issued-test-grant' && authorization[capability] === true;
+  async attest(input) {
+    if (input.subject !== 'session:alice' && input.subject !== 'auditor:bob') {
+      throw new Error('SUBJECT_DENIED');
+    }
+    return createJeffAuthorizationAttestation({
+      ...input,
+      observedAt: authorizationNow,
+      expiresAt: new Date(Date.parse(authorizationNow) + 5 * 60 * 1_000).toISOString(),
+    });
   },
 });
 const reversibleCrypto = {
@@ -116,7 +125,7 @@ test('authorized memory persists encrypted records and isolates owner epochs', a
     adapter,
     crypto: reversibleCrypto,
     authorizationVerifier: serverAuthorizationVerifier,
-    now: () => '2026-09-29T00:00:00.000Z',
+    now: () => authorizationNow,
   });
   const record = await first.remember({
     scope,
@@ -131,6 +140,7 @@ test('authorized memory persists encrypted records and isolates owner epochs', a
     adapter,
     crypto: reversibleCrypto,
     authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   });
   const recalled = await second.recall({ scope, authorization: memoryAuthorization, objective: 'Review vault policy.' });
   assert.deepEqual(recalled.selected.map(({ id }) => id), ['policy_note']);
@@ -149,7 +159,7 @@ test('memory quarantine and revocation prevent unsafe context from reaching the 
     adapter,
     crypto: reversibleCrypto,
     authorizationVerifier: serverAuthorizationVerifier,
-    now: () => '2026-09-29T00:00:00.000Z',
+    now: () => authorizationNow,
   });
   await memory.remember({
     scope, authorization: memoryAuthorization,
@@ -173,11 +183,18 @@ test('memory quarantine and revocation prevent unsafe context from reaching the 
   });
 });
 
-test('MCP intake admits only authorized, hash-matched, safe text resources', () => {
+test('MCP intake admits only authorized, hash-matched, safe text resources', async () => {
   const safeText = 'Verified vault policy requires owner approval.';
-  const result = ingestJeffMcpContext({
+  const result = await ingestJeffMcpContext({
     objective: 'Review vault policy.',
-    authorization: { allowedServers: ['policy'], allowedUriPrefixes: ['policy://public/'] },
+    authorization: {
+      subject: 'session:alice',
+      ownerEpoch: scope.ownerEpoch,
+      allowedServers: ['policy'],
+      allowedUriPrefixes: ['policy://public/'],
+    },
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
     resources: [
       { server: 'policy', uri: 'policy://public/vault', mimeType: 'text/plain', text: safeText, sha256: hashJeffBrainValue(safeText) },
       { server: 'other', uri: 'other://private', mimeType: 'text/plain', text: 'Not authorized.' },
@@ -193,12 +210,33 @@ test('MCP intake admits only authorized, hash-matched, safe text resources', () 
   assert.equal(result.executionAuthorized, false);
 });
 
+test('caller cannot self-authorize private MCP context', async () => {
+  await assert.rejects(ingestJeffMcpContext({
+    objective: 'Read private policy.',
+    authorization: {
+      subject: 'session:attacker',
+      ownerEpoch: scope.ownerEpoch,
+      allowedServers: ['private'],
+      allowedUriPrefixes: ['private://owner/'],
+    },
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+    resources: [{
+      server: 'private',
+      uri: 'private://owner/memory',
+      mimeType: 'text/plain',
+      text: 'private-mcp-canary',
+    }],
+  }), /JEFF_MCP_AUTHORIZATION_DENIED/);
+});
+
 test('caller cannot self-assert memory authorization', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
   const memory = createJeffAuthorizedMemory({
     adapter,
     crypto: reversibleCrypto,
     authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   });
   await memory.remember({
     scope,
@@ -213,35 +251,99 @@ test('caller cannot self-assert memory authorization', async () => {
   });
   await assert.rejects(memory.recall({
     scope,
-    authorization: { ...scope, canReadMemory: true },
+    authorization: { ...scope, subject: 'session:attacker', canReadMemory: true },
     objective: 'private',
   }), /JEFF_MEMORY_AUTHORIZATION_DENIED/);
+  await assert.rejects(memory.remember({
+    scope,
+    authorization: { ...scope, subject: 'session:attacker', canWriteMemory: true },
+    memory: {
+      id: 'forged-write',
+      content: 'must-not-persist',
+      source: 'attacker',
+      verified: true,
+      expiresAt: '2099-10-29T00:00:00.000Z',
+    },
+  }), /JEFF_MEMORY_AUTHORIZATION_DENIED/);
+  await assert.rejects(memory.revoke({
+    scope,
+    authorization: { ...scope, subject: 'session:attacker', canWriteMemory: true },
+    id: 'private',
+  }), /JEFF_MEMORY_AUTHORIZATION_DENIED/);
+  assert.equal((await adapter.snapshot()).length, 1);
 });
 
-test('learning feedback never trains silently and requires opt-in plus independent review', () => {
-  const event = createJeffFeedbackEvent({
+test('learning feedback never trains silently and requires verified opt-in plus independent review', async () => {
+  const feedbackAuthorization = {
+    ...scope,
+    subject: 'session:alice',
+    canSubmitFeedback: true,
+  };
+  const event = await createJeffFeedbackEvent({
     scope,
-    authorization: { ...scope, canSubmitFeedback: true },
+    authorization: feedbackAuthorization,
     decisionReceiptSha256: 'a'.repeat(64),
     outcome: 'corrected',
     correction: 'Require a fresh owner-policy check.',
     ownerOptInForTraining: true,
     observedAt: '2026-09-29T00:00:00.000Z',
+  }, {
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   });
-  let assessment = assessJeffLearningCandidate([event]);
+  let assessment = await assessJeffLearningCandidate([event]);
   assert.equal(assessment.eligible, false);
   assert.ok(assessment.reasons.includes('INDEPENDENT_REVIEW_MISSING'));
   assert.equal(assessment.trainingAuthorized, false);
-  const reviewed = reviewJeffFeedbackEvent(event, {
-    reviewer: 'independent-auditor', approved: true, reviewedAt: '2026-09-29T01:00:00.000Z',
+  const reviewed = await reviewJeffFeedbackEvent(event, {
+    reviewer: 'auditor:bob', approved: true, reviewedAt: '2026-09-29T01:00:00.000Z',
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   });
-  assessment = assessJeffLearningCandidate([reviewed]);
+  const trustedFeedbackHashes = new Set([reviewed.eventSha256]);
+  const eligibilityVerifier = {
+    async attest(input) {
+      if (input.subject !== 'service:learning-gate'
+        || !trustedFeedbackHashes.has(input.scope.eventSha256)) throw new Error('EVENT_NOT_TRUSTED');
+      return createJeffAuthorizationAttestation({
+        ...input,
+        observedAt: authorizationNow,
+        expiresAt: new Date(Date.parse(authorizationNow) + 5 * 60 * 1_000).toISOString(),
+      });
+    },
+  };
+  const eligibilityOptions = {
+    eligibilityVerifier,
+    eligibilitySubject: 'service:learning-gate',
+    now: () => authorizationNow,
+  };
+  assessment = await assessJeffLearningCandidate([reviewed], eligibilityOptions);
   assert.equal(assessment.eligible, true);
   assert.equal(assessment.trainingAuthorized, false);
   assert.equal(assessment.requiresSeparateBuildAndBlindEvaluation, true);
-  assert.throws(() => reviewJeffFeedbackEvent(event, {
+  await assert.rejects(reviewJeffFeedbackEvent(event, {
     reviewer: scope.ownerId, approved: true, reviewedAt: '2026-09-29T01:00:00.000Z',
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   }), /JEFF_FEEDBACK_REVIEW_NOT_INDEPENDENT/);
+  await assert.rejects(createJeffFeedbackEvent({
+    scope,
+    authorization: { ...feedbackAuthorization, subject: 'session:attacker' },
+    decisionReceiptSha256: 'a'.repeat(64),
+    outcome: 'helpful',
+    ownerOptInForTraining: true,
+  }, {
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  }), /JEFF_FEEDBACK_AUTHORIZATION_DENIED/);
+  await assert.rejects(reviewJeffFeedbackEvent(event, {
+    reviewer: 'reviewer:fake', approved: true,
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  }), /JEFF_FEEDBACK_REVIEW_AUTHORIZATION_DENIED/);
   const forged = {
     schema: 'jeff-learning-feedback-v1',
     scopeSha256: 'b'.repeat(64),
@@ -256,9 +358,19 @@ test('learning feedback never trains silently and requires opt-in plus independe
     eventSha256: 'e'.repeat(64),
     smuggled: true,
   };
-  assessment = assessJeffLearningCandidate([forged]);
+  assessment = await assessJeffLearningCandidate([forged]);
   assert.equal(assessment.eligible, false);
   assert.ok(assessment.reasons.includes('EVENT_INVALID'));
+
+  const { eventSha256: _eventSha256, ...forgedReviewedBody } = reviewed;
+  forgedReviewedBody.ownerAuthorizationAttestationSha256 = 'f'.repeat(64);
+  const forgedReviewed = {
+    ...forgedReviewedBody,
+    eventSha256: hashJeffBrainValue(forgedReviewedBody),
+  };
+  assessment = await assessJeffLearningCandidate([forgedReviewed], eligibilityOptions);
+  assert.equal(assessment.eligible, false);
+  assert.ok(assessment.reasons.includes('ELIGIBILITY_AUTHORIZATION_DENIED'));
 });
 
 test('Brain v1 combines deterministic decisions, planning, critique, and proposal-only tools', async () => {
@@ -342,6 +454,7 @@ test('authorized memory and MCP context reach the planner while receipts retain 
     adapter,
     crypto: reversibleCrypto,
     authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
   });
   await memoryService.remember({
     scope, authorization: memoryAuthorization,
@@ -351,12 +464,22 @@ test('authorized memory and MCP context reach the planner while receipts retain 
   const request = brainRequest({
     memory: { scope, authorization: memoryAuthorization },
     mcp: {
-      authorization: { allowedServers: ['docs'], allowedUriPrefixes: ['docs://public/'] },
+      authorization: {
+        subject: 'session:alice',
+        ownerEpoch: scope.ownerEpoch,
+        allowedServers: ['docs'],
+        allowedUriPrefixes: ['docs://public/'],
+      },
       resources: [{ server: 'docs', uri: 'docs://public/protocol', mimeType: 'text/plain', text: mcpText }],
     },
   });
   const provider = providerWith();
-  const result = await deliberateJeffBrain({ request, provider, memoryService });
+  const result = await deliberateJeffBrain({
+    request,
+    provider,
+    memoryService,
+    mcpAuthorizationVerifier: serverAuthorizationVerifier,
+  });
   const prompt = JSON.parse(provider.calls[0].prompt);
   assert.equal(prompt.context.length, 2);
   assert.equal(result.audit.selectedMemoryRecordSha256s.length, 1);
