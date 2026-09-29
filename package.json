@@ -61,6 +61,7 @@
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",
+    "./memory": "./api/_lib/jeff-memory-layer.mjs",
     "./soak": "./api/_lib/jeff-live-shadow-soak.mjs",
     "./benchmark": "./api/_lib/jeff-benchmark-v2.mjs"
   },
