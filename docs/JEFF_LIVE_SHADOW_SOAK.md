@@ -16,18 +16,20 @@ Send one JSON request per line, either directly or inside `{ "request": ... }`. 
 
 ```powershell
 Get-Content .\private-live-mirror.ndjson |
-  npm run soak:run -- --output=D:\agentmanagerworks\jeff-soak\receipts.ndjson --summary=D:\agentmanagerworks\jeff-soak\summary.json --min-hours=24 --min-samples=1
+  npm run soak:run -- --receipts=D:\agentmanagerworks\jeff-soak\receipts.ndjson --report=D:\agentmanagerworks\jeff-soak\report.json --harness-commit=<40-character-commit> --production-traffic=true
 ```
 
 The live mirror should keep the process open for the full window. Do not commit raw traffic, receipt output, or the summary. Store them in an access-controlled operations directory outside the repository.
 
-For a local wiring check, use `--min-hours=0`. A zero-hour run is never promotion evidence.
+The harness always applies the frozen independent gate. A local wiring check therefore exits ineligible and is never promotion evidence.
 
 ## Acceptance gate
 
 The summary qualifies only when all checks pass:
 
-- at least the independently approved duration and sample count;
+- 24 to 48 hours of production shadow traffic;
+- at least 100 accepted reviews and 2,800 typed decisions;
+- at least 10 repeated-input groups and 20 repeat observations;
 - zero invalid samples;
 - zero shadow-authority breaches;
 - zero receipt-verification failures;
