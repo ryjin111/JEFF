@@ -15,6 +15,15 @@ import {
 } from '../api/_lib/jeff-live-shadow-soak.mjs';
 
 const HASH_40 = /^[a-f0-9]{40}$/;
+const SAFE_REJECTION_CODES = new Set([
+  'JEFF_SOAK_REQUEST_JSON_INVALID',
+  'JEFF_SOAK_REQUEST_INVALID',
+]);
+
+function safeRejectionCode(error) {
+  const message = error instanceof Error ? error.message : '';
+  return SAFE_REJECTION_CODES.has(message) ? message : 'JEFF_SOAK_RUNTIME_FAILURE';
+}
 
 function parseArguments(argv) {
   const options = { productionTraffic: false };
@@ -67,7 +76,12 @@ for await (const line of lines) {
   totalRequests += 1;
   let request;
   try {
-    const envelope = JSON.parse(line);
+    let envelope;
+    try {
+      envelope = JSON.parse(line);
+    } catch {
+      throw new Error('JEFF_SOAK_REQUEST_JSON_INVALID');
+    }
     request = envelope?.request ?? envelope;
     const requestSha256 = hashJeffShadowRequest(request);
     const receipt = observeJeffV09Shadow(request, {
@@ -94,10 +108,10 @@ for await (const line of lines) {
     await emit(receipt);
   } catch (error) {
     rejectedRequests += 1;
-    const code = error instanceof Error ? error.message.split(':', 1)[0] : 'JEFF_SOAK_UNKNOWN_ERROR';
-    const invalidInput = error instanceof SyntaxError || code === 'JEFF_SOAK_REQUEST_INVALID';
+    const code = safeRejectionCode(error);
+    const invalidInput = SAFE_REJECTION_CODES.has(code);
     if (!invalidInput) runtimeFailures += 1;
-    if (code === 'JEFF_SOAK_RESPONSE_INVALID') responseSchemaFailures += 1;
+    if (error instanceof Error && error.message === 'JEFF_SOAK_RESPONSE_INVALID') responseSchemaFailures += 1;
     const rejection = {
       schema: 'jeff-live-shadow-soak-rejection-v1',
       observedAt: new Date().toISOString(),

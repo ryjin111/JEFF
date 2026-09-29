@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { JEFF_AGENT_NFT_CAPABILITY_QUESTIONS } from '../api/_lib/jeff-agent-nft-capabilities.mjs';
@@ -73,6 +75,29 @@ test('live shadow soak is bound to independently passing V6 and V7 evidence', ()
   assert.equal(JEFF_LIVE_SHADOW_SOAK.model, 'jeff-agent-nft-nb-v0.9-remediation');
   assert.equal(JEFF_LIVE_SHADOW_SOAK.executionAuthorized, false);
   assert.deepEqual(JEFF_LIVE_SHADOW_SOAK.evidence.map(({ gate }) => gate), ['v6', 'v7']);
+});
+
+test('malformed JSON persists only a hash and constant error code', () => {
+  const canary = 'private-key-canary-must-not-survive';
+  const malformed = `{\"state\":{\"privateMemory\":\"${canary}\"},broken}\n`;
+  const result = spawnSync(process.execPath, [
+    'scripts/run-jeff-live-shadow-soak.mjs',
+    '--harness-commit=1234567890abcdef1234567890abcdef12345678',
+    '--production-traffic=false',
+  ], { input: malformed, encoding: 'utf8' });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.error, undefined);
+  assert.equal(result.stdout.includes(canary), false);
+  assert.equal(result.stderr.includes(canary), false);
+  const receipt = JSON.parse(result.stdout.trim());
+  assert.equal(receipt.error, 'JEFF_SOAK_REQUEST_JSON_INVALID');
+  assert.equal(receipt.category, 'invalid-request');
+  assert.equal(receipt.lineSha256, createHash('sha256').update(malformed.trim()).digest('hex'));
+  assert.deepEqual(Object.keys(receipt).sort(), [
+    'category', 'error', 'executionAuthorized', 'lineSha256', 'mode',
+    'observedAt', 'receiptSha256', 'schema', 'writePathInvocations',
+  ].sort());
 });
 
 function passingReport() {
