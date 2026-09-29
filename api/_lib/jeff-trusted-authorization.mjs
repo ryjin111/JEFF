@@ -29,6 +29,32 @@ function validEpoch(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+export function validateJeffAuthorizationAttestation(attestation, {
+  scope,
+  operation,
+  ownerEpoch,
+  subjectSha256,
+} = {}) {
+  if (!hasExactKeys(attestation, KEYS)
+    || attestation.schema !== SCHEMA
+    || attestation.authorized !== true
+    || !isJeffRecord(scope)
+    || attestation.scopeSha256 !== hashJeffBrainValue(scope)
+    || attestation.operation !== operation
+    || attestation.ownerEpoch !== ownerEpoch
+    || (subjectSha256 !== undefined && attestation.subjectSha256 !== subjectSha256)
+    || !JEFF_HASH.test(String(attestation.subjectSha256 ?? ''))
+    || !JEFF_HASH.test(String(attestation.attestationSha256 ?? ''))
+    || !Number.isFinite(Date.parse(attestation.observedAt))
+    || !Number.isFinite(Date.parse(attestation.expiresAt))) return false;
+  const { attestationSha256, ...body } = attestation;
+  const observedMs = Date.parse(attestation.observedAt);
+  const expiresMs = Date.parse(attestation.expiresAt);
+  return attestationSha256 === hashJeffBrainValue(body)
+    && expiresMs > observedMs
+    && expiresMs - observedMs <= MAX_TTL_MS;
+}
+
 export function createJeffAuthorizationAttestation({
   scope,
   subject,
@@ -79,27 +105,20 @@ export async function requireJeffAuthorization({
   } catch {
     throw new Error('JEFF_AUTH_DENIED');
   }
-  if (!hasExactKeys(attestation, KEYS)
-    || attestation.schema !== SCHEMA
-    || attestation.authorized !== true
-    || attestation.scopeSha256 !== hashJeffBrainValue(scope)
-    || attestation.subjectSha256 !== hashJeffBrainValue(normalizedSubject)
-    || attestation.operation !== normalizedOperation
-    || attestation.ownerEpoch !== ownerEpoch
-    || !JEFF_HASH.test(String(attestation.attestationSha256 ?? ''))
-    || !Number.isFinite(Date.parse(attestation.observedAt))
-    || !Number.isFinite(Date.parse(attestation.expiresAt))) {
+  if (!validateJeffAuthorizationAttestation(attestation, {
+    scope,
+    operation: normalizedOperation,
+    ownerEpoch,
+    subjectSha256: hashJeffBrainValue(normalizedSubject),
+  })) {
     throw new Error('JEFF_AUTH_DENIED');
   }
-  const { attestationSha256, ...body } = attestation;
   const currentMs = Date.parse(assertJeffIsoTimestamp(now(), 'JEFF_AUTH_CLOCK_INVALID'));
   const observedMs = Date.parse(attestation.observedAt);
   const expiresMs = Date.parse(attestation.expiresAt);
-  if (attestationSha256 !== hashJeffBrainValue(body)
-    || observedMs > currentMs
+  if (observedMs > currentMs
     || currentMs >= expiresMs
-    || expiresMs <= observedMs
-    || expiresMs - observedMs > MAX_TTL_MS) {
+  ) {
     throw new Error('JEFF_AUTH_DENIED');
   }
   return Object.freeze(structuredClone(attestation));

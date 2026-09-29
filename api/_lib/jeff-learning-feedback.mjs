@@ -6,19 +6,43 @@ import {
   isJeffRecord,
   JEFF_HASH,
 } from './jeff-brain-common.mjs';
-import { requireJeffAuthorization } from './jeff-trusted-authorization.mjs';
+import {
+  requireJeffAuthorization,
+  validateJeffAuthorizationAttestation,
+} from './jeff-trusted-authorization.mjs';
 
 const OUTCOMES = new Set(['helpful', 'unhelpful', 'corrected', 'unsafe']);
 const EVENT_KEYS = [
   'schema', 'scopeSha256', 'ownerIdSha256', 'decisionReceiptSha256', 'outcome',
   'correction', 'ownerOptInForTraining', 'observedAt', 'independentReview',
-  'ownerEpoch', 'ownerAuthorizationAttestationSha256', 'trainingApplied', 'eventSha256',
+  'ownerEpoch', 'ownerAuthorizationAttestation', 'trainingApplied', 'eventSha256',
 ];
-const REVIEW_KEYS = ['reviewer', 'approved', 'reviewedAt', 'authorizationAttestationSha256'];
+const REVIEW_KEYS = [
+  'reviewer', 'approved', 'reviewedAt', 'reviewedEventSha256', 'authorizationAttestation',
+];
 
 function hasExactKeys(value, keys) {
   return isJeffRecord(value)
     && Object.keys(value).sort().join('\0') === [...keys].sort().join('\0');
+}
+
+function ownerIntent(event) {
+  return {
+    scopeSha256: event.scopeSha256,
+    decisionReceiptSha256: event.decisionReceiptSha256,
+    outcome: event.outcome,
+    correctionSha256: event.correction === null ? null : hashJeffBrainValue(event.correction),
+    ownerOptInForTraining: event.ownerOptInForTraining,
+    observedAt: event.observedAt,
+  };
+}
+
+function reviewerIntent(review) {
+  return {
+    reviewedEventSha256: review.reviewedEventSha256,
+    approved: review.approved,
+    reviewedAt: review.reviewedAt,
+  };
 }
 
 function validateFeedbackEvent(event, { reviewed }) {
@@ -32,17 +56,27 @@ function validateFeedbackEvent(event, { reviewed }) {
     || typeof event.ownerOptInForTraining !== 'boolean'
     || !Number.isSafeInteger(event.ownerEpoch)
     || event.ownerEpoch < 0
-    || !JEFF_HASH.test(event.ownerAuthorizationAttestationSha256)
     || !Number.isFinite(Date.parse(event.observedAt))
     || event.trainingApplied !== false
     || !JEFF_HASH.test(event.eventSha256)) return false;
+  if (!validateJeffAuthorizationAttestation(event.ownerAuthorizationAttestation, {
+    scope: ownerIntent(event),
+    operation: 'submit_feedback',
+    ownerEpoch: event.ownerEpoch,
+  })) return false;
   if (reviewed) {
     if (!hasExactKeys(event.independentReview, REVIEW_KEYS)
       || typeof event.independentReview.reviewer !== 'string'
       || typeof event.independentReview.approved !== 'boolean'
       || !Number.isFinite(Date.parse(event.independentReview.reviewedAt))
-      || !JEFF_HASH.test(event.independentReview.authorizationAttestationSha256)
+      || !JEFF_HASH.test(event.independentReview.reviewedEventSha256)
       || hashJeffBrainValue(event.independentReview.reviewer) === event.ownerIdSha256) return false;
+    if (!validateJeffAuthorizationAttestation(event.independentReview.authorizationAttestation, {
+      scope: reviewerIntent(event.independentReview),
+      operation: 'review_feedback',
+      ownerEpoch: event.ownerEpoch,
+      subjectSha256: hashJeffBrainValue(event.independentReview.reviewer),
+    })) return false;
   } else if (event.independentReview !== null) return false;
   const { eventSha256, ...body } = event;
   return hashJeffBrainValue(body) === eventSha256;
@@ -70,19 +104,6 @@ export async function createJeffFeedbackEvent({
     || authorization.agentId !== scope.agentId
     || authorization.ownerEpoch !== scope.ownerEpoch
     || authorization.canSubmitFeedback !== true) throw new Error('JEFF_FEEDBACK_AUTHORIZATION_DENIED');
-  let ownerAttestation;
-  try {
-    ownerAttestation = await requireJeffAuthorization({
-      verifier: authorizationVerifier,
-      scope,
-      subject: authorization.subject,
-      operation: 'submit_feedback',
-      ownerEpoch: scope.ownerEpoch,
-      now,
-    });
-  } catch {
-    throw new Error('JEFF_FEEDBACK_AUTHORIZATION_DENIED');
-  }
   if (!JEFF_HASH.test(String(decisionReceiptSha256 ?? '')) || !OUTCOMES.has(outcome)) {
     throw new Error('JEFF_FEEDBACK_INPUT_INVALID');
   }
@@ -92,17 +113,39 @@ export async function createJeffFeedbackEvent({
     if (containsJeffUnsafeText(normalizedCorrection)) throw new Error('JEFF_FEEDBACK_UNSAFE_CONTENT');
   }
   if (outcome === 'corrected' && !normalizedCorrection) throw new Error('JEFF_FEEDBACK_INPUT_INVALID');
+  const normalizedObservedAt = assertJeffIsoTimestamp(observedAt ?? now(), 'JEFF_FEEDBACK_TIME_INVALID');
+  const intent = {
+    scopeSha256: hashJeffBrainValue(scope),
+    decisionReceiptSha256,
+    outcome,
+    correctionSha256: normalizedCorrection === null ? null : hashJeffBrainValue(normalizedCorrection),
+    ownerOptInForTraining: ownerOptInForTraining === true,
+    observedAt: normalizedObservedAt,
+  };
+  let ownerAttestation;
+  try {
+    ownerAttestation = await requireJeffAuthorization({
+      verifier: authorizationVerifier,
+      scope: intent,
+      subject: authorization.subject,
+      operation: 'submit_feedback',
+      ownerEpoch: scope.ownerEpoch,
+      now,
+    });
+  } catch {
+    throw new Error('JEFF_FEEDBACK_AUTHORIZATION_DENIED');
+  }
   const body = {
     schema: 'jeff-learning-feedback-v1',
     scopeSha256: hashJeffBrainValue(scope),
     ownerIdSha256: hashJeffBrainValue(scope.ownerId),
     ownerEpoch: scope.ownerEpoch,
-    ownerAuthorizationAttestationSha256: ownerAttestation.attestationSha256,
+    ownerAuthorizationAttestation: ownerAttestation,
     decisionReceiptSha256,
     outcome,
     correction: normalizedCorrection,
     ownerOptInForTraining: ownerOptInForTraining === true,
-    observedAt: assertJeffIsoTimestamp(observedAt ?? now(), 'JEFF_FEEDBACK_TIME_INVALID'),
+    observedAt: normalizedObservedAt,
     independentReview: null,
     trainingApplied: false,
   };
@@ -118,14 +161,17 @@ export async function reviewJeffFeedbackEvent(
   const { eventSha256: _eventSha256, ...eventBody } = event;
   const reviewerId = assertJeffText(reviewer, 'JEFF_FEEDBACK_REVIEW_INVALID', 200);
   if (hashJeffBrainValue(reviewerId) === event.ownerIdSha256) throw new Error('JEFF_FEEDBACK_REVIEW_NOT_INDEPENDENT');
+  const normalizedReviewedAt = assertJeffIsoTimestamp(reviewedAt ?? now(), 'JEFF_FEEDBACK_REVIEW_INVALID');
+  const intent = {
+    reviewedEventSha256: event.eventSha256,
+    approved: approved === true,
+    reviewedAt: normalizedReviewedAt,
+  };
   let reviewerAttestation;
   try {
     reviewerAttestation = await requireJeffAuthorization({
       verifier: reviewerVerifier,
-      scope: {
-        feedbackEventSha256: event.eventSha256,
-        ownerScopeSha256: event.scopeSha256,
-      },
+      scope: intent,
       subject: reviewerId,
       operation: 'review_feedback',
       ownerEpoch: event.ownerEpoch,
@@ -136,9 +182,10 @@ export async function reviewJeffFeedbackEvent(
   }
   const review = {
     reviewer: reviewerId,
-    approved: approved === true,
-    reviewedAt: assertJeffIsoTimestamp(reviewedAt ?? now(), 'JEFF_FEEDBACK_REVIEW_INVALID'),
-    authorizationAttestationSha256: reviewerAttestation.attestationSha256,
+    approved: intent.approved,
+    reviewedAt: normalizedReviewedAt,
+    reviewedEventSha256: event.eventSha256,
+    authorizationAttestation: reviewerAttestation,
   };
   const body = { ...eventBody, independentReview: review };
   return Object.freeze({ ...body, eventSha256: hashJeffBrainValue(body) });
@@ -152,6 +199,7 @@ export async function assessJeffLearningCandidate(events, {
   if (!Array.isArray(events) || events.length === 0) throw new Error('JEFF_FEEDBACK_EVENTS_REQUIRED');
   const reasons = [];
   const hashes = [];
+  const eligibilityAttestationSha256s = [];
   for (const event of events) {
     const reviewed = validateFeedbackEvent(event, { reviewed: true });
     const unreviewed = validateFeedbackEvent(event, { reviewed: false });
@@ -168,18 +216,19 @@ export async function assessJeffLearningCandidate(events, {
       && event.independentReview.approved === true
       && event.trainingApplied === false) {
       try {
-        await requireJeffAuthorization({
+        const eligibilityAttestation = await requireJeffAuthorization({
           verifier: eligibilityVerifier,
           scope: {
             eventSha256: event.eventSha256,
-            ownerAuthorizationAttestationSha256: event.ownerAuthorizationAttestationSha256,
-            reviewerAuthorizationAttestationSha256: event.independentReview.authorizationAttestationSha256,
+            ownerAuthorizationAttestationSha256: event.ownerAuthorizationAttestation.attestationSha256,
+            reviewerAuthorizationAttestationSha256: event.independentReview.authorizationAttestation.attestationSha256,
           },
           subject: eligibilitySubject,
           operation: 'assess_learning_eligibility',
           ownerEpoch: event.ownerEpoch,
           now,
         });
+        eligibilityAttestationSha256s.push(eligibilityAttestation.attestationSha256);
       } catch {
         reasons.push('ELIGIBILITY_AUTHORIZATION_DENIED');
       }
@@ -191,7 +240,8 @@ export async function assessJeffLearningCandidate(events, {
     eligible: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)].sort()),
     eventSha256s: Object.freeze(hashes),
-    curriculumSha256: hashJeffBrainValue(hashes),
+    eligibilityAttestationSha256s: Object.freeze(eligibilityAttestationSha256s),
+    curriculumSha256: hashJeffBrainValue({ hashes, eligibilityAttestationSha256s }),
     trainingAuthorized: false,
     requiresSeparateBuildAndBlindEvaluation: true,
   });

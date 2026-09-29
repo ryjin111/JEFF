@@ -24,7 +24,7 @@ Brain v1 supports two separate memory planes:
 
 Production integrations must use authenticated encryption, an access-controlled durable adapter, and a server-controlled authorization verifier backed by authenticated sessions, signatures, or equivalent owner evidence. Caller-supplied capability flags are never sufficient. The included in-memory adapter is for tests and local development only.
 
-The same verifier boundary applies to MCP context policy, owner feedback submission, and independent review identity. JEFF validates exact-shape attestations bound to subject, operation, scope, owner epoch, and a maximum five-minute freshness window. Brain receipts retain only their hashes.
+The same verifier boundary applies to MCP context policy, owner feedback submission, and independent review identity. JEFF validates exact-shape attestations bound to subject, operation, scope, owner epoch, and a maximum five-minute freshness window. Owner consent also binds the decision receipt, outcome, correction commitment, training opt-in decision, and event time. Reviewer consent binds the reviewed event, approval decision, and review time. Final eligibility returns the eligibility attestation hashes. Brain receipts retain only authorization hashes outside the learning event contract.
 
 ## Example
 

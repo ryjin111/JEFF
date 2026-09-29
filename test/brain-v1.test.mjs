@@ -320,6 +320,7 @@ test('learning feedback never trains silently and requires verified opt-in plus 
   };
   assessment = await assessJeffLearningCandidate([reviewed], eligibilityOptions);
   assert.equal(assessment.eligible, true);
+  assert.equal(assessment.eligibilityAttestationSha256s.length, 1);
   assert.equal(assessment.trainingAuthorized, false);
   assert.equal(assessment.requiresSeparateBuildAndBlindEvaluation, true);
   await assert.rejects(reviewJeffFeedbackEvent(event, {
@@ -362,15 +363,45 @@ test('learning feedback never trains silently and requires verified opt-in plus 
   assert.equal(assessment.eligible, false);
   assert.ok(assessment.reasons.includes('EVENT_INVALID'));
 
-  const { eventSha256: _eventSha256, ...forgedReviewedBody } = reviewed;
-  forgedReviewedBody.ownerAuthorizationAttestationSha256 = 'f'.repeat(64);
-  const forgedReviewed = {
-    ...forgedReviewedBody,
-    eventSha256: hashJeffBrainValue(forgedReviewedBody),
+  const ownerDeclined = await createJeffFeedbackEvent({
+    scope,
+    authorization: feedbackAuthorization,
+    decisionReceiptSha256: 'b'.repeat(64),
+    outcome: 'helpful',
+    ownerOptInForTraining: false,
+    observedAt: '2026-09-29T00:00:00.000Z',
+  }, {
+    authorizationVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  });
+  const { eventSha256: _declinedHash, ...tamperedOwnerBody } = ownerDeclined;
+  tamperedOwnerBody.ownerOptInForTraining = true;
+  const tamperedOwner = {
+    ...tamperedOwnerBody,
+    eventSha256: hashJeffBrainValue(tamperedOwnerBody),
   };
-  assessment = await assessJeffLearningCandidate([forgedReviewed], eligibilityOptions);
+  await assert.rejects(reviewJeffFeedbackEvent(tamperedOwner, {
+    reviewer: 'auditor:bob', approved: true,
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  }), /JEFF_FEEDBACK_EVENT_INVALID/);
+
+  const reviewerRejected = await reviewJeffFeedbackEvent(event, {
+    reviewer: 'auditor:bob', approved: false, reviewedAt: '2026-09-29T01:00:00.000Z',
+  }, {
+    reviewerVerifier: serverAuthorizationVerifier,
+    now: () => authorizationNow,
+  });
+  const { eventSha256: _rejectedHash, ...tamperedReviewerBody } = structuredClone(reviewerRejected);
+  tamperedReviewerBody.independentReview.approved = true;
+  const tamperedReviewer = {
+    ...tamperedReviewerBody,
+    eventSha256: hashJeffBrainValue(tamperedReviewerBody),
+  };
+  assessment = await assessJeffLearningCandidate([tamperedReviewer], eligibilityOptions);
   assert.equal(assessment.eligible, false);
-  assert.ok(assessment.reasons.includes('ELIGIBILITY_AUTHORIZATION_DENIED'));
+  assert.ok(assessment.reasons.includes('EVENT_INVALID'));
 });
 
 test('Brain v1 combines deterministic decisions, planning, critique, and proposal-only tools', async () => {
