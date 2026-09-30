@@ -6,13 +6,13 @@ JEFF is an open, token-agnostic decision model and runtime for Agent NFTs. It tu
 
 JEFF v0.5 is intentionally shadow-only. It cannot sign, submit, publish, spend, or execute transactions. Every response keeps `executionAuthorized: false`.
 
-The development branch also includes [JEFF Brain v1](docs/JEFF_BRAIN_V1.md), which adds authorized encrypted recall, MCP context intake, planning, critique, proposal-only tools, review-gated learning feedback, and hash-bound brain receipts above the v0.9 decision core. Brain v1 is also shadow-only.
+The current release includes [JEFF Brain v1](docs/JEFF_BRAIN_V1.md), which adds authorized encrypted recall, MCP context intake, planning, critique, proposal-only tools, review-gated learning feedback, and hash-bound brain receipts above the v0.9 decision core. Brain v1 is also shadow-only.
 
-The integration branch also provides a server-authenticated [Brain shadow HTTP API](docs/JEFF_BRAIN_HTTP.md) for calling the complete non-executing reasoning loop through `https://your-domain.example/api/jeff-brain`.
+The release also provides a server-authenticated [Brain shadow HTTP API](docs/JEFF_BRAIN_HTTP.md) for calling the complete non-executing reasoning loop through `https://www.isoclockers.world/api/jeff-brain`. Public verification is available at `https://www.isoclockers.world/jeff-brain-certification/`.
 
-The execution development branch adds a separate [deny-by-default execution gate](docs/JEFF_EXECUTION_GATE.md). It binds a Brain proposal to an owner-scoped policy, simulation, fresh server authorization, atomic idempotency reservation, quota, emergency stop, and an execution receipt. This code is not enabled in the production Brain endpoint and is not yet a released execution certification.
+The release includes a separate [deny-by-default execution gate](docs/JEFF_EXECUTION_GATE.md). It binds a Brain proposal to an owner-scoped policy, simulation, fresh server authorization, atomic idempotency reservation, quota, emergency stop, and an execution receipt. This code is not enabled in the production Brain endpoint and is not a released execution certification.
 
-The curiosity development branch adds a [deny-by-default curiosity loop](docs/JEFF_CURIOSITY_LOOP.md) for autonomous questions, novelty and information-gain scoring, approved read-only research, nonexecuting simulations, bounded discoveries, and hash-bound receipts. It cannot use write tools or silently retrain the live Brain.
+The release includes a [deny-by-default curiosity loop](docs/JEFF_CURIOSITY_LOOP.md) for autonomous questions, novelty and information-gain scoring, approved read-only research, nonexecuting simulations, bounded discoveries, and hash-bound receipts. It cannot use write tools or silently retrain the live Brain.
 
 ## Released checkpoint
 
