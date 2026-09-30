@@ -14,9 +14,13 @@ import { requireJeffAuthorization } from './jeff-trusted-authorization.mjs';
 
 const POLICY_SCHEMA = 'jeff-curiosity-policy-v1';
 const RECEIPT_SCHEMA = 'jeff-curiosity-receipt-v1';
-const AUTH_SCOPE_SCHEMA = 'jeff-curiosity-authorization-scope-v1';
+const CYCLE_AUTH_SCOPE_SCHEMA = 'jeff-curiosity-cycle-authorization-scope-v1';
+const PROBE_AUTH_SCOPE_SCHEMA = 'jeff-curiosity-probe-authorization-scope-v1';
+const EVIDENCE_AUTH_SCOPE_SCHEMA = 'jeff-curiosity-evidence-authorization-scope-v1';
+const CAPABILITY_SCHEMA = 'jeff-curiosity-tool-capability-v1';
 const SAFE_MODES = new Set(['read_only', 'simulate']);
 const EXECUTION_MATERIAL_PATTERN = /\b(?:broadcast|execute|private.?key|raw.?transaction|signature|submit|sendtransaction|wallet_send|eth_send|change.?permissions?)\b/i;
+const INSTRUCTION_OVERRIDE_PATTERN = /\b(?:disregard|ignore|forget|override|bypass|supersede|replace|do\s+not\s+follow)\b[\s\S]{0,120}\b(?:all\s+)?(?:prior|previous|earlier|above|system|developer|owner|safety)?\s*(?:instructions?|directions?|rules?|polic(?:y|ies)|guidance)\b/i;
 const MAX_POLICY_TTL_MS = 24 * 60 * 60 * 1_000;
 const MAX_PROBES = 8;
 const MAX_CYCLES = 24;
@@ -34,6 +38,61 @@ function validEpoch(value) {
 
 function validProbability(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function containsCuriosityUnsafeText(value) {
+  return containsJeffUnsafeText(value)
+    || (INSTRUCTION_OVERRIDE_PATTERN.test(String(value ?? '')) ? 'instruction_injection' : null);
+}
+
+function capabilityBody(capability) {
+  if (!isJeffRecord(capability)) return null;
+  const { capabilitySha256, ...body } = capability;
+  return body;
+}
+
+export function verifyJeffCuriosityCapability(capability) {
+  const keys = [
+    'adapterId', 'capabilitySha256', 'dataEgress', 'evidenceVerification',
+    'isolation', 'mode', 'networkAccess', 'schema', 'tool', 'writesAllowed',
+  ];
+  if (!exactKeys(capability, keys)
+    || capability.schema !== CAPABILITY_SCHEMA
+    || typeof capability.adapterId !== 'string'
+    || !/^[a-z][a-z0-9_.:-]{0,255}$/i.test(capability.adapterId)
+    || typeof capability.tool !== 'string'
+    || !/^[a-z][a-z0-9_.-]{0,127}$/i.test(capability.tool)
+    || !SAFE_MODES.has(capability.mode)
+    || capability.isolation !== 'server_sandbox'
+    || !['none', 'allowlisted_read'].includes(capability.networkAccess)
+    || (capability.mode === 'simulate' && capability.networkAccess !== 'none')
+    || capability.dataEgress !== 'public_only'
+    || capability.evidenceVerification !== 'server_attested'
+    || capability.writesAllowed !== false
+    || !JEFF_HASH.test(String(capability.capabilitySha256 ?? ''))) return false;
+  return capability.capabilitySha256 === hashJeffBrainValue(capabilityBody(capability));
+}
+
+export function createJeffCuriosityCapability({
+  adapterId,
+  tool,
+  mode,
+  networkAccess = mode === 'read_only' ? 'allowlisted_read' : 'none',
+} = {}) {
+  const body = {
+    schema: CAPABILITY_SCHEMA,
+    adapterId: assertJeffText(adapterId, 'JEFF_CURIOSITY_CAPABILITY_INVALID', 256),
+    tool: assertJeffName(tool, 'JEFF_CURIOSITY_CAPABILITY_INVALID'),
+    mode,
+    isolation: 'server_sandbox',
+    networkAccess,
+    dataEgress: 'public_only',
+    evidenceVerification: 'server_attested',
+    writesAllowed: false,
+  };
+  const capability = Object.freeze({ ...body, capabilitySha256: hashJeffBrainValue(body) });
+  if (!verifyJeffCuriosityCapability(capability)) throw new Error('JEFF_CURIOSITY_CAPABILITY_INVALID');
+  return capability;
 }
 
 export function verifyJeffCuriosityPolicy(policy) {
@@ -123,6 +182,7 @@ function normalizeHistory(history) {
   if (!Array.isArray(history) || history.length > 32) throw new Error('JEFF_CURIOSITY_HISTORY_INVALID');
   const selected = [];
   const quarantined = [];
+  const restrictedValues = [];
   for (const item of history) {
     if (!isJeffRecord(item) || item.verified !== true) {
       quarantined.push({ id: String(item?.id ?? 'unknown'), reason: 'unverified' });
@@ -139,22 +199,41 @@ function normalizeHistory(history) {
       quarantined.push({ id: String(item?.id ?? 'unknown'), reason: 'invalid' });
       continue;
     }
-    const unsafe = containsJeffUnsafeText(`${text}\n${source}`);
+    if (item.visibility !== 'public') {
+      quarantined.push({ id, reason: 'private_context' });
+      restrictedValues.push(text);
+      continue;
+    }
+    const unsafe = containsCuriosityUnsafeText(`${text}\n${source}`);
     if (unsafe) quarantined.push({ id, reason: unsafe });
     else selected.push(Object.freeze({ id, text, source }));
   }
-  return { selected: Object.freeze(selected), quarantined: Object.freeze(quarantined) };
+  return {
+    selected: Object.freeze(selected),
+    quarantined: Object.freeze(quarantined),
+    restrictedValues: Object.freeze(restrictedValues),
+  };
 }
 
-function normalizeProbe(probe) {
+function containsRestrictedValue(value, restrictedValues) {
+  const haystack = canonicalJson(value).toLowerCase();
+  return restrictedValues.some((restricted) => {
+    const normalized = restricted.trim().toLowerCase();
+    if (normalized.length >= 8 && haystack.includes(normalized)) return true;
+    return (normalized.match(/[a-z0-9_-]{12,}/g) ?? []).some((token) => haystack.includes(token));
+  });
+}
+
+function normalizeProbe(probe, restrictedValues) {
   if (!isJeffRecord(probe)) throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
   const question = assertJeffText(probe.question, 'JEFF_CURIOSITY_PLAN_INVALID', 1_000);
   const uncertainty = assertJeffText(probe.uncertainty, 'JEFF_CURIOSITY_PLAN_INVALID', 1_000);
   const hypothesis = assertJeffText(probe.hypothesis, 'JEFF_CURIOSITY_PLAN_INVALID', 1_000);
   if (!validProbability(probe.expectedInformationGain)) throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
   const input = Object.freeze(structuredClone(assertJeffRecord(probe.input, 'JEFF_CURIOSITY_PLAN_INVALID', 16_000)));
-  if (containsJeffUnsafeText(`${question}\n${uncertainty}\n${hypothesis}\n${canonicalJson(input)}`)
-    || EXECUTION_MATERIAL_PATTERN.test(canonicalJson(input))) throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
+  if (containsCuriosityUnsafeText(`${question}\n${uncertainty}\n${hypothesis}\n${canonicalJson(input)}`)
+    || EXECUTION_MATERIAL_PATTERN.test(canonicalJson(input))
+    || containsRestrictedValue(probe, restrictedValues)) throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
   return Object.freeze({
     id: assertJeffName(probe.id, 'JEFF_CURIOSITY_PLAN_INVALID'),
     question,
@@ -166,14 +245,18 @@ function normalizeProbe(probe) {
   });
 }
 
-function normalizePlan(raw) {
+function normalizePlan(raw, restrictedValues = []) {
   if (!isJeffRecord(raw) || !Array.isArray(raw.probes) || raw.probes.length > 16) {
     throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
   }
-  const probes = raw.probes.map(normalizeProbe);
+  const rationale = assertJeffText(raw.rationale, 'JEFF_CURIOSITY_PLAN_INVALID', 1_200);
+  if (containsCuriosityUnsafeText(rationale) || containsRestrictedValue(raw, restrictedValues)) {
+    throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
+  }
+  const probes = raw.probes.map((probe) => normalizeProbe(probe, restrictedValues));
   if (new Set(probes.map(({ id }) => id)).size !== probes.length) throw new Error('JEFF_CURIOSITY_PLAN_INVALID');
   return Object.freeze({
-    rationale: assertJeffText(raw.rationale, 'JEFF_CURIOSITY_PLAN_INVALID', 1_200),
+    rationale,
     probes: Object.freeze(probes),
   });
 }
@@ -193,14 +276,14 @@ function normalizeObservation(value) {
     || value.summary.length > 2_000
     || !Array.isArray(value.evidence)
     || value.evidence.length > 16
-    || containsJeffUnsafeText(value.summary)) throw new Error('JEFF_CURIOSITY_OBSERVATION_INVALID');
+    || containsCuriosityUnsafeText(value.summary)) throw new Error('JEFF_CURIOSITY_OBSERVATION_INVALID');
   const evidence = value.evidence.map((entry) => {
     if (!isJeffRecord(entry)
       || typeof entry.source !== 'string'
       || !entry.source.trim()
       || entry.source.length > 1_000
       || !JEFF_HASH.test(String(entry.contentSha256 ?? ''))
-      || containsJeffUnsafeText(entry.source)) throw new Error('JEFF_CURIOSITY_OBSERVATION_INVALID');
+      || containsCuriosityUnsafeText(entry.source)) throw new Error('JEFF_CURIOSITY_OBSERVATION_INVALID');
     return Object.freeze({ source: entry.source.trim(), contentSha256: entry.contentSha256 });
   });
   return Object.freeze({ ok: true, summary: value.summary.trim(), evidence: Object.freeze(evidence) });
@@ -280,7 +363,7 @@ export async function runJeffCuriosityCycle({
   const normalizedSubject = assertJeffText(subject, 'JEFF_CURIOSITY_AUTHORIZATION_DENIED', 256);
   const normalizedCycleNonce = assertJeffText(cycleNonce, 'JEFF_CURIOSITY_CYCLE_INVALID', 128);
   if (normalizedCycleNonce.length < 16) throw new Error('JEFF_CURIOSITY_CYCLE_INVALID');
-  if (containsJeffUnsafeText(normalizedObjective)) throw new Error('JEFF_CURIOSITY_OBJECTIVE_INVALID');
+  if (containsCuriosityUnsafeText(normalizedObjective)) throw new Error('JEFF_CURIOSITY_OBJECTIVE_INVALID');
   if (!provider || typeof provider.complete !== 'function') throw new Error('JEFF_CURIOSITY_PROVIDER_INVALID');
   if (!Array.isArray(toolAdapters) || toolAdapters.length > 32) throw new Error('JEFF_CURIOSITY_TOOLS_INVALID');
   const adapters = new Map();
@@ -292,20 +375,55 @@ export async function runJeffCuriosityCycle({
       || typeof adapter.explore !== 'function'
       || adapters.has(adapter.name)) throw new Error('JEFF_CURIOSITY_TOOL_INVALID');
     const description = assertJeffText(adapter.description, 'JEFF_CURIOSITY_TOOL_INVALID', 1_000);
-    if (containsJeffUnsafeText(description)) throw new Error('JEFF_CURIOSITY_TOOL_INVALID');
-    adapters.set(adapter.name, adapter);
-    toolDescriptions.push({ name: adapter.name, mode: adapter.mode, description });
+    const capability = Object.freeze(structuredClone(adapter.capability));
+    if (containsCuriosityUnsafeText(description)
+      || !verifyJeffCuriosityCapability(capability)
+      || capability.tool !== adapter.name
+      || capability.mode !== adapter.mode) throw new Error('JEFF_CURIOSITY_TOOL_INVALID');
+    adapters.set(adapter.name, Object.freeze({ adapter, capability }));
+    toolDescriptions.push({
+      name: adapter.name,
+      mode: adapter.mode,
+      description,
+      capabilitySha256: capability.capabilitySha256,
+    });
   }
   const normalizedHistory = normalizeHistory(history);
   if (!explorationStore
     || typeof explorationStore.begin !== 'function'
     || typeof explorationStore.complete !== 'function') throw new Error('JEFF_CURIOSITY_STORE_REQUIRED');
+  const objectiveSha256 = hashJeffBrainValue(normalizedObjective);
+  const historySha256 = hashJeffBrainValue(normalizedHistory.selected);
+  const toolCapabilitiesSha256 = hashJeffBrainValue(
+    [...adapters.values()]
+      .map(({ capability }) => capability.capabilitySha256)
+      .sort(),
+  );
   const cycleKey = hashJeffBrainValue({
     policySha256: policy.policySha256,
-    objectiveSha256: hashJeffBrainValue(normalizedObjective),
-    historySha256: hashJeffBrainValue(normalizedHistory.selected),
+    objectiveSha256,
+    historySha256,
     cycleNonce: normalizedCycleNonce,
   });
+  const cycleAuthorization = await requireJeffAuthorization({
+    verifier: authorizationVerifier,
+    scope: {
+      schema: CYCLE_AUTH_SCOPE_SCHEMA,
+      agentId: policy.agentId,
+      ownerId: policy.ownerId,
+      ownerEpoch: policy.ownerEpoch,
+      policySha256: policy.policySha256,
+      objectiveSha256,
+      historySha256,
+      cycleKey,
+      toolCapabilitiesSha256,
+    },
+    subject: normalizedSubject,
+    operation: 'explore:cycle',
+    ownerEpoch: policy.ownerEpoch,
+    now,
+  });
+  validatePolicyNow(policy, now);
   const reservation = await explorationStore.begin({
     cycleKey,
     policySha256: policy.policySha256,
@@ -322,7 +440,7 @@ export async function runJeffCuriosityCycle({
       tools: toolDescriptions,
     }),
   });
-  const plan = normalizePlan(rawPlan);
+  const plan = normalizePlan(rawPlan, normalizedHistory.restrictedValues);
   const scored = plan.probes.map((probe) => ({
     probe,
     novelty: noveltyScore(probe.question, normalizedHistory.selected),
@@ -339,19 +457,25 @@ export async function runJeffCuriosityCycle({
   const discoveries = [];
   const authorizationAttestationSha256s = [];
   for (const { probe, novelty } of selected) {
-    const adapter = adapters.get(probe.tool);
-    if (!adapter) continue;
+    const adapterEntry = adapters.get(probe.tool);
+    if (!adapterEntry) continue;
+    const { adapter, capability } = adapterEntry;
     validatePolicyNow(policy, now);
     const probeSha256 = hashJeffBrainValue(probe);
     const authorizationScope = {
-      schema: AUTH_SCOPE_SCHEMA,
+      schema: PROBE_AUTH_SCOPE_SCHEMA,
       agentId: policy.agentId,
       ownerId: policy.ownerId,
       ownerEpoch: policy.ownerEpoch,
       policySha256: policy.policySha256,
+      objectiveSha256,
+      historySha256,
+      cycleKey,
       probeSha256,
+      inputSha256: hashJeffBrainValue(probe.input),
       tool: probe.tool,
       mode: adapter.mode,
+      capabilitySha256: capability.capabilitySha256,
     };
     const authorization = await requireJeffAuthorization({
       verifier: authorizationVerifier,
@@ -365,9 +489,35 @@ export async function runJeffCuriosityCycle({
     const observation = normalizeObservation(await adapter.explore(structuredClone(probe.input), Object.freeze({
       probeSha256,
       policySha256: policy.policySha256,
+      capabilitySha256: capability.capabilitySha256,
       authorizationAttestationSha256: authorization.attestationSha256,
     })));
     authorizationAttestationSha256s.push(authorization.attestationSha256);
+    const evidenceAttestationSha256s = [];
+    for (const evidence of observation.evidence) {
+      validatePolicyNow(policy, now);
+      const evidenceAuthorization = await requireJeffAuthorization({
+        verifier: authorizationVerifier,
+        scope: {
+          schema: EVIDENCE_AUTH_SCOPE_SCHEMA,
+          agentId: policy.agentId,
+          ownerId: policy.ownerId,
+          ownerEpoch: policy.ownerEpoch,
+          policySha256: policy.policySha256,
+          cycleKey,
+          probeSha256,
+          tool: probe.tool,
+          mode: adapter.mode,
+          capabilitySha256: capability.capabilitySha256,
+          evidence,
+        },
+        subject: normalizedSubject,
+        operation: `verify_evidence:${probe.tool}`,
+        ownerEpoch: policy.ownerEpoch,
+        now,
+      });
+      evidenceAttestationSha256s.push(evidenceAuthorization.attestationSha256);
+    }
     discoveries.push(Object.freeze({
       probeId: probe.id,
       question: probe.question,
@@ -377,6 +527,7 @@ export async function runJeffCuriosityCycle({
       expectedInformationGain: probe.expectedInformationGain,
       novelty,
       observation,
+      evidenceAttestationSha256s: Object.freeze(evidenceAttestationSha256s),
     }));
   }
 
@@ -385,12 +536,14 @@ export async function runJeffCuriosityCycle({
     mode: 'bounded_exploration',
     cycleKey,
     cycleIndex: reservation.cycleIndex,
-    objectiveSha256: hashJeffBrainValue(normalizedObjective),
+    objectiveSha256,
     policySha256: policy.policySha256,
     planSha256: hashJeffBrainValue(plan),
-    historySha256: hashJeffBrainValue(normalizedHistory.selected),
+    historySha256,
+    toolCapabilitiesSha256,
     quarantinedHistory: normalizedHistory.quarantined,
     discoverySha256s: discoveries.map(hashJeffBrainValue),
+    cycleAuthorizationAttestationSha256: cycleAuthorization.attestationSha256,
     authorizationAttestationSha256s,
     probesProposed: plan.probes.length,
     probesExecuted: discoveries.length,

@@ -4,17 +4,20 @@ The JEFF curiosity loop gives an Agent NFT a bounded way to explore without gran
 
 ## Safety model
 
-Curiosity is disabled by default. An active policy binds exploration to the current agent, owner, owner epoch, allowed tools, per-cycle probe limit, total cycle quota, novelty threshold, information-gain threshold, validity window, and unique nonce.
+Curiosity is disabled by default. An active policy binds exploration to the current agent, owner, owner epoch, allowed tools, per-cycle probe limit, total cycle quota, novelty threshold, information-gain threshold, validity window, and unique nonce. A fresh cycle authorization is required before quota reservation or provider access. It binds the agent, owner, owner epoch, policy, objective hash, public-history hash, cycle key, and the exact registered tool-capability set.
 
 Every selected probe requires a fresh server-controlled authorization attestation bound to:
 
 - the current agent and owner epoch;
 - the exact curiosity policy;
-- the exact probe content hash;
+- the cycle, objective, public history, exact probe, and input hashes;
 - the selected tool and its read-only or simulation mode;
+- the server-registered adapter capability hash;
 - the authenticated subject and operation.
 
-The policy is checked before planning, before every authorization, and immediately before every tool call. Write-mode adapters are rejected. Inputs containing execution material, secret requests, or prompt-injection patterns fail closed. Unverified or unsafe history is quarantined before it reaches the planning provider.
+The policy is checked before planning, before every authorization, and immediately before every tool call. Write-mode adapters are rejected. A mode label alone grants no authority. Each adapter must present a hash-bound capability contract requiring a server sandbox, no writes, public-only egress, and server-attested evidence. The current-owner verifier must match that capability hash to a trusted server registry and deployment before authorizing the cycle or probe.
+
+Inputs containing execution material, secret requests, or prompt-injection patterns fail closed. Only explicitly public, verified history may reach the planning provider. Private, unlabeled, unverified, or unsafe history is quarantined. Private content is also treated as a restricted value and is rejected if a provider attempts to place it in a plan or adapter input.
 
 ## Exploration budget
 
@@ -24,7 +27,9 @@ Within a cycle, JEFF ranks probes by expected information gain, then novelty, th
 
 ## Evidence and learning
 
-Tool adapters return a bounded summary and content hashes for their evidence. The curiosity receipt binds the objective, policy, plan, selected history, quarantined history, authorization attestations, and discovery hashes. It contains no write authority and reports:
+Tool adapters return a bounded summary and content hashes for their evidence. Syntax and a content hash are not proof. Every evidence item requires a separate server-controlled provenance attestation bound to its source, hash, probe, capability, owner epoch, and policy. The verifier must independently resolve or validate the source and content commitment. Unsupported evidence fails the cycle and cannot produce a completed receipt.
+
+The curiosity receipt binds the objective, policy, plan, selected history, quarantined history, cycle authorization, probe authorizations, evidence attestations, registered capability set, and discovery hashes. It contains no write authority and reports:
 
 ```json
 {
@@ -40,10 +45,11 @@ Discoveries may be submitted to JEFF's authorized memory or review-gated learnin
 ## Integration requirements
 
 - Keep source credentials and private user data outside prompts, observations, and receipts.
-- Use server-verified current ownership and owner epoch for every probe.
-- Permit only narrowly scoped read-only and local simulation adapters.
+- Use server-verified current ownership and owner epoch before provider access and for every probe and evidence item.
+- Run only registered adapters in an enforced server sandbox. Verify their capability hashes against the deployed implementation. Never trust a self-declared `read_only` label.
+- Permit only allowlisted public reads and isolated local simulations. Deny filesystem, database, wallet, process, and mutation access at the sandbox boundary.
 - Rate-limit provider and tool calls independently of the policy quota.
-- Treat adapter summaries as untrusted until evidence hashes and sources are independently checked.
+- Treat adapter summaries as untrusted until evidence hashes and sources receive independent provenance attestations.
 - Monitor repeated authorization failures, quota exhaustion, unsafe-plan rejection, and quarantined history.
 
 This module is an exploration foundation, not approval for unrestricted browsing or production writes. Network domains, data licenses, cost limits, and content policies remain integration-specific release gates.
