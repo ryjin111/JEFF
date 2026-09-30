@@ -12,6 +12,8 @@ The integration branch also provides a server-authenticated [Brain shadow HTTP A
 
 The execution development branch adds a separate [deny-by-default execution gate](docs/JEFF_EXECUTION_GATE.md). It binds a Brain proposal to an owner-scoped policy, simulation, fresh server authorization, atomic idempotency reservation, quota, emergency stop, and an execution receipt. This code is not enabled in the production Brain endpoint and is not yet a released execution certification.
 
+The curiosity development branch adds a [deny-by-default curiosity loop](docs/JEFF_CURIOSITY_LOOP.md) for autonomous questions, novelty and information-gain scoring, approved read-only research, nonexecuting simulations, bounded discoveries, and hash-bound receipts. It cannot use write tools or silently retrain the live Brain.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
@@ -71,7 +73,7 @@ The receipt never authorizes execution. An integration must run its own policy c
 
 ## What is included
 
-- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, the gated execution boundary, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
+- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, the gated execution boundary, curiosity loop, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
