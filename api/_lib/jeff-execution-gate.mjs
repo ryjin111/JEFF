@@ -125,7 +125,10 @@ export function createJeffExecutionIntent({
   if (!verifyBrainResult(brainResult)
     || !verifyJeffExecutionPolicy(policy)
     || policy.enabled !== true
-    || policy.emergencyStop !== false) {
+    || policy.emergencyStop !== false
+    || !Number.isSafeInteger(proposalIndex)
+    || proposalIndex < 0
+    || proposalIndex >= brainResult.safety.proposals.length) {
     throw new Error('JEFF_EXECUTION_INTENT_DENIED');
   }
   const proposal = brainResult.safety.proposals[proposalIndex];

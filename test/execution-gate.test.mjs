@@ -195,6 +195,29 @@ test('disabled policy and emergency stop block intent creation', async () => {
   assert.throws(() => createJeffExecutionIntent({ brainResult: result, policy: stopped }), /INTENT_DENIED/);
 });
 
+test('proposal index must be a canonical in-range safe integer', async () => {
+  const result = await brainResult();
+  const policy = activePolicy();
+  const invalidIndexes = ['0', ['0'], -1, 0.5, result.safety.proposals.length, Number.MAX_SAFE_INTEGER + 1];
+
+  for (const proposalIndex of invalidIndexes) {
+    assert.throws(
+      () => createJeffExecutionIntent({ brainResult: result, policy, proposalIndex }),
+      /INTENT_DENIED/,
+      `expected proposalIndex ${JSON.stringify(proposalIndex)} to be denied`,
+    );
+  }
+
+  const intent = createJeffExecutionIntent({ brainResult: result, policy, proposalIndex: 0 });
+  assert.equal(verifyJeffExecutionIntent(intent), true);
+  assert.equal(intent.idempotencyKey, hashJeffBrainValue({
+    brainReceiptSha256: result.audit.receiptSha256,
+    policySha256: policy.policySha256,
+    proposalIndex: 0,
+    tool: result.safety.proposals[0].tool,
+  }));
+});
+
 test('expired policy, denied authorization, and mismatched attestations never call execute', async () => {
   const result = await brainResult();
   const policy = activePolicy();
