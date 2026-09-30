@@ -180,6 +180,9 @@ test('a verified Brain proposal executes once after simulation and server author
   assert.equal(first.actionsExecuted, 1);
   assert.equal(JSON.stringify(first).includes('owner:alice'), false);
   assert.equal(JSON.stringify(first).includes('report:weekly-10'), false);
+  const tampered = structuredClone(first);
+  tampered.finalStateSha256 = '0'.repeat(64);
+  assert.equal(verifyJeffExecutionReceipt(tampered), false);
   assert.equal(calls.simulate, 2);
   assert.equal(calls.execute, 1);
 });
@@ -218,6 +221,13 @@ test('expired policy, denied authorization, and mismatched attestations never ca
     ...base,
     authorizationVerifier: authorizationVerifier({
       mutateScope: (authorizationScope) => ({ ...authorizationScope, intentSha256: '0'.repeat(64) }),
+    }),
+    now: () => nowValue,
+  }), /JEFF_AUTH_DENIED/);
+  await assert.rejects(executeJeffIntent({
+    ...base,
+    authorizationVerifier: authorizationVerifier({
+      mutateScope: (authorizationScope) => ({ ...authorizationScope, ownerEpoch: authorizationScope.ownerEpoch + 1 }),
     }),
     now: () => nowValue,
   }), /JEFF_AUTH_DENIED/);
@@ -286,4 +296,55 @@ test('an unknown adapter outcome remains reserved and cannot auto-retry', async 
   await assert.rejects(executeJeffIntent(args), /UPSTREAM_TIMEOUT/);
   await assert.rejects(executeJeffIntent(args), /ALREADY_IN_FLIGHT/);
   assert.equal(calls.execute, 1);
+});
+
+test('concurrent attempts can cause at most one external effect', async () => {
+  const policy = activePolicy();
+  const intent = createJeffExecutionIntent({ brainResult: await brainResult(), policy });
+  const calls = { simulate: 0, execute: 0 };
+  const args = {
+    intent,
+    policy,
+    subject: 'session:alice',
+    authorizationVerifier: authorizationVerifier(),
+    toolAdapter: toolAdapter(calls),
+    executionStore: createInMemoryJeffExecutionStore(),
+    now: () => nowValue,
+  };
+  const attempts = await Promise.allSettled([executeJeffIntent(args), executeJeffIntent(args)]);
+  assert.equal(attempts.some(({ status }) => status === 'fulfilled'), true);
+  assert.equal(calls.execute, 1);
+});
+
+test('policy expiry during simulation is rechecked before reservation', async () => {
+  const policy = activePolicy({
+    nonce: 'short-policy-0001',
+    expiresAt: '2026-09-30T10:02:00.000Z',
+  });
+  const intent = createJeffExecutionIntent({ brainResult: await brainResult(), policy });
+  const times = [
+    '2026-09-30T10:01:59.000Z',
+    '2026-09-30T10:02:01.000Z',
+    '2026-09-30T10:02:01.000Z',
+  ];
+  const calls = { simulate: 0, execute: 0 };
+  const verifier = {
+    async attest(input) {
+      return createJeffAuthorizationAttestation({
+        ...input,
+        observedAt: '2026-09-30T10:02:00.000Z',
+        expiresAt: '2026-09-30T10:03:00.000Z',
+      });
+    },
+  };
+  await assert.rejects(executeJeffIntent({
+    intent,
+    policy,
+    subject: 'session:alice',
+    authorizationVerifier: verifier,
+    toolAdapter: toolAdapter(calls),
+    executionStore: createInMemoryJeffExecutionStore(),
+    now: () => times.shift() ?? '2026-09-30T10:02:01.000Z',
+  }), /POLICY_EXPIRED/);
+  assert.equal(calls.execute, 0);
 });

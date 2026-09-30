@@ -295,6 +295,9 @@ export async function executeJeffIntent({
     ownerEpoch: intent.ownerEpoch,
     now,
   });
+  // Simulation and authorization may outlive a short policy window. Recheck
+  // the current policy immediately before reserving any execution capacity.
+  validatePolicyForIntent(policy, intent, now);
 
   const reservation = await executionStore.begin({
     idempotencyKey: intent.idempotencyKey,
