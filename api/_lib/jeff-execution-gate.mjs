@@ -111,6 +111,9 @@ function verifyBrainResult(result) {
     && isJeffRecord(result.safety)
     && result.safety.disposition !== 'deny'
     && Array.isArray(result.safety.proposals)
+    && result.audit.safetySha256 === hashJeffBrainValue(result.safety)
+    && result.audit.decisionResponseSha256 === hashJeffBrainValue(result.decisionResponse)
+    && result.audit.selectedPlanSha256 === hashJeffBrainValue(result.selectedPlan)
     && verifyJeffBrainReceipt(result.audit);
 }
 
@@ -287,14 +290,15 @@ export async function executeJeffIntent({
     tool: intent.tool,
     simulationSha256,
   };
-  const authorization = await requireJeffAuthorization({
+  const authorizationRequest = {
     verifier: authorizationVerifier,
     scope: authorizationScope,
     subject,
     operation: `execute:${intent.tool}`,
     ownerEpoch: intent.ownerEpoch,
     now,
-  });
+  };
+  await requireJeffAuthorization(authorizationRequest);
   // Simulation and authorization may outlive a short policy window. Recheck
   // the current policy immediately before reserving any execution capacity.
   validatePolicyForIntent(policy, intent, now);
@@ -308,7 +312,14 @@ export async function executeJeffIntent({
   if (reservation.status === 'completed') return Object.freeze(reservation.receipt);
   if (reservation.status !== 'reserved') throw new Error('JEFF_EXECUTION_RESERVATION_INVALID');
 
+  let adapterStarted = false;
   try {
+    // A reservation does not authorize an effect. Recheck the static policy and
+    // live server-controlled authorization after reservation, immediately before
+    // the adapter call, so revocation and owner-epoch changes fail closed.
+    validatePolicyForIntent(policy, intent, now);
+    const authorization = await requireJeffAuthorization(authorizationRequest);
+    adapterStarted = true;
     const result = normalizeExecutionResult(await toolAdapter.execute(structuredClone(intent.input), Object.freeze({
       idempotencyKey: intent.idempotencyKey,
       intentSha256: intent.intentSha256,
@@ -316,6 +327,9 @@ export async function executeJeffIntent({
       simulationSha256,
       authorizationAttestationSha256: authorization.attestationSha256,
     })));
+    if (result.finalStateSha256 !== simulation.postStateSha256) {
+      throw new Error('JEFF_EXECUTION_FINAL_STATE_DIVERGED');
+    }
     const body = {
       schema: RECEIPT_SCHEMA,
       status: 'executed',
@@ -342,6 +356,7 @@ export async function executeJeffIntent({
   } catch (error) {
     // Once an adapter is called, its outcome may be unknown even when it throws.
     // Keep the reservation in-flight so an automatic retry cannot duplicate an effect.
+    if (!adapterStarted) await executionStore.abort({ idempotencyKey: intent.idempotencyKey });
     throw error;
   }
 }

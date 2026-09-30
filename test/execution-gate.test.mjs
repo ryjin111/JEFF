@@ -254,6 +254,13 @@ test('failed simulation and forged intent are rejected before execution', async 
   const forged = structuredClone(intent);
   forged.input.reportId = 'attacker-report';
   assert.equal(verifyJeffExecutionIntent(forged), false);
+
+  const tamperedBrain = structuredClone(result);
+  tamperedBrain.safety.proposals[0].input.reportId = 'attacker-report';
+  assert.throws(
+    () => createJeffExecutionIntent({ brainResult: tamperedBrain, policy }),
+    /INTENT_DENIED/,
+  );
 });
 
 test('atomic policy quota prevents a second distinct action', async () => {
@@ -347,4 +354,55 @@ test('policy expiry during simulation is rechecked before reservation', async ()
     now: () => times.shift() ?? '2026-09-30T10:02:01.000Z',
   }), /POLICY_EXPIRED/);
   assert.equal(calls.execute, 0);
+});
+
+test('policy expiry after reservation is rechecked immediately before execution', async () => {
+  const policy = activePolicy();
+  const intent = createJeffExecutionIntent({ brainResult: await brainResult(), policy });
+  const times = [
+    '2026-09-30T10:00:00.000Z',
+    '2026-09-30T10:00:00.000Z',
+    '2026-09-30T10:00:00.000Z',
+    '2026-09-30T10:16:00.000Z',
+  ];
+  const calls = { simulate: 0, execute: 0 };
+  const store = createInMemoryJeffExecutionStore();
+  await assert.rejects(executeJeffIntent({
+    intent,
+    policy,
+    subject: 'session:alice',
+    authorizationVerifier: authorizationVerifier(),
+    toolAdapter: toolAdapter(calls),
+    executionStore: store,
+    now: () => times.shift() ?? '2026-09-30T10:16:00.000Z',
+  }), /POLICY_EXPIRED/);
+  assert.equal(calls.execute, 0);
+  assert.deepEqual(await store.snapshot(), []);
+});
+
+test('post-state divergence is unresolved and cannot auto-retry', async () => {
+  const policy = activePolicy();
+  const intent = createJeffExecutionIntent({ brainResult: await brainResult(), policy });
+  const calls = { simulate: 0, execute: 0 };
+  const adapter = toolAdapter(calls);
+  adapter.execute = async (input) => {
+    calls.execute += 1;
+    return {
+      ok: true,
+      externalId: `report:${input.reportId}`,
+      finalStateSha256: hashJeffBrainValue({ published: false, divergent: true }),
+    };
+  };
+  const args = {
+    intent,
+    policy,
+    subject: 'session:alice',
+    authorizationVerifier: authorizationVerifier(),
+    toolAdapter: adapter,
+    executionStore: createInMemoryJeffExecutionStore(),
+    now: () => nowValue,
+  };
+  await assert.rejects(executeJeffIntent(args), /FINAL_STATE_DIVERGED/);
+  await assert.rejects(executeJeffIntent(args), /ALREADY_IN_FLIGHT/);
+  assert.equal(calls.execute, 1);
 });
