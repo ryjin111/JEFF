@@ -4,7 +4,7 @@ The JEFF curiosity loop gives an Agent NFT a bounded way to explore without gran
 
 ## Safety model
 
-Curiosity is disabled by default. An active policy binds exploration to the current agent, owner, owner epoch, allowed tools, per-cycle probe limit, total cycle quota, novelty threshold, information-gain threshold, validity window, and unique nonce. A fresh cycle authorization is required before quota reservation or provider access. It binds the agent, owner, owner epoch, policy, objective hash, public-history hash, cycle key, and the exact registered tool-capability set.
+Curiosity is disabled by default. An active policy binds exploration to the current agent, owner, owner epoch, allowed tools, per-cycle probe limit, total cycle quota, novelty threshold, information-gain threshold, validity window, and unique nonce. A fresh cycle authorization is required before quota reservation and is repeated after reservation immediately before provider access. It binds the agent, owner, owner epoch, policy, objective hash, public-history hash, cycle key, and the exact registered tool-capability set. If the post-reservation check fails, the reservation is aborted before the provider is called.
 
 Every selected probe requires a fresh server-controlled authorization attestation bound to:
 
@@ -21,7 +21,7 @@ Inputs containing execution material, secret requests, or prompt-injection patte
 
 ## Exploration budget
 
-A durable reservation store enforces the total number of exploration cycles authorized by one policy and prevents cycle replay. The included in-memory store is for tests and local development only. Production integrations must provide a durable atomic implementation shared by every process.
+A durable reservation store enforces the total number of exploration cycles authorized by one policy and prevents cycle replay. Its atomic `abort` operation releases a reserved cycle when authorization or ownership changes before provider access. The included in-memory store is for tests and local development only. Production integrations must provide a durable atomic implementation shared by every process.
 
 Within a cycle, JEFF ranks probes by expected information gain, then novelty, then stable probe ID. It executes at most the policy's `maxProbes`. Low-value and repetitive questions do not consume tool calls, although starting the planning cycle consumes one reserved cycle.
 

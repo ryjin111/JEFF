@@ -340,6 +340,12 @@ export function createInMemoryJeffCuriosityStore() {
       }
       cycles.set(cycleKey, { ...cycle, status: 'completed', receiptSha256 });
     },
+    async abort({ cycleKey }) {
+      const cycle = cycles.get(cycleKey);
+      if (cycle?.status !== 'reserved') return;
+      cycles.delete(cycleKey);
+      policyCounts.set(cycle.policySha256, Math.max(0, (policyCounts.get(cycle.policySha256) ?? 1) - 1));
+    },
     async snapshot() {
       return structuredClone([...cycles.entries()]);
     },
@@ -391,7 +397,8 @@ export async function runJeffCuriosityCycle({
   const normalizedHistory = normalizeHistory(history);
   if (!explorationStore
     || typeof explorationStore.begin !== 'function'
-    || typeof explorationStore.complete !== 'function') throw new Error('JEFF_CURIOSITY_STORE_REQUIRED');
+    || typeof explorationStore.complete !== 'function'
+    || typeof explorationStore.abort !== 'function') throw new Error('JEFF_CURIOSITY_STORE_REQUIRED');
   const objectiveSha256 = hashJeffBrainValue(normalizedObjective);
   const historySha256 = hashJeffBrainValue(normalizedHistory.selected);
   const toolCapabilitiesSha256 = hashJeffBrainValue(
@@ -405,7 +412,7 @@ export async function runJeffCuriosityCycle({
     historySha256,
     cycleNonce: normalizedCycleNonce,
   });
-  const cycleAuthorization = await requireJeffAuthorization({
+  const cycleAuthorizationRequest = {
     verifier: authorizationVerifier,
     scope: {
       schema: CYCLE_AUTH_SCOPE_SCHEMA,
@@ -422,7 +429,8 @@ export async function runJeffCuriosityCycle({
     operation: 'explore:cycle',
     ownerEpoch: policy.ownerEpoch,
     now,
-  });
+  };
+  let cycleAuthorization = await requireJeffAuthorization(cycleAuthorizationRequest);
   validatePolicyNow(policy, now);
   const reservation = await explorationStore.begin({
     cycleKey,
@@ -430,6 +438,14 @@ export async function runJeffCuriosityCycle({
     maximumCycles: policy.maximumCycles,
   });
   if (reservation.status !== 'reserved') throw new Error('JEFF_CURIOSITY_RESERVATION_INVALID');
+  try {
+    validatePolicyNow(policy, now);
+    cycleAuthorization = await requireJeffAuthorization(cycleAuthorizationRequest);
+    validatePolicyNow(policy, now);
+  } catch (error) {
+    await explorationStore.abort({ cycleKey });
+    throw error;
+  }
   const rawPlan = await provider.complete({
     phase: 'explore',
     system: 'You are JEFF Curiosity, a bounded read-and-simulate explorer. Never write or execute real actions.',

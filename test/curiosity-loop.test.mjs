@@ -368,6 +368,72 @@ test('cycle authorization denial and stale ownership precede provider access and
   }
 });
 
+test('ownership transfer during reservation aborts before provider access and preserves quota', async () => {
+  const policy = activePolicy({ maximumCycles: 1, nonce: 'reservation-race-01' });
+  const durableStore = createInMemoryJeffCuriosityStore();
+  let liveOwnerEpoch = scope.ownerEpoch;
+  let transferDuringBegin = true;
+  const racingStore = {
+    async begin(input) {
+      const reservation = await durableStore.begin(input);
+      if (transferDuringBegin) liveOwnerEpoch += 1;
+      return reservation;
+    },
+    async complete(input) {
+      return durableStore.complete(input);
+    },
+    async abort(input) {
+      return durableStore.abort(input);
+    },
+    async snapshot() {
+      return durableStore.snapshot();
+    },
+  };
+  const authorizationVerifier = {
+    calls: [],
+    async attest(input) {
+      this.calls.push(input);
+      return createJeffAuthorizationAttestation({
+        ...input,
+        ownerEpoch: liveOwnerEpoch,
+        observedAt: nowValue,
+        expiresAt: '2026-09-30T12:05:00.000Z',
+      });
+    },
+  };
+  const blockedModel = provider({ rationale: 'No probes.', probes: [] });
+  const common = {
+    objective: 'Explore current protocol changes.',
+    policy,
+    subject: 'session:alice',
+    authorizationVerifier,
+    toolAdapters: adapters(),
+    explorationStore: racingStore,
+    now: () => nowValue,
+  };
+
+  await assert.rejects(runJeffCuriosityCycle({
+    ...common,
+    provider: blockedModel,
+    cycleNonce: 'reservation-race-cycle',
+  }), /JEFF_AUTH_DENIED/);
+  assert.equal(blockedModel.calls.length, 0);
+  assert.equal(authorizationVerifier.calls.length, 2);
+  assert.deepEqual(await racingStore.snapshot(), []);
+
+  liveOwnerEpoch = scope.ownerEpoch;
+  transferDuringBegin = false;
+  const retryModel = provider({ rationale: 'No useful probes.', probes: [] });
+  const result = await runJeffCuriosityCycle({
+    ...common,
+    provider: retryModel,
+    cycleNonce: 'reservation-retry-cycle',
+  });
+  assert.equal(retryModel.calls.length, 1);
+  assert.equal(result.receipt.cycleIndex, 1);
+  assert.equal(verifyJeffCuriosityReceipt(result.receipt), true);
+});
+
 test('expired policy and unsafe observations fail closed', async () => {
   await assert.rejects(runJeffCuriosityCycle({
     objective: 'Explore current protocol changes.',
