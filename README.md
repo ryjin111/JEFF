@@ -14,6 +14,8 @@ The release includes a separate [deny-by-default execution gate](docs/JEFF_EXECU
 
 The release includes a [deny-by-default curiosity loop](docs/JEFF_CURIOSITY_LOOP.md) for autonomous questions, novelty and information-gain scoring, approved read-only research, nonexecuting simulations, bounded discoveries, and hash-bound receipts. It cannot use write tools or silently retrain the live Brain.
 
+An optional [Bankr read-only adapter](docs/JEFF_BANKR_READONLY_ADAPTER.md) exposes only wallet portfolio reads and swap quotes through exact allowlisted endpoints. It emits hash-bound zero-action receipts and cannot swap, transfer, sign, submit, launch tokens, or call the Bankr Agent API.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
