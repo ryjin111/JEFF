@@ -10,6 +10,8 @@ The development branch also includes [JEFF Brain v1](docs/JEFF_BRAIN_V1.md), whi
 
 The integration branch also provides a server-authenticated [Brain shadow HTTP API](docs/JEFF_BRAIN_HTTP.md) for calling the complete non-executing reasoning loop through `https://your-domain.example/api/jeff-brain`.
 
+The execution development branch adds a separate [deny-by-default execution gate](docs/JEFF_EXECUTION_GATE.md). It binds a Brain proposal to an owner-scoped policy, simulation, fresh server authorization, atomic idempotency reservation, quota, emergency stop, and an execution receipt. This code is not enabled in the production Brain endpoint and is not yet a released execution certification.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
@@ -69,7 +71,7 @@ The receipt never authorizes execution. An integration must run its own policy c
 
 ## What is included
 
-- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
+- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, the gated execution boundary, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
@@ -96,7 +98,7 @@ A compatible stack can keep those responsibilities separate:
 - [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) provides optional agent identity, reputation, and validation registries.
 - [ERC-6551](https://eips.ethereum.org/EIPS/eip-6551) provides token-bound accounts controlled by NFTs.
 - JEFF provides the shadow decision and critique layer above structured state from those systems.
-- A separate policy and execution layer must enforce the hard boundary before any real action.
+- The optional execution gate provides a reusable hard boundary, but every real adapter still requires its own reviewed policy, durable idempotency store, and release approval.
 
 ## Benchmark design
 
