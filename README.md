@@ -37,6 +37,7 @@ git clone https://github.com/ryjin111/JEFF.git
 cd JEFF
 npm test
 npm run verify
+npm run soul:verify
 npm run demo
 npm run review
 ```
@@ -79,6 +80,21 @@ The receipt never authorizes execution. An integration must run its own policy c
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
 - `docs/`: model architecture, integration guide, release readiness, and primary-source audit.
 - `test/`: contract, runtime, benchmark, and release-integrity tests.
+
+## Portable Agent NFT identity
+
+JEFF ships a versioned, content-addressed identity bundle:
+
+- `SOUL.md`: purpose, values, judgment, taste, and identity boundaries.
+- `IDENTITY.md`: marketplace-safe public card.
+- `STYLE.md`: voice separated from identity and authority.
+- `SKILLS.md`: truthful, sellable decision and review capabilities.
+- `LIMITS.md`: hard constraints that survive transfer.
+- `soul.json`: manifest binding those files and the promoted checkpoint by SHA-256.
+
+Run `npm run soul:verify` to validate the bundle. The command emits both `bundleRootSha256` and `manifestSha256`. An Agent NFT contract should anchor the `manifestSha256` or a content URI whose bytes produce that hash. This prevents mutable token metadata from silently replacing the soul after resale.
+
+Runtime instructions live in `runtime/AGENTS.md` and recurring-loop guidance lives in `runtime/HEARTBEAT.md`. They are deliberately outside the transferable soul root so integrations can version tools and workflows without rewriting JEFF's identity. `memory/MEMORY.template.md` is owner-scoped, private by default, and excluded from the soul manifest.
 
 ## Integrity and verification
 

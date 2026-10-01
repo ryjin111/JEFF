@@ -10,5 +10,9 @@ test('standalone release verifies every bound artifact and remains shadow-only',
   assert.equal(result.mode, 'shadow');
   assert.equal(result.executionAuthorized, false);
   assert.equal(result.observedAccuracy, 0.939815);
-  assert.equal(result.artifacts.length, 9);
+  assert.equal(result.artifacts.length, 15);
+  assert.equal(result.soul.schema, 'jeff-agent-soul-manifest-v1');
+  assert.equal(result.soul.version, '1.0.0');
+  assert.match(result.soul.bundleRootSha256, /^[a-f0-9]{64}$/);
+  assert.match(result.soul.manifestSha256, /^[a-f0-9]{64}$/);
 });

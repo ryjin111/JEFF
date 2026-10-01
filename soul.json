@@ -1,0 +1,58 @@
+{
+  "schema": "jeff-agent-soul-manifest-v1",
+  "agent": {
+    "id": "jeff",
+    "name": "JEFF",
+    "version": "1.0.0"
+  },
+  "tags": [
+    "agent-nft",
+    "decision-model",
+    "portable-identity",
+    "shadow-only"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "package": "jeff-agent-nft",
+    "packageVersion": "0.5.0",
+    "node": ">=20",
+    "runtimeMode": "shadow"
+  },
+  "checkpoint": {
+    "model": "jeff-agent-nft-nb-v0.5-evidence",
+    "sha256": "1543685838160edbb1f25c23d3706261a6e94184362bfe64c541ab9651374e19"
+  },
+  "controls": {
+    "executionAuthorized": false,
+    "authorityIncluded": false,
+    "memoryIncluded": false
+  },
+  "files": [
+    {
+      "path": "SOUL.md",
+      "role": "identity-core",
+      "sha256": "28687464d91a57535a39b2baa2a343763840d6bc056f9f00873a51abf969a9d6"
+    },
+    {
+      "path": "IDENTITY.md",
+      "role": "public-card",
+      "sha256": "4384c377ab8a40f97ad0d4be9ffeeefb89e4c81ca392d0250ced3620a1a2c578"
+    },
+    {
+      "path": "STYLE.md",
+      "role": "voice",
+      "sha256": "17fc6ff828d50784d4e8de3685d385f97208691f5cbb459732fb7cb89062398f"
+    },
+    {
+      "path": "SKILLS.md",
+      "role": "capabilities",
+      "sha256": "58cda1da3213def61a0ae217f238c079bbbcddde9af83b07e24aea7e1ed45bc6"
+    },
+    {
+      "path": "LIMITS.md",
+      "role": "hard-limits",
+      "sha256": "0a360d9db7965eabcb7287ef348a55010719f4aff02e66d210c886d1dccf59b4"
+    }
+  ],
+  "bundleRootSha256": "de9a6c9ee462f8b24f481dd5a67e4a1f422114bd0ce0096b822e1e6a4041b657"
+}
