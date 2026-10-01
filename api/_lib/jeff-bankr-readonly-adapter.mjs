@@ -345,6 +345,78 @@ function createReceipt({ capability, request, response, responseSchema, observed
   return receipt;
 }
 
+function parseContentLength(response) {
+  const raw = response.headers.get('content-length');
+  if (raw === null) return null;
+  if (!/^\d+$/.test(raw)) throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+  const length = Number(raw);
+  if (!Number.isSafeInteger(length) || length > MAX_RESPONSE_BYTES) {
+    throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+  }
+  return length;
+}
+
+async function readBoundedResponseText(response, contentLength) {
+  if (response.body && typeof response.body.getReader === 'function') {
+    let reader;
+    try {
+      reader = response.body.getReader();
+      const chunks = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!ArrayBuffer.isView(value)) throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+        const chunk = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+        if (totalBytes + chunk.byteLength > MAX_RESPONSE_BYTES) {
+          try {
+            await reader.cancel('JEFF_BANKR_RESPONSE_TOO_LARGE');
+          } catch {
+            // Preserve the constant public failure below even if cancellation fails.
+          }
+          throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+        }
+        chunks.push(chunk);
+        totalBytes += chunk.byteLength;
+      }
+      if (totalBytes === 0) throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+      const bytes = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+    } finally {
+      try {
+        reader?.releaseLock();
+      } catch {
+        // A released or canceled reader needs no further cleanup.
+      }
+    }
+  }
+
+  // This path supports bounded test doubles only. Real fetch responses expose a body stream.
+  if (contentLength === null || typeof response.text !== 'function') {
+    throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+  }
+  let text;
+  try {
+    text = await response.text();
+  } catch {
+    throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+  }
+  if (typeof text !== 'string'
+    || text.length === 0
+    || text.length > MAX_RESPONSE_BYTES
+    || new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
+    throw new Error('JEFF_BANKR_RESPONSE_INVALID');
+  }
+  return text;
+}
+
 async function parseResponse(response) {
   if (!response
     || typeof response.ok !== 'boolean'
@@ -358,10 +430,8 @@ async function parseResponse(response) {
   if (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType)) {
     throw new Error('JEFF_BANKR_RESPONSE_INVALID');
   }
-  const text = await response.text();
-  if (!text || new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
-    throw new Error('JEFF_BANKR_RESPONSE_INVALID');
-  }
+  const contentLength = parseContentLength(response);
+  const text = await readBoundedResponseText(response, contentLength);
   let value;
   try {
     value = JSON.parse(text);

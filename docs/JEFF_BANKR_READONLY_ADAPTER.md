@@ -7,7 +7,7 @@ The JEFF Bankr adapter is the first isolated integration boundary between JEFF B
 - `GET https://api.bankr.bot/wallet/portfolio`
 - `POST https://api.bankr.bot/wallet/swap-quote`
 
-Bankr documents the quote endpoint as a read that remains available to read-only API keys. The adapter uses an exact host and path allowlist, strict input and response schemas, response-size limits, sanitized upstream failures, and hash-bound receipts.
+Bankr documents the quote endpoint as a read that remains available to read-only API keys. The adapter uses an exact host and path allowlist, strict input and response schemas, streaming response-size limits, sanitized upstream failures, and hash-bound receipts. Oversized valid `Content-Length` values fail before the body is read. Chunked, compressed, missing-length, and dishonest-length responses are read incrementally and canceled as soon as the 512 KiB decoded-body cap is exceeded.
 
 Portfolio responses are normalized from the documented wallet, chain-balance, token, PnL, and NFT fields. Balance keys must match the requested chain filter. Swap quotes bind both chains and tokens plus the sell amount to the normalized request. Only documented optional quote fields are accepted, and a returned slippage value must match the requested value or Bankr's default of 500 basis points.
 

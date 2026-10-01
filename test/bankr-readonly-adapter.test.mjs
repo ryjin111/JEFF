@@ -29,6 +29,30 @@ function rawJsonResponse(value, status = 200) {
   });
 }
 
+function chunkedJsonResponse(chunks, contentLength) {
+  const pending = [...chunks];
+  let canceled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      const chunk = pending.shift();
+      if (chunk === undefined) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(new TextEncoder().encode(chunk));
+    },
+    cancel() {
+      canceled = true;
+    },
+  });
+  const headers = { 'content-type': 'application/json' };
+  if (contentLength !== undefined) headers['content-length'] = String(contentLength);
+  return {
+    response: new Response(body, { status: 200, headers }),
+    wasCanceled: () => canceled,
+  };
+}
+
 function portfolioResponse(overrides = {}) {
   return {
     success: true,
@@ -366,6 +390,59 @@ test('adapter rejects non-JSON content types and byte-oversized bodies', async (
     fetchImpl: async () => rawJsonResponse(`{"padding":"${'€'.repeat(200_000)}"}`),
   });
   await assert.rejects(oversizedAdapter.getPortfolio(), /RESPONSE_INVALID/);
+});
+
+test('adapter cancels chunked bodies that exceed the byte cap without Content-Length', async () => {
+  const stream = chunkedJsonResponse([
+    '{"padding":"',
+    'a'.repeat(300_000),
+    'b'.repeat(300_000),
+    '"}',
+  ]);
+  const adapter = createJeffBankrReadOnlyAdapter({
+    apiKey: API_KEY,
+    fetchImpl: async () => stream.response,
+  });
+  await assert.rejects(adapter.getPortfolio(), /RESPONSE_INVALID/);
+  assert.equal(stream.wasCanceled(), true);
+});
+
+test('adapter enforces the stream cap when Content-Length understates the body', async () => {
+  const stream = chunkedJsonResponse([
+    '{"padding":"',
+    'a'.repeat(300_000),
+    'b'.repeat(300_000),
+    '"}',
+  ], 32);
+  const adapter = createJeffBankrReadOnlyAdapter({
+    apiKey: API_KEY,
+    fetchImpl: async () => stream.response,
+  });
+  await assert.rejects(adapter.getPortfolio(), /RESPONSE_INVALID/);
+  assert.equal(stream.wasCanceled(), true);
+});
+
+test('adapter rejects oversized declared lengths before touching the body', async () => {
+  let bodyTouched = false;
+  const adapter = createJeffBankrReadOnlyAdapter({
+    apiKey: API_KEY,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'content-length': String(512 * 1_024 + 1),
+      }),
+      body: {
+        getReader() {
+          bodyTouched = true;
+          throw new Error('body should not be read');
+        },
+      },
+    }),
+  });
+  await assert.rejects(adapter.getPortfolio(), /RESPONSE_INVALID/);
+  assert.equal(bodyTouched, false);
 });
 
 test('unknown fields, invalid chains, unsafe amounts, and same-token swaps fail before fetch', async () => {
