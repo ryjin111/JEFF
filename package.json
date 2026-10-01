@@ -62,6 +62,7 @@
     "./brain": "./api/_lib/jeff-brain-v1.mjs",
     "./brain-http": "./api/_lib/jeff-brain-http.mjs",
     "./execution": "./api/_lib/jeff-execution-gate.mjs",
+    "./bankr-readonly": "./api/_lib/jeff-bankr-readonly-adapter.mjs",
     "./curiosity": "./api/_lib/jeff-curiosity-loop.mjs",
     "./brain-memory": "./api/_lib/jeff-authorized-memory.mjs",
     "./mcp-context": "./api/_lib/jeff-mcp-context.mjs",
