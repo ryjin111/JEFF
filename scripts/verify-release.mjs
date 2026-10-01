@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { JEFF_PROMOTED_MODEL } from '../api/_lib/jeff-agent-nft-promoted.mjs';
 import { assessJeffModelPromotion } from '../api/_lib/jeff-model-promotion.mjs';
+import { loadAndVerifyJeffSoulBundle } from '../api/_lib/jeff-soul-bundle.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const root = new URL('../', import.meta.url);
@@ -60,6 +61,16 @@ export async function verifyRelease() {
     if (markers.some((marker) => !text.includes(marker))) throw new Error(`LICENSE_INVALID:${path}`);
   }
 
+  const soul = await loadAndVerifyJeffSoulBundle({
+    expectedCheckpointSha256: JEFF_PROMOTED_MODEL.hashes.checkpointSha256,
+  });
+  artifacts.push({ name: 'soul manifest', path: 'soul.json', sha256: soul.manifestSha256 });
+  artifacts.push(...soul.files.map((file) => ({
+    name: `soul ${file.role}`,
+    path: file.path,
+    sha256: file.sha256,
+  })));
+
   return {
     schema: 'jeff-standalone-release-verification-v1',
     model: JEFF_PROMOTED_MODEL.model,
@@ -68,6 +79,12 @@ export async function verifyRelease() {
     observedAccuracy: promotion.observed,
     releaseReady: true,
     artifacts,
+    soul: {
+      schema: soul.schema,
+      version: soul.agent.version,
+      bundleRootSha256: soul.bundleRootSha256,
+      manifestSha256: soul.manifestSha256,
+    },
   };
 }
 

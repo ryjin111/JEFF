@@ -53,6 +53,7 @@
     "benchmark:v2:verify-freeze": "node scripts/build-jeff-v2-reliability-stimuli.mjs --verify && node scripts/run-jeff-v2-reliability.mjs --verify",
     "demo": "node examples/infer.mjs",
     "review": "node examples/review.mjs",
+    "soul:verify": "node scripts/verify-soul.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "node scripts/verify-release.mjs && npm test"
   },
@@ -71,6 +72,7 @@
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",
     "./memory": "./api/_lib/jeff-memory-layer.mjs",
+    "./soul": "./api/_lib/jeff-soul-bundle.mjs",
     "./soak": "./api/_lib/jeff-live-shadow-soak.mjs",
     "./benchmark": "./api/_lib/jeff-benchmark-v2.mjs"
   },
@@ -82,6 +84,14 @@
     "docs/",
     "examples/",
     "public/",
+    "runtime/",
+    "memory/",
+    "SOUL.md",
+    "IDENTITY.md",
+    "STYLE.md",
+    "SKILLS.md",
+    "LIMITS.md",
+    "soul.json",
     "LICENSE",
     "README.md",
     "SECURITY.md"
