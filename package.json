@@ -61,6 +61,8 @@
     ".": "./api/_lib/jeff-agent-nft-promoted.mjs",
     "./brain": "./api/_lib/jeff-brain-v1.mjs",
     "./brain-http": "./api/_lib/jeff-brain-http.mjs",
+    "./assurance": "./api/_lib/jeff-decision-assurance.mjs",
+    "./llm-utility": "./api/_lib/jeff-llm-utility-gate.mjs",
     "./execution": "./api/_lib/jeff-execution-gate.mjs",
     "./bankr-readonly": "./api/_lib/jeff-bankr-readonly-adapter.mjs",
     "./curiosity": "./api/_lib/jeff-curiosity-loop.mjs",

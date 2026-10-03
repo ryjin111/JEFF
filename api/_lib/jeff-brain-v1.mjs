@@ -8,6 +8,8 @@ import {
   inferJeffAgentNftCandidateV09,
   JEFF_V09_CANDIDATE,
 } from './jeff-agent-nft-candidate-v0.9.mjs';
+import { assessJeffDecisionAssurance } from './jeff-decision-assurance.mjs';
+import { assessJeffLlmUtility } from './jeff-llm-utility-gate.mjs';
 import {
   assertJeffName,
   assertJeffRecord,
@@ -154,14 +156,24 @@ function decisionChoice(response, task) {
   return answer?.type === 'choice' ? answer.choice : null;
 }
 
-export function assessJeffBrainToolProposals({ objective, candidate, tools, ownerPolicy, decisionResponse }) {
+export function assessJeffBrainToolProposals({
+  objective,
+  candidate,
+  tools,
+  ownerPolicy,
+  decisionResponse,
+  decisionAssurance,
+}) {
   const catalog = new Map(tools.map((tool) => [tool.name, tool]));
   const allowed = new Set(ownerPolicy.allowedTools);
   const deterministicAuthority = decisionChoice(decisionResponse, 'authority');
   const deterministicToolMode = decisionChoice(decisionResponse, 'tool_mode');
+  const assuranceStopsPlanning = decisionAssurance?.planningAllowed === false;
+  const assuranceRequiresReview = decisionAssurance?.verdict === 'review';
   const hardDeny = objectiveFailsHardGate(objective)
     || deterministicAuthority === 'deny'
-    || deterministicToolMode === 'none';
+    || deterministicToolMode === 'none'
+    || assuranceStopsPlanning;
   const proposals = (candidate?.toolProposals ?? []).map((proposal) => {
     const tool = catalog.get(proposal.tool);
     const unsafeInput = containsJeffUnsafeText(canonicalJson(proposal.input))
@@ -185,7 +197,9 @@ export function assessJeffBrainToolProposals({ objective, candidate, tools, owne
   });
   let disposition = 'bounded_nonexecuting';
   if (hardDeny || !candidate || proposals.some(({ status }) => status === 'blocked')) disposition = 'deny';
-  else if (deterministicAuthority === 'owner_review' || proposals.some(({ status }) => status === 'owner_review')) {
+  else if (assuranceRequiresReview
+    || deterministicAuthority === 'owner_review'
+    || proposals.some(({ status }) => status === 'owner_review')) {
     disposition = 'owner_review';
   }
   return Object.freeze({
@@ -194,6 +208,16 @@ export function assessJeffBrainToolProposals({ objective, candidate, tools, owne
     actionsExecuted: 0,
     hardDeny,
     proposals: Object.freeze(proposals),
+  });
+}
+
+function deterministicOnlySafety() {
+  return Object.freeze({
+    disposition: 'bounded_nonexecuting',
+    executionAuthorized: false,
+    actionsExecuted: 0,
+    hardDeny: false,
+    proposals: Object.freeze([]),
   });
 }
 
@@ -276,7 +300,21 @@ async function loadContext(request, memoryService, mcpAuthorizationVerifier) {
   };
 }
 
-function auditReceipt({ request, provider, context, decisionResponse, rawPlan, rawReview, planPrompt, reviewPromptText, selectedPlan, safety, modelInvoked }) {
+function auditReceipt({
+  request,
+  provider,
+  context,
+  decisionResponse,
+  decisionAssurance,
+  llmUtility,
+  rawPlan,
+  rawReview,
+  planPrompt,
+  reviewPromptText,
+  selectedPlan,
+  safety,
+  modelInvoked,
+}) {
   const body = {
     schema: 'jeff-brain-receipt-v1',
     runtimeVersion: VERSION,
@@ -286,8 +324,11 @@ function auditReceipt({ request, provider, context, decisionResponse, rawPlan, r
     executionAuthorized: false,
     actionsExecuted: 0,
     modelInvoked,
+    providerCallsUsed: modelInvoked ? 2 : 0,
     requestSha256: hashJeffBrainValue(request),
     decisionResponseSha256: hashJeffBrainValue(decisionResponse),
+    decisionAssuranceSha256: hashJeffBrainValue(decisionAssurance),
+    llmUtilitySha256: hashJeffBrainValue(llmUtility),
     planPromptSha256: planPrompt ? hashJeffBrainValue(planPrompt) : null,
     planOutputSha256: rawPlan ? hashJeffBrainValue(rawPlan) : null,
     reviewPromptSha256: reviewPromptText ? hashJeffBrainValue(reviewPromptText) : null,
@@ -321,14 +362,21 @@ export async function deliberateJeffBrain({
   if (!validateJeffAgentNftResponse(decisionResponse, input.contractRequest)) {
     throw new Error('JEFF_BRAIN_DECISION_RESPONSE_INVALID');
   }
+  const decisionAssurance = assessJeffDecisionAssurance({
+    request: input.contractRequest,
+    response: decisionResponse,
+  });
+  const llmUtility = assessJeffLlmUtility({ request: input, decisionAssurance });
 
-  if (objectiveFailsHardGate(input.objective) || decisionChoice(decisionResponse, 'authority') === 'deny') {
+  if (objectiveFailsHardGate(input.objective)
+    || decisionChoice(decisionResponse, 'authority') === 'deny'
+    || decisionAssurance.planningAllowed === false) {
     const safety = assessJeffBrainToolProposals({
       objective: input.objective, candidate: null, tools: input.tools,
-      ownerPolicy: input.ownerPolicy, decisionResponse,
+      ownerPolicy: input.ownerPolicy, decisionResponse, decisionAssurance,
     });
     const audit = auditReceipt({
-      request, provider: { model: plannerModel }, context, decisionResponse,
+      request, provider: { model: plannerModel }, context, decisionResponse, decisionAssurance, llmUtility,
       rawPlan: null, rawReview: null, planPrompt: null, reviewPromptText: null,
       selectedPlan: null, safety, modelInvoked: false,
     });
@@ -339,7 +387,25 @@ export async function deliberateJeffBrain({
       situation: 'The deterministic safety gate denied the objective before model invocation.',
       unknowns: Object.freeze([]), alternatives: Object.freeze([]),
       review: Object.freeze({ candidateId: null, verdict: 'reject', issues: Object.freeze(['Deterministic safety gate failed.']) }),
-      selectedPlan: null, safety, decisionResponse, audit,
+      selectedPlan: null, safety, decisionResponse, decisionAssurance, llmUtility, audit,
+    });
+  }
+
+  if (llmUtility.providerCallsAllowed === 0) {
+    const safety = deterministicOnlySafety();
+    const audit = auditReceipt({
+      request, provider: { model: plannerModel }, context, decisionResponse, decisionAssurance, llmUtility,
+      rawPlan: null, rawReview: null, planPrompt: null, reviewPromptText: null,
+      selectedPlan: null, safety, modelInvoked: false,
+    });
+    return Object.freeze({
+      schema: 'jeff-brain-result-v1', runtimeVersion: VERSION,
+      plannerModel, decisionModel: JEFF_V09_CANDIDATE.model,
+      mode: 'shadow', executionAuthorized: false, actionsExecuted: 0,
+      situation: 'The deterministic decision was sufficient, so no LLM planning calls were used.',
+      unknowns: Object.freeze([]), alternatives: Object.freeze([]),
+      review: Object.freeze({ candidateId: null, verdict: 'accept', issues: Object.freeze([]) }),
+      selectedPlan: null, safety, decisionResponse, decisionAssurance, llmUtility, audit,
     });
   }
 
@@ -361,13 +427,13 @@ export async function deliberateJeffBrain({
   const selectedPlan = review.verdict === 'reject' ? null : review.verdict === 'revise' ? review.replacement : recommended;
   let safety = assessJeffBrainToolProposals({
     objective: input.objective, candidate: selectedPlan, tools: input.tools,
-    ownerPolicy: input.ownerPolicy, decisionResponse,
+    ownerPolicy: input.ownerPolicy, decisionResponse, decisionAssurance,
   });
   if (review.verdict === 'reject' && safety.disposition !== 'deny') {
     safety = Object.freeze({ ...safety, disposition: 'deny', hardDeny: true });
   }
   const audit = auditReceipt({
-    request, provider: { model: plannerModel }, context, decisionResponse,
+    request, provider: { model: plannerModel }, context, decisionResponse, decisionAssurance, llmUtility,
     rawPlan, rawReview, planPrompt, reviewPromptText, selectedPlan, safety, modelInvoked: true,
   });
   return Object.freeze({
@@ -376,7 +442,7 @@ export async function deliberateJeffBrain({
     mode: 'shadow', executionAuthorized: false, actionsExecuted: 0,
     situation: plan.situation, unknowns: plan.unknowns,
     alternatives: plan.candidates, review, selectedPlan,
-    safety, decisionResponse, audit,
+    safety, decisionResponse, decisionAssurance, llmUtility, audit,
   });
 }
 
@@ -389,7 +455,7 @@ export function verifyJeffBrainReceipt(receipt) {
 
 export const JEFF_BRAIN_V1 = Object.freeze({
   version: VERSION,
-  phases: Object.freeze(['authorized_context', 'deterministic_decision', 'plan', 'critique', 'deterministic_safety', 'receipt']),
+  phases: Object.freeze(['authorized_context', 'deterministic_decision', 'decision_assurance', 'llm_utility', 'plan', 'critique', 'deterministic_safety', 'receipt']),
   decisionModel: JEFF_V09_CANDIDATE.model,
   contractVersion: JEFF_AGENT_NFT_CONTRACT.contractVersion,
   mode: 'shadow',

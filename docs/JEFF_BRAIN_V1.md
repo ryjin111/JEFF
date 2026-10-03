@@ -9,11 +9,13 @@ Brain v1 remains non-executing. It proposes and reviews actions but never calls 
 1. Authorized memory recall loads only the current owner scope and owner epoch through an encrypted storage adapter after a mandatory server-controlled authorization verifier approves the exact capability.
 2. MCP context intake requires a fresh server-verified subject, operation, owner epoch, and allowlist scope before it reads or selects hash-matched safe text.
 3. The sealed v0.9 runtime produces the authoritative 28 typed decisions.
-4. A pinned open-weight model produces two to five bounded alternatives.
-5. A second model pass critiques the recommended alternative.
-6. The deterministic supervisor blocks unknown tools, policy violations, execution material, and every unapproved write.
-7. A hash-only receipt binds the request, decision, context records, plan, critique, selected plan, and safety result.
-8. Owner feedback can become a curriculum candidate only after server-verified owner opt-in and a separately verified reviewer identity. Training remains a separate build and blind-evaluation process.
+4. Decision assurance checks critical confidence, cross-head coherence, deterministic safety facts, and write evidence. A failed planning gate stops before provider access.
+5. The LLM utility gate uses zero provider calls for routine deterministic work. It permits the fixed two-call planning and critique loop only for a classified high-value use case.
+6. A pinned open-weight model produces two to five bounded alternatives when the utility gate permits it.
+7. A second model pass critiques the recommended alternative.
+8. The deterministic supervisor blocks unknown tools, policy violations, execution material, and every unapproved write.
+9. A hash-only receipt binds the request, decision, assurance result, LLM utility result, context records, plan, critique, selected plan, and safety result.
+10. Owner feedback can become a curriculum candidate only after server-verified owner opt-in and a separately verified reviewer identity. Training remains a separate build and blind-evaluation process.
 
 ## Memory boundaries
 
@@ -68,6 +70,10 @@ const result = await deliberateJeffBrain({
 });
 
 console.log(result.safety.disposition);
+console.log(result.decisionAssurance.verdict);
+console.log(result.decisionAssurance.planningAllowed);
+console.log(result.llmUtility.decision);
+console.log(result.llmUtility.providerCallsAllowed);
 console.log(result.audit.receiptSha256);
 console.log(result.executionAuthorized); // false
 console.log(result.actionsExecuted);      // 0

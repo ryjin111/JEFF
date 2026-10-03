@@ -47,6 +47,18 @@ function safeRequest(overrides = {}) {
   };
 }
 
+function planningRequest(overrides = {}) {
+  return safeRequest({
+    objective: 'Compare verified policy options and recommend a bounded strategy.',
+    state: {
+      ...safeRequest().state,
+      proposal: 'Compare verified policy options and recommend a strategy.',
+      evidence: [{ verified: true }, { verified: true }],
+    },
+    ...overrides,
+  });
+}
+
 function providerStub() {
   const calls = [];
   return {
@@ -120,6 +132,25 @@ test('Brain HTTP POST returns a verified non-executing result', async () => {
   assert.equal(response.body.result.actionsExecuted, 0);
   assert.equal(response.body.result.audit.executionAuthorized, false);
   assert.match(response.body.result.audit.receiptSha256, /^[a-f0-9]{64}$/);
+  assert.equal(response.body.result.llmUtility.decision, 'deterministic_only');
+  assert.equal(response.body.result.llmUtility.providerCallsAllowed, 0);
+  assert.equal(response.body.result.audit.providerCallsUsed, 0);
+  assert.equal(provider.calls.length, 0);
+});
+
+test('Brain HTTP spends two provider calls only for a qualified planning use case', async () => {
+  const provider = providerStub();
+  const handler = createJeffBrainHttpHandler({ authorize: () => true, provider });
+  const response = await invoke(handler, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: { request: planningRequest() },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.result.llmUtility.decision, 'use_llm');
+  assert.equal(response.body.result.llmUtility.providerCallsAllowed, 2);
+  assert.equal(response.body.result.audit.providerCallsUsed, 2);
   assert.equal(provider.calls.length, 2);
 });
 
@@ -188,7 +219,7 @@ test('Brain HTTP sanitizes provider failures and never leaks execution authority
   };
   const handler = createJeffBrainHttpHandler({ authorize: () => true, provider });
   const response = await invoke(handler, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: { request: safeRequest() },
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: { request: planningRequest() },
   });
   assert.equal(response.statusCode, 500);
   assert.equal(response.body.error, 'INTERNAL_FAILURE');

@@ -187,6 +187,26 @@ test('a verified Brain proposal executes once after simulation and server author
   assert.equal(calls.execute, 1);
 });
 
+test('execution intent rejects a tampered decision assurance result', async () => {
+  const result = structuredClone(await brainResult());
+  result.decisionAssurance.planningAllowed = false;
+
+  assert.throws(
+    () => createJeffExecutionIntent({ brainResult: result, policy: activePolicy() }),
+    /JEFF_EXECUTION_INTENT_DENIED/,
+  );
+});
+
+test('execution intent rejects a tampered LLM utility result', async () => {
+  const result = structuredClone(await brainResult());
+  result.llmUtility.providerCallsAllowed = 0;
+
+  assert.throws(
+    () => createJeffExecutionIntent({ brainResult: result, policy: activePolicy() }),
+    /JEFF_EXECUTION_INTENT_DENIED/,
+  );
+});
+
 test('disabled policy and emergency stop block intent creation', async () => {
   const result = await brainResult();
   const disabled = activePolicy({ enabled: false, emergencyStop: false, nonce: 'disabled-policy-01' });

@@ -441,7 +441,17 @@ test('learning feedback never trains silently and requires verified opt-in plus 
 
 test('Brain v1 combines deterministic decisions, planning, critique, and proposal-only tools', async () => {
   const provider = providerWith();
-  const result = await deliberateJeffBrain({ request: brainRequest(), provider });
+  const result = await deliberateJeffBrain({
+    request: brainRequest({
+      objective: 'Compare verified policy options and recommend a bounded strategy.',
+      state: safeState({
+        proposal: 'Compare verified policy options and recommend a strategy.',
+        evidence: [{ verified: true }, { verified: true }],
+        privateMemory: 'brain-private-canary-91ab',
+      }),
+    }),
+    provider,
+  });
   assert.equal(provider.calls.length, 2);
   assert.equal(result.schema, 'jeff-brain-result-v1');
   assert.equal(result.mode, 'shadow');
@@ -450,6 +460,9 @@ test('Brain v1 combines deterministic decisions, planning, critique, and proposa
   assert.equal(result.safety.disposition, 'bounded_nonexecuting');
   assert.equal(result.safety.proposals[0].status, 'read_only_candidate');
   assert.equal(result.decisionResponse.model, 'jeff-agent-nft-nb-v0.9-remediation');
+  assert.equal(result.llmUtility.decision, 'use_llm');
+  assert.equal(result.llmUtility.providerCallsAllowed, 2);
+  assert.equal(result.audit.providerCallsUsed, 2);
   assert.equal(verifyJeffBrainReceipt(result.audit), true);
   assert.equal(JSON.stringify(result.audit).includes('brain-private-canary-91ab'), false);
   assert.equal(provider.calls[0].prompt.includes('brain-private-canary-91ab'), false);
@@ -459,7 +472,16 @@ test('Brain v1 combines deterministic decisions, planning, critique, and proposa
 
 test('write tools always require owner review and never receive execution authority', async () => {
   const provider = providerWith({ planned: plan('report.publish') });
-  const result = await deliberateJeffBrain({ request: brainRequest(), provider });
+  const result = await deliberateJeffBrain({
+    request: brainRequest({
+      objective: 'Publish the approved report after owner review.',
+      state: safeState({
+        proposal: 'Publish the approved report after owner review.',
+        ownerPolicy: { allowAutonomous: false },
+      }),
+    }),
+    provider,
+  });
   assert.equal(result.safety.disposition, 'owner_review');
   assert.equal(result.safety.proposals[0].status, 'owner_review');
   assert.equal(result.safety.proposals[0].executionAuthorized, false);
@@ -514,6 +536,32 @@ test('hard safety objectives and denied state short-circuit before model invocat
   assert.equal(result.safety.disposition, 'deny');
 });
 
+test('uncertain critical decisions stop before model planning', async () => {
+  const provider = providerWith();
+  const result = await deliberateJeffBrain({
+    request: brainRequest({
+      objective: 'Prepare a swap proposal for owner review.',
+      state: {
+        proposal: 'Swap 1 ETH for USDC.',
+        authorized: true,
+        provenanceVerified: true,
+        dataFresh: true,
+        evidence: [{ verified: true }],
+        ownerPolicy: { allowAutonomous: false },
+      },
+    }),
+    provider,
+  });
+
+  assert.equal(provider.calls.length, 0);
+  assert.equal(result.decisionAssurance.verdict, 'review');
+  assert.equal(result.decisionAssurance.planningAllowed, false);
+  assert.ok(result.decisionAssurance.uncertainHeads.includes('tool_mode'));
+  assert.equal(result.safety.disposition, 'deny');
+  assert.equal(result.audit.decisionAssuranceSha256, hashJeffBrainValue(result.decisionAssurance));
+  assert.equal(verifyJeffBrainReceipt(result.audit), true);
+});
+
 test('authorized memory and MCP context reach the planner while receipts retain hashes only', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
   const memoryService = createJeffAuthorizedMemory({
@@ -528,6 +576,11 @@ test('authorized memory and MCP context reach the planner while receipts retain 
   });
   const mcpText = 'Public protocol documentation is current.';
   const request = brainRequest({
+    objective: 'Compare verified policy evidence and recommend a bounded strategy.',
+    state: safeState({
+      proposal: 'Compare verified policy evidence and recommend a strategy.',
+      evidence: [{ verified: true }, { verified: true }],
+    }),
     memory: { scope, authorization: memoryAuthorization },
     mcp: {
       authorization: {
