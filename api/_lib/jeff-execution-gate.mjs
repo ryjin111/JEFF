@@ -108,11 +108,17 @@ function verifyBrainResult(result) {
     && result.mode === 'shadow'
     && result.executionAuthorized === false
     && result.actionsExecuted === 0
+    && isJeffRecord(result.decisionAssurance)
+    && result.decisionAssurance.schema === 'jeff-decision-assurance-v1'
+    && result.decisionAssurance.executionAuthorized === false
+    && result.decisionAssurance.planningAllowed === true
+    && result.decisionAssurance.verdict !== 'block'
     && isJeffRecord(result.safety)
     && result.safety.disposition !== 'deny'
     && Array.isArray(result.safety.proposals)
     && result.audit.safetySha256 === hashJeffBrainValue(result.safety)
     && result.audit.decisionResponseSha256 === hashJeffBrainValue(result.decisionResponse)
+    && result.audit.decisionAssuranceSha256 === hashJeffBrainValue(result.decisionAssurance)
     && result.audit.selectedPlanSha256 === hashJeffBrainValue(result.selectedPlan)
     && verifyJeffBrainReceipt(result.audit);
 }

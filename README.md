@@ -18,6 +18,8 @@ The release includes a [deny-by-default curiosity loop](docs/JEFF_CURIOSITY_LOOP
 
 An optional [Bankr read-only adapter](docs/JEFF_BANKR_READONLY_ADAPTER.md) exposes only wallet portfolio reads and swap quotes through exact allowlisted endpoints. It emits hash-bound zero-action receipts and cannot swap, transfer, sign, submit, launch tokens, or call the Bankr Agent API.
 
+The [decision assurance layer](docs/JEFF_DECISION_ASSURANCE.md) checks confidence, critical-head coherence, deterministic safety facts, and write evidence before Brain planning. Low-confidence or inconsistent decisions stop before provider access, and the execution gate verifies the assurance hash before creating an intent.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
@@ -78,7 +80,7 @@ The receipt never authorizes execution. An integration must run its own policy c
 
 ## What is included
 
-- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, Brain v1, the gated execution boundary, curiosity loop, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
+- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, decision assurance, Brain v1, the gated execution boundary, curiosity loop, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.

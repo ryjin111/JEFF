@@ -514,6 +514,32 @@ test('hard safety objectives and denied state short-circuit before model invocat
   assert.equal(result.safety.disposition, 'deny');
 });
 
+test('uncertain critical decisions stop before model planning', async () => {
+  const provider = providerWith();
+  const result = await deliberateJeffBrain({
+    request: brainRequest({
+      objective: 'Prepare a swap proposal for owner review.',
+      state: {
+        proposal: 'Swap 1 ETH for USDC.',
+        authorized: true,
+        provenanceVerified: true,
+        dataFresh: true,
+        evidence: [{ verified: true }],
+        ownerPolicy: { allowAutonomous: false },
+      },
+    }),
+    provider,
+  });
+
+  assert.equal(provider.calls.length, 0);
+  assert.equal(result.decisionAssurance.verdict, 'review');
+  assert.equal(result.decisionAssurance.planningAllowed, false);
+  assert.ok(result.decisionAssurance.uncertainHeads.includes('tool_mode'));
+  assert.equal(result.safety.disposition, 'deny');
+  assert.equal(result.audit.decisionAssuranceSha256, hashJeffBrainValue(result.decisionAssurance));
+  assert.equal(verifyJeffBrainReceipt(result.audit), true);
+});
+
 test('authorized memory and MCP context reach the planner while receipts retain hashes only', async () => {
   const adapter = createInMemoryJeffMemoryAdapter();
   const memoryService = createJeffAuthorizedMemory({
