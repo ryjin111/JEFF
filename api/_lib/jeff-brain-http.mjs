@@ -5,7 +5,7 @@ import {
   JEFF_BRAIN_V1,
   verifyJeffBrainReceipt,
 } from './jeff-brain-v1.mjs';
-import { isJeffRecord } from './jeff-brain-common.mjs';
+import { hashJeffBrainValue, isJeffRecord } from './jeff-brain-common.mjs';
 import { createJeffOpenWeightsProvider } from './jeff-open-weights-provider.mjs';
 
 const RESPONSE_SCHEMA = 'jeff-brain-http-response-v1';
@@ -192,6 +192,10 @@ export function createJeffBrainHttpHandler({
       if (result.mode !== 'shadow'
         || result.executionAuthorized !== false
         || result.actionsExecuted !== 0
+        || !isJeffRecord(result.llmUtility)
+        || result.llmUtility.executionAuthorized !== false
+        || ![0, 2].includes(result.llmUtility.providerCallsAllowed)
+        || result.audit.llmUtilitySha256 !== hashJeffBrainValue(result.llmUtility)
         || !verifyJeffBrainReceipt(result.audit)) {
         throw new Error('JEFF_BRAIN_HTTP_BOUNDARY_FAILED');
       }

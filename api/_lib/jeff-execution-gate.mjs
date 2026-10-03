@@ -113,12 +113,19 @@ function verifyBrainResult(result) {
     && result.decisionAssurance.executionAuthorized === false
     && result.decisionAssurance.planningAllowed === true
     && result.decisionAssurance.verdict !== 'block'
+    && isJeffRecord(result.llmUtility)
+    && result.llmUtility.schema === 'jeff-llm-utility-v1'
+    && result.llmUtility.executionAuthorized === false
+    && result.llmUtility.providerCallsAllowed === 2
+    && result.llmUtility.decision === 'use_llm'
     && isJeffRecord(result.safety)
     && result.safety.disposition !== 'deny'
     && Array.isArray(result.safety.proposals)
     && result.audit.safetySha256 === hashJeffBrainValue(result.safety)
     && result.audit.decisionResponseSha256 === hashJeffBrainValue(result.decisionResponse)
     && result.audit.decisionAssuranceSha256 === hashJeffBrainValue(result.decisionAssurance)
+    && result.audit.llmUtilitySha256 === hashJeffBrainValue(result.llmUtility)
+    && result.audit.providerCallsUsed === 2
     && result.audit.selectedPlanSha256 === hashJeffBrainValue(result.selectedPlan)
     && verifyJeffBrainReceipt(result.audit);
 }

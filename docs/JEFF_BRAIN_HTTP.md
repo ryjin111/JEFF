@@ -1,6 +1,6 @@
 # JEFF Brain shadow HTTP API
 
-The Brain HTTP route makes the complete Brain v1 reasoning loop callable while preserving its non-executing boundary. It accepts authenticated JSON requests, runs deterministic decisions, planning, critique, and tool supervision, then returns a verified hash-bound receipt.
+The Brain HTTP route makes the complete Brain v1 reasoning loop callable while preserving its non-executing boundary. It accepts authenticated JSON requests, runs deterministic decisions and utility checks, invokes planning and critique only for a qualified use case, then returns a verified hash-bound receipt.
 
 The endpoint never calls a proposed tool. Every success and failure keeps execution disabled.
 
@@ -58,7 +58,7 @@ curl -X POST https://your-domain.example/api/jeff-brain \
   }'
 ```
 
-The response contains `mode: "shadow"`, `executionAuthorized: false`, `actionsExecuted: 0`, supervised proposals, and a verified Brain receipt.
+The response contains `mode: "shadow"`, `executionAuthorized: false`, `actionsExecuted: 0`, `llmUtility`, supervised proposals when planning was justified, and a verified Brain receipt. Routine reads return `llmUtility.decision: "deterministic_only"` with zero provider calls.
 
 ## Privileged context
 
@@ -70,6 +70,7 @@ The bearer token is an endpoint access control, not Agent NFT owner authorizatio
 
 - Keep the model URL, model credential, and access token server-side.
 - Apply platform rate limits and request timeouts.
+- Apply provider-side spend limits in addition to the per-deliberation utility gate.
 - Keep request logging disabled or redacted because state may contain private context.
 - Do not enable tool execution, writes, signing, broadcasting, spending, publishing, or training in this route.
 - Run the full-stack shadow soak before launch.
