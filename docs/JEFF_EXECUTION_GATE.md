@@ -4,7 +4,7 @@ The JEFF execution gate is a separate, deny-by-default boundary between Brain v1
 
 The gate executes one write proposal only when all of these controls pass:
 
-1. The Brain result, decision assurance record, and content-addressed receipt validate.
+1. The Brain result, decision assurance record, LLM utility record, and content-addressed receipt validate.
 2. A time-bounded policy names the current agent, owner, owner epoch, exact tool allowlist, action quota, and emergency-stop state.
 3. The tool adapter produces a successful simulation with pre-state and post-state commitments.
 4. A server-controlled verifier authorizes the exact intent, policy, tool, simulation, subject, and owner epoch with a fresh attestation.

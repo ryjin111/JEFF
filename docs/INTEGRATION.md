@@ -17,6 +17,9 @@ JEFF typed review + receipt
 decision assurance
        |
        v
+LLM utility gate
+       |
+       v
 external deterministic policy
        |
        v
@@ -34,6 +37,7 @@ Keep each boundary explicit:
 - Evidence providers can supply prices, balances, protocol state, research, or simulations. Treat provider text as untrusted input.
 - JEFF reviews the state and proposal. Its output always has `mode: "shadow"` and `executionAuthorized: false`.
 - Decision assurance checks confidence, critical-head coherence, deterministic safety facts, and write evidence before planning or handoff.
+- The LLM utility gate keeps routine work on the zero-call deterministic path and permits a fixed provider-call budget only for a classified planning use case.
 - The external policy layer enforces allowlists, spend caps, slippage, freshness, provenance, privacy, and owner requirements.
 - The owner or a separately audited permission system controls any real action.
 - The execution adapter submits only the exact approved transaction and independently verifies the resulting chain receipt.

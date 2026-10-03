@@ -20,6 +20,8 @@ An optional [Bankr read-only adapter](docs/JEFF_BANKR_READONLY_ADAPTER.md) expos
 
 The [decision assurance layer](docs/JEFF_DECISION_ASSURANCE.md) checks confidence, critical-head coherence, deterministic safety facts, and write evidence before Brain planning. Low-confidence or inconsistent decisions stop before provider access, and the execution gate verifies the assurance hash before creating an intent.
 
+The [LLM utility gate](docs/JEFF_LLM_UTILITY_GATE.md) gives routine deterministic decisions a zero-call path. It permits the fixed planning and critique budget only for owner-reviewed write plans, multi-tool comparisons, or verified multi-source synthesis, and records the reason in a hash-bound receipt.
+
 ## Released checkpoint
 
 - Model: `jeff-agent-nft-nb-v0.5-evidence`
@@ -80,7 +82,7 @@ The receipt never authorizes execution. An integration must run its own policy c
 
 ## What is included
 
-- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, decision assurance, Brain v1, the gated execution boundary, curiosity loop, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
+- `api/`: the Brain shadow HTTP route plus typed contracts, 28 capability questions, inference runtimes, decision assurance, LLM utility gating, Brain v1, the gated execution boundary, curiosity loop, memory and MCP context boundaries, promotion gate, review helpers, receipts, and benchmark scorers.
 - `models/`: the released v0.5 checkpoint, model card, and MIT license.
 - `datasets/`: the v0.5 evidence curriculum, dataset card, and CC BY 4.0 license.
 - `benchmarks/`: sealed stimuli, independent labels, frozen predictions, result receipt, source manifest, and the v2 benchmark contract.
