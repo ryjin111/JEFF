@@ -181,6 +181,22 @@ test('cross-origin, non-JSON, and oversized requests fail before runtime access'
     body: JSON.stringify({ action: 'challenge', wallet: 'x'.repeat(2_000), agentNft: {} }),
   });
   assert.equal(response.statusCode, 400);
+
+  response = responseRecorder();
+  const parserFailureRequest = {
+    method: 'POST',
+    headers: {
+      origin: 'https://jeff.example',
+      'sec-fetch-site': 'same-origin',
+      'content-type': 'application/json',
+    },
+  };
+  Object.defineProperty(parserFailureRequest, 'body', {
+    get() { throw new Error('Invalid JSON'); },
+  });
+  await handler(parserFailureRequest, response);
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'INVALID_JSON_BODY');
   assert.equal(runtime.calls.length, 0);
 });
 

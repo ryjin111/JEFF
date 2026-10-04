@@ -92,18 +92,20 @@ function parseJsonBytes(bytes, maximum) {
 }
 
 async function readJsonBody(request, maximum) {
-  if (request.body !== undefined) {
-    if (Buffer.isBuffer(request.body)) return parseJsonBytes(request.body, maximum);
-    if (typeof request.body === 'string') return parseJsonBytes(Buffer.from(request.body, 'utf8'), maximum);
-    if (!isJeffRecord(request.body)) throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID');
+  let body;
+  try { body = request?.body; } catch { throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID'); }
+  if (body !== undefined) {
+    if (Buffer.isBuffer(body)) return parseJsonBytes(body, maximum);
+    if (typeof body === 'string') return parseJsonBytes(Buffer.from(body, 'utf8'), maximum);
+    if (!isJeffRecord(body)) throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID');
     let encoded;
     try {
-      encoded = Buffer.from(JSON.stringify(request.body), 'utf8');
+      encoded = Buffer.from(JSON.stringify(body), 'utf8');
     } catch {
       throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID');
     }
     if (encoded.length > maximum) throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID');
-    return request.body;
+    return body;
   }
   if (!request || typeof request[Symbol.asyncIterator] !== 'function') {
     throw new Error('JEFF_HOLDER_HTTP_BODY_INVALID');
@@ -219,19 +221,12 @@ function reportFailure(error, publicCode, stage) {
   const internalCode = typeof error?.message === 'string' && error.message.startsWith('JEFF_')
     ? error.message
     : 'UNEXPECTED_ERROR';
-  const unexpectedMessage = internalCode === 'UNEXPECTED_ERROR'
-    ? String(error?.message ?? 'unavailable')
-      .slice(0, 256)
-      .replace(/https?:\/\/\S+/giu, '[url]')
-      .replace(/[A-Za-z0-9+/_=-]{24,}/gu, '[redacted]')
-    : undefined;
   console.error(JSON.stringify({
     event: 'jeff_holder_request_failed',
     publicCode,
     internalCode,
     errorType: typeof error?.name === 'string' ? error.name : 'UnknownError',
     stage,
-    ...(unexpectedMessage ? { unexpectedMessage } : {}),
   }));
 }
 
