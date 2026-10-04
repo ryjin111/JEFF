@@ -9,6 +9,7 @@ import {
 import {
   createJeffAuthorizedMemory,
 } from './jeff-authorized-memory.mjs';
+import { loadAndVerifyJeffSoulBundle } from './jeff-soul-bundle.mjs';
 import {
   deliberateJeffBrain,
   verifyJeffBrainReceipt,
@@ -34,8 +35,18 @@ const AUTH_TTL_MS = 60 * 1_000;
 const CLOCK_SKEW_MS = 5 * 1_000;
 const MEMORY_OPERATIONS = new Set(['canReadMemory', 'canWriteMemory']);
 
+const DEFAULT_SOUL_VERIFIER = Object.freeze({
+  verify: () => loadAndVerifyJeffSoulBundle(),
+});
+
 function clone(value) {
   return structuredClone(value);
+}
+
+function exactKeys(value, keys) {
+  return isJeffRecord(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function normalizeAddress(value, code) {
@@ -96,6 +107,28 @@ function holderAuthorization(session, operation) {
     ...holderScope(session),
     subject: `session:${session.sessionId}`,
     [operation]: true,
+  });
+}
+
+function validateSoulBundle(bundle) {
+  if (!isJeffRecord(bundle)
+    || bundle.schema !== 'jeff-agent-soul-manifest-v1'
+    || !isJeffRecord(bundle.agent)
+    || bundle.agent.id !== 'jeff'
+    || !isJeffRecord(bundle.controls)
+    || bundle.controls.executionAuthorized !== false
+    || bundle.controls.authorityIncluded !== false
+    || bundle.controls.memoryIncluded !== false
+    || !isJeffRecord(bundle.checkpoint)
+    || !JEFF_HASH.test(String(bundle.checkpoint.sha256 ?? ''))
+    || !JEFF_HASH.test(String(bundle.bundleRootSha256 ?? ''))
+    || !JEFF_HASH.test(String(bundle.manifestSha256 ?? ''))) {
+    throw new Error('JEFF_HOLDER_SOUL_BUNDLE_INVALID');
+  }
+  return Object.freeze({
+    manifestSha256: bundle.manifestSha256,
+    bundleRootSha256: bundle.bundleRootSha256,
+    checkpointSha256: bundle.checkpoint.sha256,
   });
 }
 
@@ -221,6 +254,11 @@ function validateSession(session, currentAt) {
   if (!Number.isSafeInteger(session.ownerEpoch) || session.ownerEpoch < 0) {
     throw new Error('JEFF_HOLDER_SESSION_INVALID');
   }
+  if (!JEFF_HASH.test(String(session.soulManifestSha256 ?? ''))
+    || !JEFF_HASH.test(String(session.soulBundleRootSha256 ?? ''))
+    || !JEFF_HASH.test(String(session.soulCheckpointSha256 ?? ''))) {
+    throw new Error('JEFF_HOLDER_SESSION_INVALID');
+  }
   return session;
 }
 
@@ -329,18 +367,70 @@ export function createJeffEd25519ReceiptVerifier({ publicKey, keyId } = {}) {
   });
 }
 
+export function verifyJeffHolderToolReceipt(receipt) {
+  if (!exactKeys(receipt, [
+    'schema', 'tool', 'mode', 'inputSha256', 'outputSha256', 'ownerEpoch',
+    'observedAt', 'executionAuthorized', 'writesExecuted', 'receiptSha256',
+  ])
+    || receipt.schema !== 'jeff-holder-tool-receipt-v1'
+    || receipt.tool !== 'holder.status'
+    || receipt.mode !== 'read_only'
+    || !JEFF_HASH.test(String(receipt.inputSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.outputSha256 ?? ''))
+    || !Number.isSafeInteger(receipt.ownerEpoch)
+    || receipt.ownerEpoch < 0
+    || receipt.executionAuthorized !== false
+    || receipt.writesExecuted !== 0
+    || !JEFF_HASH.test(String(receipt.receiptSha256 ?? ''))) return false;
+  try {
+    timestampMs(receipt.observedAt, 'JEFF_HOLDER_TOOL_RECEIPT_INVALID');
+  } catch {
+    return false;
+  }
+  const { receiptSha256, ...body } = receipt;
+  return receiptSha256 === hashJeffBrainValue(body);
+}
+
 export function verifyJeffHolderReceipt(receipt, verifier) {
-  if (!isJeffRecord(receipt)
+  if (!exactKeys(receipt, [
+    'schema', 'runtimeVersion', 'mode', 'executionAuthorized', 'actionsExecuted',
+    'readOnlyToolsExecuted', 'tool', 'sessionSha256', 'instanceId', 'agentNftSha256',
+    'walletSha256', 'ownerEpoch', 'soulManifestSha256', 'soulBundleRootSha256',
+    'soulCheckpointSha256', 'objectiveSha256', 'holderStatusSha256', 'toolReceiptSha256',
+    'brainReceiptSha256', 'memoryScopeSha256', 'createdAt', 'receiptSha256', 'signature',
+  ])
     || receipt.schema !== 'jeff-holder-action-receipt-v1'
+    || receipt.runtimeVersion !== 'jeff-holder-alpha-v1'
     || receipt.mode !== 'shadow'
     || receipt.executionAuthorized !== false
     || receipt.actionsExecuted !== 0
     || receipt.readOnlyToolsExecuted !== 1
-    || !isJeffRecord(receipt.signature)
+    || receipt.tool !== 'holder.status'
+    || !JEFF_HASH.test(String(receipt.sessionSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.instanceId ?? ''))
+    || !JEFF_HASH.test(String(receipt.agentNftSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.walletSha256 ?? ''))
+    || !Number.isSafeInteger(receipt.ownerEpoch)
+    || receipt.ownerEpoch < 0
+    || !JEFF_HASH.test(String(receipt.toolReceiptSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.soulManifestSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.soulBundleRootSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.soulCheckpointSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.objectiveSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.holderStatusSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.brainReceiptSha256 ?? ''))
+    || (receipt.memoryScopeSha256 !== null
+      && !JEFF_HASH.test(String(receipt.memoryScopeSha256 ?? '')))
+    || !exactKeys(receipt.signature, ['algorithm', 'keyId', 'value'])
     || !verifier
     || typeof verifier.verifyDigest !== 'function'
     || receipt.signature.algorithm !== verifier.algorithm
     || receipt.signature.keyId !== verifier.keyId) return false;
+  try {
+    timestampMs(receipt.createdAt, 'JEFF_HOLDER_RECEIPT_INVALID');
+  } catch {
+    return false;
+  }
   const { receiptSha256, signature, ...body } = receipt;
   if (receiptSha256 !== hashJeffBrainValue(body)) return false;
   return verifier.verifyDigest(receiptSha256, signature.value) === true;
@@ -367,15 +457,17 @@ export function createJeffHolderSessionAuthorizationVerifier({
       }
       const sessionId = input.subject.slice('session:'.length);
       if (!SESSION_ID.test(sessionId)) throw new Error('JEFF_HOLDER_AUTHORIZATION_DENIED');
-      const currentAt = nowIso(now);
-      const session = validateSession(await store.getSession(sessionId), currentAt);
+      const session = validateSession(await store.getSession(sessionId), nowIso(now));
       const expectedScope = holderScope(session);
       if (hashJeffBrainValue(input.scope) !== hashJeffBrainValue(expectedScope)
         || input.ownerEpoch !== session.ownerEpoch) {
         throw new Error('JEFF_HOLDER_AUTHORIZATION_DENIED');
       }
+      const rawOwnership = await ownershipResolver.resolveCurrentOwner(clone(session.agentNft));
+      const currentAt = nowIso(now);
+      validateSession(session, currentAt);
       const ownership = validateOwnership(
-        await ownershipResolver.resolveCurrentOwner(clone(session.agentNft)),
+        rawOwnership,
         session.agentNft,
         currentAt,
       );
@@ -403,6 +495,7 @@ export function createJeffHolderRuntime({
   memoryAdapter,
   memoryCrypto,
   receiptSigner,
+  soulVerifier = DEFAULT_SOUL_VERIFIER,
   now = () => new Date().toISOString(),
   nonce = () => randomBytes(16).toString('hex'),
   sessionId = () => randomBytes(32).toString('hex'),
@@ -420,6 +513,9 @@ export function createJeffHolderRuntime({
     throw new Error('JEFF_HOLDER_OWNERSHIP_RESOLVER_REQUIRED');
   }
   if (!provider || typeof provider.complete !== 'function') throw new Error('JEFF_HOLDER_PROVIDER_REQUIRED');
+  if (!soulVerifier || typeof soulVerifier.verify !== 'function') {
+    throw new Error('JEFF_HOLDER_SOUL_VERIFIER_REQUIRED');
+  }
   if (!receiptSigner
     || receiptSigner.algorithm !== 'Ed25519'
     || typeof receiptSigner.keyId !== 'string'
@@ -438,20 +534,97 @@ export function createJeffHolderRuntime({
     now,
   });
 
-  async function requireLiveSession(rawSessionId) {
-    if (!SESSION_ID.test(String(rawSessionId ?? ''))) throw new Error('JEFF_HOLDER_SESSION_INVALID');
+  async function resolveLiveOwnership(session) {
+    const rawOwnership = await ownershipResolver.resolveCurrentOwner(clone(session.agentNft));
     const currentAt = nowIso(now);
-    const session = validateSession(await store.getSession(rawSessionId), currentAt);
+    validateSession(session, currentAt);
     const ownership = validateOwnership(
-      await ownershipResolver.resolveCurrentOwner(clone(session.agentNft)),
+      rawOwnership,
       session.agentNft,
       currentAt,
     );
     if (ownership.currentOwner !== session.wallet || ownership.ownerEpoch !== session.ownerEpoch) {
-      await store.revokeSession(rawSessionId, 'ownership_changed', currentAt);
+      await store.revokeSession(session.sessionId, 'ownership_changed', currentAt);
       throw new Error('JEFF_HOLDER_OWNERSHIP_CHANGED');
     }
-    return Object.freeze({ session, ownership, currentAt });
+    return Object.freeze({ ownership, currentAt });
+  }
+
+  async function requireLiveSession(rawSessionId) {
+    if (!SESSION_ID.test(String(rawSessionId ?? ''))) throw new Error('JEFF_HOLDER_SESSION_INVALID');
+    const currentAt = nowIso(now);
+    const session = validateSession(await store.getSession(rawSessionId), currentAt);
+    const live = await resolveLiveOwnership(session);
+    return Object.freeze({ session, ...live });
+  }
+
+  function guardedProvider(session) {
+    return Object.freeze({
+      model: provider.model,
+      async complete(input) {
+        await resolveLiveOwnership(session);
+        return provider.complete(input);
+      },
+    });
+  }
+
+  function authorizeHolderStatusTool(result, session) {
+    const toolMode = result.decisionResponse?.answers?.tool_mode;
+    if (toolMode?.type !== 'choice'
+      || toolMode.choice !== 'read_only'
+      || result.safety?.disposition === 'deny') {
+      throw new Error('JEFF_HOLDER_TOOL_NOT_AUTHORIZED');
+    }
+    const proposals = result.safety?.proposals;
+    if (!Array.isArray(proposals)) throw new Error('JEFF_HOLDER_TOOL_NOT_AUTHORIZED');
+    if (result.llmUtility?.providerCallsAllowed === 0) {
+      if (proposals.length !== 0) throw new Error('JEFF_HOLDER_TOOL_NOT_AUTHORIZED');
+      return Object.freeze({ tokenId: session.agentNft.tokenId });
+    }
+    if (result.llmUtility?.providerCallsAllowed !== 2 || proposals.length !== 1) {
+      throw new Error('JEFF_HOLDER_TOOL_NOT_AUTHORIZED');
+    }
+    const proposal = proposals[0];
+    if (proposal.tool !== 'holder.status'
+      || proposal.mode !== 'read_only'
+      || proposal.status !== 'read_only_candidate'
+      || !isJeffRecord(proposal.input)
+      || Object.keys(proposal.input).length !== 1
+      || proposal.input.tokenId !== session.agentNft.tokenId) {
+      throw new Error('JEFF_HOLDER_TOOL_NOT_AUTHORIZED');
+    }
+    return Object.freeze({ tokenId: proposal.input.tokenId });
+  }
+
+  async function executeHolderStatusTool(session, result) {
+    const input = authorizeHolderStatusTool(result, session);
+    const { ownership, currentAt } = await resolveLiveOwnership(session);
+    const holderStatus = Object.freeze({
+      schema: 'jeff-holder-status-v1',
+      agentNft: session.agentNft,
+      currentOwner: ownership.currentOwner,
+      ownerEpoch: ownership.ownerEpoch,
+      observedAt: ownership.observedAt,
+      mode: 'shadow',
+      executionAuthorized: false,
+    });
+    const body = {
+      schema: 'jeff-holder-tool-receipt-v1',
+      tool: 'holder.status',
+      mode: 'read_only',
+      inputSha256: hashJeffBrainValue(input),
+      outputSha256: hashJeffBrainValue(holderStatus),
+      ownerEpoch: session.ownerEpoch,
+      observedAt: currentAt,
+      executionAuthorized: false,
+      writesExecuted: 0,
+    };
+    const receipt = Object.freeze({ ...body, receiptSha256: hashJeffBrainValue(body) });
+    if (!verifyJeffHolderToolReceipt(receipt)) throw new Error('JEFF_HOLDER_TOOL_RECEIPT_INVALID');
+    return Object.freeze({
+      holderStatus,
+      receipt,
+    });
   }
 
   return Object.freeze({
@@ -491,10 +664,10 @@ export function createJeffHolderRuntime({
 
     async boot({ challengeSha256, signature } = {}) {
       if (!JEFF_HASH.test(String(challengeSha256 ?? ''))) throw new Error('JEFF_HOLDER_CHALLENGE_INVALID');
-      const currentAt = nowIso(now);
       const stored = await store.consumeChallenge(challengeSha256);
       if (!stored) throw new Error('JEFF_HOLDER_CHALLENGE_CONSUMED_OR_UNKNOWN');
-      const challenge = validateChallenge(stored, currentAt);
+      let currentAt = nowIso(now);
+      let challenge = validateChallenge(stored, currentAt);
       const verification = await walletVerifier.verify(Object.freeze({
         challengeSha256,
         message: challenge.message,
@@ -502,12 +675,24 @@ export function createJeffHolderRuntime({
         wallet: challenge.wallet,
         chainId: challenge.agentNft.chainId,
       }));
+      currentAt = nowIso(now);
+      challenge = validateChallenge(stored, currentAt);
       validateWalletVerification(verification, challenge, currentAt);
-      const ownership = validateOwnership(
-        await ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft)),
+      const rawOwnership = await ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft));
+      currentAt = nowIso(now);
+      challenge = validateChallenge(stored, currentAt);
+      let ownership = validateOwnership(
+        rawOwnership,
         challenge.agentNft,
         currentAt,
       );
+      if (ownership.currentOwner !== challenge.wallet) throw new Error('JEFF_HOLDER_NOT_CURRENT_OWNER');
+      const soul = validateSoulBundle(await soulVerifier.verify(Object.freeze({
+        agentNft: clone(challenge.agentNft),
+      })));
+      currentAt = nowIso(now);
+      challenge = validateChallenge(stored, currentAt);
+      ownership = validateOwnership(rawOwnership, challenge.agentNft, currentAt);
       if (ownership.currentOwner !== challenge.wallet) throw new Error('JEFF_HOLDER_NOT_CURRENT_OWNER');
       const id = sessionId();
       if (!SESSION_ID.test(String(id ?? ''))) throw new Error('JEFF_HOLDER_SESSION_ID_INVALID');
@@ -518,6 +703,9 @@ export function createJeffHolderRuntime({
         agentNft: challenge.agentNft,
         wallet: challenge.wallet,
         ownerEpoch: ownership.ownerEpoch,
+        soulManifestSha256: soul.manifestSha256,
+        soulBundleRootSha256: soul.bundleRootSha256,
+        soulCheckpointSha256: soul.checkpointSha256,
         challengeSha256,
         issuedAt: currentAt,
         expiresAt: new Date(Date.parse(currentAt) + SESSION_TTL_MS).toISOString(),
@@ -530,6 +718,9 @@ export function createJeffHolderRuntime({
         agentNft: session.agentNft,
         wallet: session.wallet,
         ownerEpoch: session.ownerEpoch,
+        soulManifestSha256: session.soulManifestSha256,
+        soulBundleRootSha256: session.soulBundleRootSha256,
+        soulCheckpointSha256: session.soulCheckpointSha256,
         expiresAt: session.expiresAt,
         mode: 'shadow',
         executionAuthorized: false,
@@ -539,6 +730,9 @@ export function createJeffHolderRuntime({
           agentNftSha256: hashJeffBrainValue(session.agentNft),
           walletSha256: hashJeffBrainValue(session.wallet),
           ownerEpoch: session.ownerEpoch,
+          soulManifestSha256: session.soulManifestSha256,
+          soulBundleRootSha256: session.soulBundleRootSha256,
+          soulCheckpointSha256: session.soulCheckpointSha256,
           challengeSha256,
           issuedAt: session.issuedAt,
           expiresAt: session.expiresAt,
@@ -558,9 +752,9 @@ export function createJeffHolderRuntime({
     },
 
     async run({ sessionId: rawSessionId, objective } = {}) {
-      const { session, ownership, currentAt } = await requireLiveSession(rawSessionId);
+      const { session, ownership } = await requireLiveSession(rawSessionId);
       const normalizedObjective = assertJeffText(objective, 'JEFF_HOLDER_OBJECTIVE_INVALID', 4_000);
-      const holderStatus = Object.freeze({
+      const preflightHolderStatus = Object.freeze({
         schema: 'jeff-holder-status-v1',
         agentNft: session.agentNft,
         currentOwner: ownership.currentOwner,
@@ -570,14 +764,26 @@ export function createJeffHolderRuntime({
         executionAuthorized: false,
       });
       const result = await deliberateJeffBrain({
-        provider,
+        provider: guardedProvider(session),
         memoryService,
         request: {
           agentNft: session.agentNft,
           objective: normalizedObjective,
           state: {
             proposal: normalizedObjective,
-            holderStatus,
+            holderStatus: preflightHolderStatus,
+            evidence: [
+              {
+                source: 'holder-ownership-attestation',
+                verified: true,
+                sha256: hashJeffBrainValue(preflightHolderStatus),
+              },
+              {
+                source: 'jeff-soul-manifest',
+                verified: true,
+                sha256: session.soulManifestSha256,
+              },
+            ],
             safetyFacts: {
               authorized: true,
               funded: true,
@@ -612,6 +818,12 @@ export function createJeffHolderRuntime({
         || result.actionsExecuted !== 0) {
         throw new Error('JEFF_HOLDER_BRAIN_RESULT_INVALID');
       }
+      const toolExecution = await executeHolderStatusTool(session, result);
+      const finalOwnership = await resolveLiveOwnership(session);
+      if (finalOwnership.ownership.currentOwner !== toolExecution.holderStatus.currentOwner
+        || finalOwnership.ownership.ownerEpoch !== toolExecution.holderStatus.ownerEpoch) {
+        throw new Error('JEFF_HOLDER_OWNERSHIP_CHANGED');
+      }
       const body = {
         schema: 'jeff-holder-action-receipt-v1',
         runtimeVersion: 'jeff-holder-alpha-v1',
@@ -625,11 +837,15 @@ export function createJeffHolderRuntime({
         agentNftSha256: hashJeffBrainValue(session.agentNft),
         walletSha256: hashJeffBrainValue(session.wallet),
         ownerEpoch: session.ownerEpoch,
+        soulManifestSha256: session.soulManifestSha256,
+        soulBundleRootSha256: session.soulBundleRootSha256,
+        soulCheckpointSha256: session.soulCheckpointSha256,
         objectiveSha256: hashJeffBrainValue(normalizedObjective),
-        holderStatusSha256: hashJeffBrainValue(holderStatus),
+        holderStatusSha256: hashJeffBrainValue(toolExecution.holderStatus),
+        toolReceiptSha256: toolExecution.receipt.receiptSha256,
         brainReceiptSha256: result.audit.receiptSha256,
         memoryScopeSha256: result.audit.memoryScopeSha256,
-        createdAt: currentAt,
+        createdAt: finalOwnership.currentAt,
       };
       const receiptSha256 = hashJeffBrainValue(body);
       const signatureValue = receiptSigner.signDigest(receiptSha256);
@@ -645,7 +861,12 @@ export function createJeffHolderRuntime({
           value: signatureValue,
         }),
       });
-      return Object.freeze({ holderStatus, result, receipt });
+      return Object.freeze({
+        holderStatus: toolExecution.holderStatus,
+        toolReceipt: toolExecution.receipt,
+        result,
+        receipt,
+      });
     },
 
     async logout({ sessionId: rawSessionId } = {}) {
@@ -666,6 +887,7 @@ export const JEFF_HOLDER_RUNTIME = Object.freeze({
     'durable_atomic_store',
     'wallet_signature_verifier',
     'fresh_onchain_ownership_resolver',
+    'verified_soul_bundle',
     'authenticated_encryption',
     'ed25519_receipt_key',
   ]),

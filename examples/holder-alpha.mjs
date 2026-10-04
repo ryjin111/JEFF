@@ -35,9 +35,11 @@ function candidate(id) {
   };
 }
 
+let providerCalls = 0;
 const provider = {
   model: 'jeff-holder-local-demo',
   async complete({ phase }) {
+    providerCalls += 1;
     if (phase === 'plan') {
       return {
         situation: 'The holder requested a verified Agent NFT status summary.',
@@ -116,7 +118,7 @@ await runtime.remember({
 
 const output = await runtime.run({
   sessionId: session.sessionId,
-  objective: 'Confirm my Agent NFT status and prepare a concise report.',
+  objective: 'Evaluate options and recommend a concise Agent NFT status report.',
 });
 
 console.log(JSON.stringify({
@@ -124,6 +126,7 @@ console.log(JSON.stringify({
   instanceId: session.instanceId,
   mode: output.result.mode,
   executionAuthorized: output.result.executionAuthorized,
+  providerCalls,
   readOnlyToolsExecuted: output.receipt.readOnlyToolsExecuted,
   signedReceiptValid: verifyJeffHolderReceipt(output.receipt, receiptVerifier),
   receiptSha256: output.receipt.receiptSha256,
