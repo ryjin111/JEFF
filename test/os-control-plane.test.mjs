@@ -10,10 +10,13 @@ import {
   verifyJeffAgentMessageReceipt,
 } from '../api/_lib/jeff-agent-coordination.mjs';
 import {
+  cancelJeffOsSchedule,
   createInMemoryJeffOsScheduleStore,
   createJeffOsSchedule,
+  registerJeffOsSchedule,
   runJeffOsSchedule,
   verifyJeffOsSchedule,
+  verifyJeffOsScheduleAdminReceipt,
   verifyJeffOsScheduleReceipt,
 } from '../api/_lib/jeff-os-scheduler.mjs';
 import {
@@ -183,6 +186,7 @@ test('scheduler runs a due skill once with pre-claim and post-claim authorizatio
   const { registry } = skillRegistry();
   const store = createInMemoryJeffOsScheduleStore();
   const schedule = activeSchedule();
+  await store.putSchedule(schedule);
   assert.equal(verifyJeffOsSchedule(schedule), true);
   const output = await runJeffOsSchedule({
     schedule,
@@ -209,17 +213,20 @@ test('scheduler runs a due skill once with pre-claim and post-claim authorizatio
 
 test('scheduler rejects early runs and leaves unknown adapter outcomes in flight', async () => {
   const schedule = activeSchedule({ runAfter: '2026-10-04T14:01:00.000Z' });
+  const earlyStore = createInMemoryJeffOsScheduleStore();
+  await earlyStore.putSchedule(schedule);
   await assert.rejects(runJeffOsSchedule({
     schedule,
     subject,
     authorizationVerifier: verifier(),
     registry: skillRegistry().registry,
-    store: createInMemoryJeffOsScheduleStore(),
+    store: earlyStore,
     now: () => nowValue,
   }), /JEFF_OS_SCHEDULE_NOT_DUE/);
 
   const due = activeSchedule();
   const store = createInMemoryJeffOsScheduleStore();
+  await store.putSchedule(due);
   const failing = skillRegistry({ fail: true }).registry;
   await assert.rejects(runJeffOsSchedule({
     schedule: due,
@@ -237,6 +244,37 @@ test('scheduler rejects early runs and leaves unknown adapter outcomes in flight
     store,
     now: () => nowValue,
   }), /JEFF_OS_SCHEDULE_RUN_IN_FLIGHT/);
+});
+
+test('schedule registration and cancellation require fresh owner authorization', async () => {
+  const schedule = activeSchedule();
+  const store = createInMemoryJeffOsScheduleStore();
+  const auth = verifier();
+  const registered = await registerJeffOsSchedule({
+    schedule,
+    subject,
+    authorizationVerifier: auth,
+    store,
+    now: () => nowValue,
+  });
+  assert.equal(registered.action, 'registered');
+  assert.equal(verifyJeffOsScheduleAdminReceipt(registered), true);
+  assert.equal((await store.listSchedules({
+    agentId: schedule.agentId, ownerEpoch: schedule.ownerEpoch,
+  })).length, 1);
+  const cancelled = await cancelJeffOsSchedule({
+    scheduleSha256: schedule.scheduleSha256,
+    subject,
+    ownerEpoch: schedule.ownerEpoch,
+    authorizationVerifier: auth,
+    store,
+    now: () => nowValue,
+  });
+  assert.equal(cancelled.action, 'cancelled');
+  assert.equal(verifyJeffOsScheduleAdminReceipt(cancelled), true);
+  assert.equal((await store.listSchedules({
+    agentId: schedule.agentId, ownerEpoch: schedule.ownerEpoch,
+  })).length, 0);
 });
 
 function agentMessage(overrides = {}) {

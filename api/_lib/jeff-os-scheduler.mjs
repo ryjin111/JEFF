@@ -12,6 +12,7 @@ import { verifyJeffOsSkillReceipt } from './jeff-os-skills.mjs';
 
 const SCHEDULE_SCHEMA = 'jeff-os-schedule-v1';
 const RECEIPT_SCHEMA = 'jeff-os-schedule-receipt-v1';
+const ADMIN_RECEIPT_SCHEMA = 'jeff-os-schedule-admin-receipt-v1';
 const MAX_SCHEDULE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_RUNS = 24;
 const MIN_INTERVAL_SECONDS = 60;
@@ -138,43 +139,206 @@ function availableRuns(schedule, nowMs) {
 }
 
 export function createInMemoryJeffOsScheduleStore() {
-  const schedules = new Map();
+  const definitions = new Map();
+  const runs = new Map();
   return Object.freeze({
+    async putSchedule(schedule) {
+      if (!verifyJeffOsSchedule(schedule) || definitions.has(schedule.scheduleSha256)) {
+        throw new Error('JEFF_OS_SCHEDULE_DUPLICATE');
+      }
+      definitions.set(schedule.scheduleSha256, {
+        schedule: structuredClone(schedule), status: 'active', cancelledAt: null,
+      });
+    },
+    async getSchedule(scheduleSha256) {
+      if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))) throw new Error('JEFF_OS_SCHEDULE_INVALID');
+      const value = definitions.get(scheduleSha256);
+      return value ? Object.freeze(structuredClone(value)) : null;
+    },
+    async listSchedules({ agentId, ownerEpoch }) {
+      if (typeof agentId !== 'string' || !agentId || !validEpoch(ownerEpoch)) {
+        throw new Error('JEFF_OS_SCHEDULE_QUERY_INVALID');
+      }
+      return Object.freeze([...definitions.values()]
+        .filter(({ schedule, status }) => schedule.agentId === agentId
+          && schedule.ownerEpoch === ownerEpoch
+          && status === 'active')
+        .map((value) => Object.freeze(structuredClone(value))));
+    },
+    async cancelSchedule({ scheduleSha256, cancelledAt }) {
+      const definition = definitions.get(scheduleSha256);
+      const state = runs.get(scheduleSha256);
+      if (!definition || definition.status !== 'active' || state?.inFlight !== null && state?.inFlight !== undefined) {
+        throw new Error('JEFF_OS_SCHEDULE_CANCEL_DENIED');
+      }
+      definitions.set(scheduleSha256, { ...definition, status: 'cancelled', cancelledAt });
+    },
     async claim({ scheduleSha256, maximumRuns, available }) {
       if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
         || !Number.isSafeInteger(maximumRuns)
         || maximumRuns < 1
         || !Number.isSafeInteger(available)
         || available < 0) throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
-      const state = schedules.get(scheduleSha256) ?? { completed: 0, inFlight: null, receipts: [] };
+      const definition = definitions.get(scheduleSha256);
+      if (!definition
+        || definition.status !== 'active'
+        || definition.schedule.maximumRuns !== maximumRuns) {
+        throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
+      }
+      const state = runs.get(scheduleSha256) ?? { completed: 0, inFlight: null, receipts: [] };
       if (state.inFlight !== null) throw new Error('JEFF_OS_SCHEDULE_RUN_IN_FLIGHT');
       const runIndex = state.completed + 1;
       if (runIndex > maximumRuns) throw new Error('JEFF_OS_SCHEDULE_QUOTA_EXHAUSTED');
       if (runIndex > available) throw new Error('JEFF_OS_SCHEDULE_NOT_DUE');
-      schedules.set(scheduleSha256, { ...state, inFlight: runIndex });
+      runs.set(scheduleSha256, { ...state, inFlight: runIndex });
       return Object.freeze({ status: 'reserved', runIndex });
     },
     async complete({ scheduleSha256, runIndex, receiptSha256 }) {
-      const state = schedules.get(scheduleSha256);
+      const state = runs.get(scheduleSha256);
       if (!state
         || state.inFlight !== runIndex
         || !JEFF_HASH.test(String(receiptSha256 ?? ''))) {
         throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
       }
-      schedules.set(scheduleSha256, {
+      runs.set(scheduleSha256, {
         completed: runIndex,
         inFlight: null,
         receipts: [...state.receipts, receiptSha256],
       });
     },
     async abort({ scheduleSha256, runIndex }) {
-      const state = schedules.get(scheduleSha256);
+      const state = runs.get(scheduleSha256);
       if (state?.inFlight !== runIndex) return;
-      schedules.set(scheduleSha256, { ...state, inFlight: null });
+      runs.set(scheduleSha256, { ...state, inFlight: null });
     },
     async snapshot() {
-      return structuredClone([...schedules.entries()]);
+      return Object.freeze({
+        definitions: structuredClone([...definitions.entries()]),
+        runs: structuredClone([...runs.entries()]),
+      });
     },
+  });
+}
+
+export function verifyJeffOsScheduleAdminReceipt(receipt) {
+  const keys = [
+    'schema', 'action', 'scheduleSha256', 'authorizationAttestationSha256',
+    'ownerEpoch', 'recordedAt', 'executionAuthorized', 'actionsExecuted',
+    'writesExecuted', 'receiptSha256',
+  ];
+  if (!exactKeys(receipt, keys)
+    || receipt.schema !== ADMIN_RECEIPT_SCHEMA
+    || !['registered', 'cancelled'].includes(receipt.action)
+    || !JEFF_HASH.test(String(receipt.scheduleSha256 ?? ''))
+    || !JEFF_HASH.test(String(receipt.authorizationAttestationSha256 ?? ''))
+    || !validEpoch(receipt.ownerEpoch)
+    || receipt.executionAuthorized !== false
+    || receipt.actionsExecuted !== 0
+    || receipt.writesExecuted !== 0
+    || !JEFF_HASH.test(String(receipt.receiptSha256 ?? ''))) return false;
+  try {
+    assertJeffIsoTimestamp(receipt.recordedAt, 'JEFF_OS_SCHEDULE_ADMIN_RECEIPT_INVALID');
+  } catch {
+    return false;
+  }
+  const { receiptSha256, ...body } = receipt;
+  return receiptSha256 === hashJeffBrainValue(body);
+}
+
+function adminReceipt({ action, scheduleSha256, attestation, ownerEpoch, recordedAt }) {
+  const body = {
+    schema: ADMIN_RECEIPT_SCHEMA,
+    action,
+    scheduleSha256,
+    authorizationAttestationSha256: attestation.attestationSha256,
+    ownerEpoch,
+    recordedAt,
+    executionAuthorized: false,
+    actionsExecuted: 0,
+    writesExecuted: 0,
+  };
+  const receipt = Object.freeze({ ...body, receiptSha256: hashJeffBrainValue(body) });
+  if (!verifyJeffOsScheduleAdminReceipt(receipt)) {
+    throw new Error('JEFF_OS_SCHEDULE_ADMIN_RECEIPT_INVALID');
+  }
+  return receipt;
+}
+
+export async function registerJeffOsSchedule({
+  schedule,
+  subject,
+  authorizationVerifier,
+  store,
+  now = () => new Date().toISOString(),
+} = {}) {
+  if (!verifyJeffOsSchedule(schedule) || schedule.enabled !== true
+    || !store || typeof store.putSchedule !== 'function') {
+    throw new Error('JEFF_OS_SCHEDULE_REGISTRATION_INVALID');
+  }
+  const recordedAt = assertJeffIsoTimestamp(now(), 'JEFF_OS_SCHEDULE_CLOCK_INVALID');
+  if (Date.parse(recordedAt) >= Date.parse(schedule.expiresAt)) {
+    throw new Error('JEFF_OS_SCHEDULE_EXPIRED');
+  }
+  const attestation = await requireJeffAuthorization({
+    verifier: authorizationVerifier,
+    scope: {
+      agentId: schedule.agentId,
+      ownerId: schedule.ownerId,
+      scheduleSha256: schedule.scheduleSha256,
+    },
+    subject,
+    operation: 'register_schedule',
+    ownerEpoch: schedule.ownerEpoch,
+    now,
+  });
+  await store.putSchedule(schedule);
+  return adminReceipt({
+    action: 'registered',
+    scheduleSha256: schedule.scheduleSha256,
+    attestation,
+    ownerEpoch: schedule.ownerEpoch,
+    recordedAt,
+  });
+}
+
+export async function cancelJeffOsSchedule({
+  scheduleSha256,
+  subject,
+  ownerEpoch,
+  authorizationVerifier,
+  store,
+  now = () => new Date().toISOString(),
+} = {}) {
+  if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
+    || !validEpoch(ownerEpoch)
+    || !store
+    || typeof store.getSchedule !== 'function'
+    || typeof store.cancelSchedule !== 'function') {
+    throw new Error('JEFF_OS_SCHEDULE_CANCEL_INVALID');
+  }
+  const definition = await store.getSchedule(scheduleSha256);
+  if (!definition
+    || definition.status !== 'active'
+    || !verifyJeffOsSchedule(definition.schedule)
+    || definition.schedule.ownerEpoch !== ownerEpoch) {
+    throw new Error('JEFF_OS_SCHEDULE_CANCEL_DENIED');
+  }
+  const recordedAt = assertJeffIsoTimestamp(now(), 'JEFF_OS_SCHEDULE_CLOCK_INVALID');
+  const attestation = await requireJeffAuthorization({
+    verifier: authorizationVerifier,
+    scope: {
+      agentId: definition.schedule.agentId,
+      ownerId: definition.schedule.ownerId,
+      scheduleSha256,
+    },
+    subject,
+    operation: 'cancel_schedule',
+    ownerEpoch,
+    now,
+  });
+  await store.cancelSchedule({ scheduleSha256, cancelledAt: recordedAt });
+  return adminReceipt({
+    action: 'cancelled', scheduleSha256, attestation, ownerEpoch, recordedAt,
   });
 }
 
@@ -219,12 +383,20 @@ export async function runJeffOsSchedule({
   }
   if (!registry || typeof registry.invoke !== 'function'
     || !store
+    || typeof store.getSchedule !== 'function'
     || typeof store.claim !== 'function'
     || typeof store.complete !== 'function'
     || typeof store.abort !== 'function') throw new Error('JEFF_OS_SCHEDULER_CONFIG_INVALID');
   const startedAt = assertJeffIsoTimestamp(now(), 'JEFF_OS_SCHEDULE_CLOCK_INVALID');
   const currentMs = Date.parse(startedAt);
   if (currentMs >= Date.parse(schedule.expiresAt)) throw new Error('JEFF_OS_SCHEDULE_EXPIRED');
+  const definition = await store.getSchedule(schedule.scheduleSha256);
+  if (!definition
+    || definition.status !== 'active'
+    || !verifyJeffOsSchedule(definition.schedule)
+    || definition.schedule.scheduleSha256 !== schedule.scheduleSha256) {
+    throw new Error('JEFF_OS_SCHEDULE_NOT_REGISTERED');
+  }
   const scope = {
     agentId: schedule.agentId,
     ownerId: schedule.ownerId,
@@ -303,6 +475,7 @@ export async function runJeffOsSchedule({
 export const JEFF_OS_SCHEDULER = Object.freeze({
   scheduleSchema: SCHEDULE_SCHEMA,
   receiptSchema: RECEIPT_SCHEMA,
+  adminReceiptSchema: ADMIN_RECEIPT_SCHEMA,
   maximumScheduleTtlMs: MAX_SCHEDULE_TTL_MS,
   maximumRuns: MAX_RUNS,
   minimumIntervalSeconds: MIN_INTERVAL_SECONDS,

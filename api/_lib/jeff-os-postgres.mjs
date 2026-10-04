@@ -1,5 +1,6 @@
 import { hashJeffBrainValue, isJeffRecord, JEFF_HASH } from './jeff-brain-common.mjs';
 import { verifyJeffAgentMessage } from './jeff-agent-coordination.mjs';
+import { verifyJeffOsSchedule } from './jeff-os-scheduler.mjs';
 
 function requireDatabase(database) {
   if (!database || typeof database.query !== 'function') {
@@ -30,6 +31,110 @@ function publicStoreError(error) {
 export function createJeffPostgresScheduleStore({ database } = {}) {
   const db = requireDatabase(database);
   return Object.freeze({
+    async putSchedule(schedule) {
+      if (!verifyJeffOsSchedule(schedule)) throw new Error('JEFF_OS_SCHEDULE_INVALID');
+      try {
+        const result = await db.query(`
+          /* jeff_os.put_schedule */
+          INSERT INTO jeff_os_schedules (
+            schedule_sha256, agent_sha256, owner_sha256, owner_epoch,
+            maximum_runs, payload, status, expires_at
+          ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'active', $7::timestamptz)
+          ON CONFLICT (schedule_sha256) DO NOTHING
+          RETURNING schedule_sha256
+        `, [
+          schedule.scheduleSha256,
+          hashJeffBrainValue(schedule.agentId),
+          hashJeffBrainValue(schedule.ownerId),
+          schedule.ownerEpoch,
+          schedule.maximumRuns,
+          JSON.stringify(schedule),
+          schedule.expiresAt,
+        ]);
+        if (rowsFrom(result).length !== 1) throw new Error('JEFF_OS_SCHEDULE_DUPLICATE');
+      } catch (error) {
+        throw publicStoreError(error);
+      }
+    },
+
+    async getSchedule(scheduleSha256) {
+      if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))) throw new Error('JEFF_OS_SCHEDULE_INVALID');
+      try {
+        const result = await db.query(`
+          /* jeff_os.get_schedule */
+          SELECT payload, status, cancelled_at
+          FROM jeff_os_schedules
+          WHERE schedule_sha256 = $1
+        `, [scheduleSha256]);
+        const rows = rowsFrom(result);
+        if (rows.length === 0) return null;
+        const schedule = jsonRecord(rows[0].payload, 'JEFF_OS_SCHEDULE_INVALID');
+        if (!verifyJeffOsSchedule(schedule)) throw new Error('JEFF_OS_SCHEDULE_INVALID');
+        return Object.freeze({
+          schedule,
+          status: rows[0].status,
+          cancelledAt: rows[0].cancelled_at
+            ? new Date(rows[0].cancelled_at).toISOString()
+            : null,
+        });
+      } catch (error) {
+        throw publicStoreError(error);
+      }
+    },
+
+    async listSchedules({ agentId, ownerEpoch }) {
+      if (typeof agentId !== 'string' || !agentId
+        || !Number.isSafeInteger(ownerEpoch) || ownerEpoch < 0) {
+        throw new Error('JEFF_OS_SCHEDULE_QUERY_INVALID');
+      }
+      try {
+        const result = await db.query(`
+          /* jeff_os.list_schedules */
+          SELECT payload, status, cancelled_at
+          FROM jeff_os_schedules
+          WHERE agent_sha256 = $1
+            AND owner_epoch = $2
+            AND status = 'active'
+            AND expires_at > now()
+          ORDER BY created_at ASC
+        `, [hashJeffBrainValue(agentId), ownerEpoch]);
+        return Object.freeze(rowsFrom(result).map((row) => {
+          const schedule = jsonRecord(row.payload, 'JEFF_OS_SCHEDULE_INVALID');
+          if (!verifyJeffOsSchedule(schedule)
+            || schedule.agentId !== agentId
+            || schedule.ownerEpoch !== ownerEpoch) throw new Error('JEFF_OS_SCHEDULE_INVALID');
+          return Object.freeze({ schedule, status: row.status, cancelledAt: null });
+        }));
+      } catch (error) {
+        throw publicStoreError(error);
+      }
+    },
+
+    async cancelSchedule({ scheduleSha256, cancelledAt }) {
+      if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
+        || typeof cancelledAt !== 'string'
+        || !Number.isFinite(Date.parse(cancelledAt))) {
+        throw new Error('JEFF_OS_SCHEDULE_CANCEL_INVALID');
+      }
+      try {
+        const result = await db.query(`
+          /* jeff_os.cancel_schedule */
+          UPDATE jeff_os_schedules
+          SET status = 'cancelled', cancelled_at = $2::timestamptz
+          WHERE schedule_sha256 = $1
+            AND status = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM jeff_os_schedule_runs
+              WHERE schedule_sha256 = $1 AND status = 'reserved'
+            )
+          RETURNING schedule_sha256
+        `, [scheduleSha256, cancelledAt]);
+        if (rowsFrom(result).length !== 1) throw new Error('JEFF_OS_SCHEDULE_CANCEL_DENIED');
+      } catch (error) {
+        throw publicStoreError(error);
+      }
+    },
+
     async claim({ scheduleSha256, maximumRuns, available }) {
       if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
         || !Number.isSafeInteger(maximumRuns)
@@ -39,7 +144,11 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
       try {
         const result = await db.query(`
           /* jeff_os.claim_schedule_run */
-          WITH state AS (
+          WITH definition AS (
+            SELECT maximum_runs
+            FROM jeff_os_schedules
+            WHERE schedule_sha256 = $1 AND status = 'active' AND expires_at > now()
+          ), state AS (
             SELECT
               COALESCE(MAX(run_index), 0) + 1 AS next_run,
               COALESCE(BOOL_OR(status = 'reserved'), false) AS has_in_flight
@@ -48,8 +157,9 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
           )
           INSERT INTO jeff_os_schedule_runs (schedule_sha256, run_index, status)
           SELECT $1, next_run, 'reserved'
-          FROM state
-          WHERE has_in_flight = false
+          FROM state, definition
+          WHERE definition.maximum_runs = $2
+            AND has_in_flight = false
             AND next_run <= $2
             AND next_run <= $3
           ON CONFLICT DO NOTHING
@@ -157,6 +267,7 @@ export function createJeffPostgresAgentMessageStore({ database } = {}) {
 }
 
 export const JEFF_OS_POSTGRES = Object.freeze({
+  scheduleDefinitionsDurable: true,
   scheduleClaimsAtomic: true,
   scheduleReceiptsDurable: true,
   preventsMessageReplay: true,

@@ -565,6 +565,8 @@ export function createJeffHolderOsAuthorizationVerifier({
         || !(
           input.operation.startsWith('use_skill:')
           || input.operation === 'run_schedule'
+          || input.operation === 'register_schedule'
+          || input.operation === 'cancel_schedule'
           || input.operation === 'route_agent_message'
         )) {
         throw new Error('JEFF_HOLDER_OS_AUTHORIZATION_DENIED');
