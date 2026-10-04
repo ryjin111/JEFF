@@ -1,6 +1,6 @@
 {
   "name": "jeff-agent-nft",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Open, token-agnostic shadow decision model and benchmark for Agent NFTs.",
   "type": "module",
   "license": "MIT",
