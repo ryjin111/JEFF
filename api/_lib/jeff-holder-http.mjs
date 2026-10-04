@@ -213,6 +213,20 @@ function classifyFailure(error) {
   return [500, 'INTERNAL_FAILURE'];
 }
 
+function reportFailure(error, publicCode) {
+  if (publicCode !== 'INTERNAL_FAILURE') return;
+  if (typeof console?.error !== 'function') return;
+  const internalCode = typeof error?.message === 'string' && error.message.startsWith('JEFF_')
+    ? error.message
+    : 'UNEXPECTED_ERROR';
+  console.error(JSON.stringify({
+    event: 'jeff_holder_request_failed',
+    publicCode,
+    internalCode,
+    errorType: typeof error?.name === 'string' ? error.name : 'UnknownError',
+  }));
+}
+
 function publicSession(session) {
   const {
     sessionId: _sessionId,
@@ -391,6 +405,7 @@ export function createJeffHolderHttpHandler({
       throw new Error('JEFF_HOLDER_HTTP_ENVELOPE_INVALID');
     } catch (error) {
       const [status, code] = classifyFailure(error);
+      reportFailure(error, code);
       if (status === 401) clearSessionCookie(response);
       return sendJson(response, status, errorBody(code));
     }
