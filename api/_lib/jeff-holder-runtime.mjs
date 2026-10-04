@@ -538,6 +538,7 @@ export function createJeffHolderRuntime({
   memoryCrypto,
   receiptSigner,
   relyingPartyOrigin,
+  authorizeAgentNft = () => true,
   soulVerifier = DEFAULT_SOUL_VERIFIER,
   now = () => new Date().toISOString(),
   nonce = () => randomBytes(16).toString('hex'),
@@ -565,6 +566,9 @@ export function createJeffHolderRuntime({
     || !receiptSigner.keyId
     || typeof receiptSigner.signDigest !== 'function') {
     throw new Error('JEFF_HOLDER_RECEIPT_SIGNER_REQUIRED');
+  }
+  if (typeof authorizeAgentNft !== 'function') {
+    throw new Error('JEFF_HOLDER_AGENT_NFT_POLICY_REQUIRED');
   }
   const relyingParty = normalizeRelyingPartyOrigin(relyingPartyOrigin);
 
@@ -676,6 +680,9 @@ export function createJeffHolderRuntime({
       const currentAt = nowIso(now);
       const wallet = normalizeAddress(rawWallet, 'JEFF_HOLDER_WALLET_INVALID');
       const agentNft = normalizeAgentNft(rawAgentNft);
+      if (await authorizeAgentNft(clone(agentNft)) !== true) {
+        throw new Error('JEFF_HOLDER_AGENT_NFT_DENIED');
+      }
       const { domain: normalizedDomain, uri: normalizedUri } = normalizeChallengeLocation(
         domain,
         uri,

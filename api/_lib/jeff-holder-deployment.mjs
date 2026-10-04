@@ -18,6 +18,7 @@ import {
 } from './jeff-holder-evm.mjs';
 
 const MEMORY_KEY = /^[A-Za-z0-9+/]{43}=$/;
+const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 
 function setHeader(response, name, value) {
   if (typeof response.setHeader === 'function') response.setHeader(name, value);
@@ -65,6 +66,17 @@ function receiptPrivateKeyFromEnv(env) {
   return privateKey;
 }
 
+function allowedAgentNftFromEnv(env) {
+  const rawChainId = String(env.JEFF_HOLDER_CHAIN_ID ?? '');
+  const collection = String(env.JEFF_HOLDER_COLLECTION ?? '');
+  if (!/^[1-9]\d*$/.test(rawChainId) || !ADDRESS.test(collection)) {
+    throw new Error('JEFF_HOLDER_DEPLOYMENT_CONFIG_INVALID');
+  }
+  const chainId = Number(rawChainId);
+  if (!Number.isSafeInteger(chainId)) throw new Error('JEFF_HOLDER_DEPLOYMENT_CONFIG_INVALID');
+  return Object.freeze({ chainId, collection: collection.toLowerCase() });
+}
+
 export function createJeffHolderDeploymentHandler({
   env = process.env,
   database,
@@ -86,15 +98,29 @@ export function createJeffHolderDeploymentHandler({
       throw new Error('JEFF_HOLDER_DEPLOYMENT_CONFIG_INVALID');
     }
 
+    const allowedAgentNft = allowedAgentNftFromEnv(env);
+    const guardedPublicClient = (chainId) => {
+      if (chainId !== allowedAgentNft.chainId) {
+        throw new Error('JEFF_HOLDER_AGENT_NFT_DENIED');
+      }
+      return getPublicClient(chainId);
+    };
+    const guardedOwnerEpoch = (input) => {
+      if (input?.agentNft?.chainId !== allowedAgentNft.chainId
+        || String(input?.agentNft?.collection ?? '').toLowerCase() !== allowedAgentNft.collection) {
+        throw new Error('JEFF_HOLDER_AGENT_NFT_DENIED');
+      }
+      return resolveOwnerEpoch(input);
+    };
     const store = createJeffPostgresHolderStore({ database });
     const ownershipResolver = createJeffViemOwnershipResolver({
-      getPublicClient,
-      resolveOwnerEpoch,
+      getPublicClient: guardedPublicClient,
+      resolveOwnerEpoch: guardedOwnerEpoch,
       now,
     });
     const runtime = createJeffHolderRuntime({
       store,
-      walletVerifier: createJeffViemWalletVerifier({ getPublicClient, now }),
+      walletVerifier: createJeffViemWalletVerifier({ getPublicClient: guardedPublicClient, now }),
       ownershipResolver,
       provider: createJeffBrainProviderFromEnv(env, fetcher),
       memoryAdapter: createJeffPostgresMemoryAdapter({ database }),
@@ -104,6 +130,10 @@ export function createJeffHolderDeploymentHandler({
         keyId: env.JEFF_HOLDER_RECEIPT_KEY_ID,
       }),
       relyingPartyOrigin: env.JEFF_HOLDER_ORIGIN,
+      authorizeAgentNft(agentNft) {
+        return agentNft.chainId === allowedAgentNft.chainId
+          && agentNft.collection === allowedAgentNft.collection;
+      },
       now,
     });
 

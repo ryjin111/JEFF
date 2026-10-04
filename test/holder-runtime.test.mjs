@@ -73,7 +73,7 @@ function createProvider({ onComplete } = {}) {
   };
 }
 
-function createFixture({ onProviderCall, onSoulVerify, soulVerifier } = {}) {
+function createFixture({ onProviderCall, onSoulVerify, soulVerifier, authorizeAgentNft } = {}) {
   const store = createInMemoryJeffHolderStore();
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const signer = createJeffEd25519ReceiptSigner({ privateKey, keyId: 'holder-alpha-test' });
@@ -120,6 +120,7 @@ function createFixture({ onProviderCall, onSoulVerify, soulVerifier } = {}) {
     memoryAdapter: createInMemoryJeffMemoryAdapter(),
     memoryCrypto: createJeffAesGcmMemoryCrypto({ key: Buffer.alloc(32, 7) }),
     receiptSigner: signer,
+    authorizeAgentNft,
     soulVerifier: soulVerifier ?? {
       async verify() {
         await onSoulVerify?.({ transfer });
@@ -252,6 +253,20 @@ test('holder challenge is pinned to the configured relying-party origin', async 
   );
   const snapshot = await fixture.store.snapshot();
   assert.equal(snapshot.challenges.length, 0);
+});
+
+test('deployment policy rejects an unapproved Agent NFT before storing a challenge', async () => {
+  const fixture = createFixture({ authorizeAgentNft: () => false });
+  await assert.rejects(
+    fixture.runtime.issueChallenge({
+      domain: 'jeff.example',
+      uri: 'https://jeff.example/holder',
+      wallet,
+      agentNft,
+    }),
+    /JEFF_HOLDER_AGENT_NFT_DENIED/,
+  );
+  assert.equal((await fixture.store.snapshot()).challenges.length, 0);
 });
 
 test('a non-holder cannot boot a holder session', async () => {

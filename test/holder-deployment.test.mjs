@@ -41,6 +41,8 @@ test('valid managed configuration exposes ready status without financial authori
     JEFF_HOLDER_ENABLED: 'true',
     JEFF_HOLDER_ORIGIN: 'https://clockers.example',
     JEFF_HOLDER_URI: 'https://clockers.example/holder/',
+    JEFF_HOLDER_CHAIN_ID: '4663',
+    JEFF_HOLDER_COLLECTION: '0xf4127aC7E73a807060Cbdd08fC2c776b2E78CE67',
     JEFF_HOLDER_MEMORY_KEY: randomBytes(32).toString('base64'),
     JEFF_HOLDER_RECEIPT_PRIVATE_KEY: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     JEFF_HOLDER_RECEIPT_KEY_ID: 'staging-holder-2026-10',

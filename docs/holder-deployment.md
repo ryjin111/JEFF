@@ -6,6 +6,8 @@ Required managed settings:
 
 - `JEFF_HOLDER_ORIGIN`: exact HTTPS origin serving the Holder console
 - `JEFF_HOLDER_URI`: Holder page URL on that same origin
+- `JEFF_HOLDER_CHAIN_ID`: the only permitted Agent NFT chain ID
+- `JEFF_HOLDER_COLLECTION`: the only permitted Agent NFT collection
 - `JEFF_HOLDER_MEMORY_KEY`: exactly 32 random bytes encoded as canonical base64
 - `JEFF_HOLDER_RECEIPT_PRIVATE_KEY`: Ed25519 PKCS8 PEM secret
 - `JEFF_HOLDER_RECEIPT_KEY_ID`: stable public identifier for the signing key
@@ -16,7 +18,7 @@ Application bindings passed to `createJeffHolderDeploymentHandler`:
 
 - a Postgres query client after applying `docs/sql/jeff-holder-postgres.sql`
 - a chain-ID allowlisted viem Public Client factory using trusted RPC endpoints
-- an owner-epoch resolver bound to the same block supplied by the ownership adapter
+- an owner-epoch resolver that independently returns the transfer epoch and token-bound account from the same supplied block
 - a client identity resolver based only on infrastructure-trusted request metadata
 
 Do not derive the rate-limit identity from an untrusted forwarding header. Do not supply a Wallet Client, private key, transaction transport, or write-capable tool. The deployment factory exposes only shadow planning, one read-only holder-status tool, encrypted holder-approved memory, and signed receipts.

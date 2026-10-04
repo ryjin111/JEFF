@@ -69,7 +69,12 @@ test('ownership resolver pins ownerOf to one block and binds the transfer epoch'
     resolveOwnerEpoch(input) {
       assert.equal(input.blockNumber, 12345n);
       assert.equal(input.currentOwner, wallet);
-      return { blockNumber: input.blockNumber, currentOwner: input.currentOwner, ownerEpoch: 9 };
+      return {
+        blockNumber: input.blockNumber,
+        currentOwner: input.currentOwner,
+        agentAccount: input.agentNft.account,
+        ownerEpoch: 9,
+      };
     },
     now: () => observedAt,
   });
@@ -102,6 +107,23 @@ test('chain mismatches and stale epoch attestations fail closed', async () => {
     resolveOwnerEpoch: ({ currentOwner }) => ({
       blockNumber: 12344n,
       currentOwner,
+      agentAccount: agentNft.account,
+      ownerEpoch: 9,
+    }),
+  });
+  await assert.rejects(
+    resolver.resolveCurrentOwner(agentNft),
+    /JEFF_HOLDER_OWNERSHIP_ATTESTATION_INVALID/,
+  );
+});
+
+test('ownership resolver rejects an unverified token-bound account', async () => {
+  const resolver = createJeffViemOwnershipResolver({
+    getPublicClient: () => publicClient(),
+    resolveOwnerEpoch: ({ blockNumber, currentOwner }) => ({
+      blockNumber,
+      currentOwner,
+      agentAccount: '0x5000000000000000000000000000000000000005',
       ownerEpoch: 9,
     }),
   });

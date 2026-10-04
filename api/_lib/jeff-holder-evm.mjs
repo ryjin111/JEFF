@@ -154,6 +154,11 @@ export function createJeffViemOwnershipResolver({
         || epoch.blockNumber !== blockNumber
         || typeof epoch.currentOwner !== 'string'
         || epoch.currentOwner.toLowerCase() !== currentOwner
+        || typeof epoch.agentAccount !== 'string'
+        || normalizeAddress(
+          epoch.agentAccount,
+          'JEFF_HOLDER_OWNERSHIP_ATTESTATION_INVALID',
+        ) !== normalized.account
         || !Number.isSafeInteger(epoch.ownerEpoch)
         || epoch.ownerEpoch < 0) {
         throw new Error('JEFF_HOLDER_OWNERSHIP_ATTESTATION_INVALID');
@@ -181,5 +186,6 @@ export const JEFF_HOLDER_EVM = Object.freeze({
   ownershipReadOnly: true,
   ownershipBlockPinned: true,
   ownerEpochRequired: true,
+  agentAccountAttestationRequired: true,
   transactionMethodsIncluded: false,
 });
