@@ -4,9 +4,9 @@ Holder Alpha is the first end-to-end holder runtime above JEFF v0.5. It is local
 
 ## Implemented flow
 
-1. The server issues a five-minute, single-use wallet challenge bound to the domain, URI, wallet, chain, collection, token ID, and token-bound account.
+1. The server issues a five-minute, single-use wallet challenge bound to a server-pinned origin, URI, wallet, chain, collection, token ID, and token-bound account.
 2. A trusted wallet adapter verifies the signed challenge.
-3. A trusted ownership adapter confirms that the signer currently owns the Agent NFT.
+3. A trusted ownership adapter confirms that the signer currently owns the Agent NFT, then fetches ownership again after soul verification before creating the session.
 4. JEFF verifies the soul bundle and binds its manifest, bundle root, and checkpoint hashes to the session.
 5. JEFF creates a twelve-hour holder session bound to the owner epoch.
 6. Holder-approved memory is encrypted with AES-256-GCM and isolated by Agent NFT, owner, and owner epoch.
@@ -18,6 +18,7 @@ Holder Alpha is the first end-to-end holder runtime above JEFF v0.5. It is local
 ## Security properties
 
 - Challenges are short-lived and single-use.
+- Challenge domains and URIs must match the server-configured relying-party origin. Plain HTTP is accepted only for local development hosts.
 - A wallet signature proves control of an address but grants no transaction authority.
 - The current on-chain owner must match the signing wallet.
 - A verified JEFF soul manifest is required before session creation.

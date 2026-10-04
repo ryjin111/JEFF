@@ -73,7 +73,7 @@ function createProvider({ onComplete } = {}) {
   };
 }
 
-function createFixture({ onProviderCall, soulVerifier } = {}) {
+function createFixture({ onProviderCall, onSoulVerify, soulVerifier } = {}) {
   const store = createInMemoryJeffHolderStore();
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const signer = createJeffEd25519ReceiptSigner({ privateKey, keyId: 'holder-alpha-test' });
@@ -120,7 +120,13 @@ function createFixture({ onProviderCall, soulVerifier } = {}) {
     memoryAdapter: createInMemoryJeffMemoryAdapter(),
     memoryCrypto: createJeffAesGcmMemoryCrypto({ key: Buffer.alloc(32, 7) }),
     receiptSigner: signer,
-    soulVerifier: soulVerifier ?? { async verify() { return soulBundle; } },
+    soulVerifier: soulVerifier ?? {
+      async verify() {
+        await onSoulVerify?.({ transfer });
+        return soulBundle;
+      },
+    },
+    relyingPartyOrigin: 'https://jeff.example',
     now: () => nowValue,
     nonce: () => 'a'.repeat(32),
     sessionId: () => (++nextSession).toString(16).padStart(64, '0'),
@@ -224,6 +230,30 @@ test('invalid wallet proof cannot boot a holder session', async () => {
   );
 });
 
+test('holder challenge is pinned to the configured relying-party origin', async () => {
+  const fixture = createFixture();
+  await assert.rejects(
+    fixture.runtime.issueChallenge({
+      domain: 'attacker.example',
+      uri: 'https://attacker.example/holder',
+      wallet,
+      agentNft,
+    }),
+    /JEFF_HOLDER_CHALLENGE_ORIGIN_MISMATCH/,
+  );
+  await assert.rejects(
+    fixture.runtime.issueChallenge({
+      domain: 'jeff.example',
+      uri: 'https://jeff.example/holder#misleading-fragment',
+      wallet,
+      agentNft,
+    }),
+    /JEFF_HOLDER_CHALLENGE_ORIGIN_MISMATCH/,
+  );
+  const snapshot = await fixture.store.snapshot();
+  assert.equal(snapshot.challenges.length, 0);
+});
+
 test('a non-holder cannot boot a holder session', async () => {
   const fixture = createFixture();
   const challenge = await fixture.runtime.issueChallenge({
@@ -258,6 +288,29 @@ test('soul verification failure prevents session boot', async () => {
       signature: 'valid-holder-signature',
     }),
     /SOUL_FILE_HASH_MISMATCH/,
+  );
+  const snapshot = await fixture.store.snapshot();
+  assert.equal(snapshot.sessions.length, 0);
+});
+
+test('ownership is fetched again after soul verification before session boot', async () => {
+  const fixture = createFixture({
+    onSoulVerify({ transfer }) {
+      transfer();
+    },
+  });
+  const challenge = await fixture.runtime.issueChallenge({
+    domain: 'jeff.example',
+    uri: 'https://jeff.example/holder',
+    wallet,
+    agentNft,
+  });
+  await assert.rejects(
+    fixture.runtime.boot({
+      challengeSha256: challenge.challengeSha256,
+      signature: 'valid-holder-signature',
+    }),
+    /JEFF_HOLDER_NOT_CURRENT_OWNER/,
   );
   const snapshot = await fixture.store.snapshot();
   assert.equal(snapshot.sessions.length, 0);

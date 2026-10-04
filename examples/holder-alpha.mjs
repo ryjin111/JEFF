@@ -94,6 +94,7 @@ const runtime = createJeffHolderRuntime({
   memoryAdapter: createInMemoryJeffMemoryAdapter(),
   memoryCrypto: createJeffAesGcmMemoryCrypto({ key: randomBytes(32) }),
   receiptSigner,
+  relyingPartyOrigin: 'http://localhost',
 });
 
 const challenge = await runtime.issueChallenge({

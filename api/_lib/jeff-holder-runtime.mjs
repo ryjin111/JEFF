@@ -54,6 +54,48 @@ function normalizeAddress(value, code) {
   return value.toLowerCase();
 }
 
+function normalizeRelyingPartyOrigin(value) {
+  const raw = assertJeffText(value, 'JEFF_HOLDER_RELYING_PARTY_INVALID', 2_048);
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('JEFF_HOLDER_RELYING_PARTY_INVALID');
+  }
+  const localDevelopment = parsed.hostname === 'localhost'
+    || parsed.hostname === '127.0.0.1'
+    || parsed.hostname === '[::1]';
+  if ((parsed.protocol !== 'https:' && !(localDevelopment && parsed.protocol === 'http:'))
+    || parsed.username
+    || parsed.password
+    || parsed.pathname !== '/'
+    || parsed.search
+    || parsed.hash
+    || parsed.origin === 'null') {
+    throw new Error('JEFF_HOLDER_RELYING_PARTY_INVALID');
+  }
+  return Object.freeze({ origin: parsed.origin, domain: parsed.host.toLowerCase() });
+}
+
+function normalizeChallengeLocation(domain, uri, relyingParty) {
+  const normalizedDomain = assertJeffText(domain, 'JEFF_HOLDER_CHALLENGE_INVALID', 253).toLowerCase();
+  const rawUri = assertJeffText(uri, 'JEFF_HOLDER_CHALLENGE_INVALID', 2_048);
+  let parsed;
+  try {
+    parsed = new URL(rawUri);
+  } catch {
+    throw new Error('JEFF_HOLDER_CHALLENGE_INVALID');
+  }
+  if (normalizedDomain !== relyingParty.domain
+    || parsed.origin !== relyingParty.origin
+    || parsed.username
+    || parsed.password
+    || parsed.hash) {
+    throw new Error('JEFF_HOLDER_CHALLENGE_ORIGIN_MISMATCH');
+  }
+  return Object.freeze({ domain: relyingParty.domain, uri: parsed.href });
+}
+
 function normalizeAgentNft(agentNft) {
   if (!isJeffRecord(agentNft)
     || !Number.isSafeInteger(agentNft.chainId)
@@ -495,6 +537,7 @@ export function createJeffHolderRuntime({
   memoryAdapter,
   memoryCrypto,
   receiptSigner,
+  relyingPartyOrigin,
   soulVerifier = DEFAULT_SOUL_VERIFIER,
   now = () => new Date().toISOString(),
   nonce = () => randomBytes(16).toString('hex'),
@@ -523,6 +566,7 @@ export function createJeffHolderRuntime({
     || typeof receiptSigner.signDigest !== 'function') {
     throw new Error('JEFF_HOLDER_RECEIPT_SIGNER_REQUIRED');
   }
+  const relyingParty = normalizeRelyingPartyOrigin(relyingPartyOrigin);
 
   const authorizationVerifier = createJeffHolderSessionAuthorizationVerifier({
     store, ownershipResolver, now,
@@ -632,8 +676,11 @@ export function createJeffHolderRuntime({
       const currentAt = nowIso(now);
       const wallet = normalizeAddress(rawWallet, 'JEFF_HOLDER_WALLET_INVALID');
       const agentNft = normalizeAgentNft(rawAgentNft);
-      const normalizedDomain = assertJeffText(domain, 'JEFF_HOLDER_CHALLENGE_INVALID', 253);
-      const normalizedUri = assertJeffText(uri, 'JEFF_HOLDER_CHALLENGE_INVALID', 2_048);
+      const { domain: normalizedDomain, uri: normalizedUri } = normalizeChallengeLocation(
+        domain,
+        uri,
+        relyingParty,
+      );
       const challengeNonce = nonce();
       if (!NONCE.test(String(challengeNonce ?? ''))) throw new Error('JEFF_HOLDER_NONCE_INVALID');
       const expiresAt = new Date(Date.parse(currentAt) + CHALLENGE_TTL_MS).toISOString();
@@ -692,7 +739,10 @@ export function createJeffHolderRuntime({
       })));
       currentAt = nowIso(now);
       challenge = validateChallenge(stored, currentAt);
-      ownership = validateOwnership(rawOwnership, challenge.agentNft, currentAt);
+      const finalRawOwnership = await ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft));
+      currentAt = nowIso(now);
+      challenge = validateChallenge(stored, currentAt);
+      ownership = validateOwnership(finalRawOwnership, challenge.agentNft, currentAt);
       if (ownership.currentOwner !== challenge.wallet) throw new Error('JEFF_HOLDER_NOT_CURRENT_OWNER');
       const id = sessionId();
       if (!SESSION_ID.test(String(id ?? ''))) throw new Error('JEFF_HOLDER_SESSION_ID_INVALID');
