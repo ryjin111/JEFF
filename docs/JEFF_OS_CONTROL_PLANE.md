@@ -37,6 +37,7 @@ The PostgreSQL adapter stores recipient indexes as hashes and rejects duplicate 
 Before enabling the control plane in a holder application:
 
 1. Apply `docs/sql/jeff-os-postgres.sql` with the server-only database role.
+   With schedule traffic disabled, apply `docs/sql/jeff-os-schedule-state.sql` before deploying the schedule store. It preserves quota and unknown in-flight runs. Claim, cancel, completion, and abort serialize on the schedule row.
 2. Register exact reviewed skill manifests and adapter integrity hashes.
 3. Bind authorization to the current on-chain owner, current owner epoch, revocation state, and emergency stop.
 4. Add independent rate limits for skill calls, schedule runs, and message routing.

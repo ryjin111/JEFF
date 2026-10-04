@@ -109,5 +109,8 @@
     "LICENSE",
     "README.md",
     "SECURITY.md"
-  ]
+  ],
+  "devDependencies": {
+    "pg": "^8.23.1"
+  }
 }

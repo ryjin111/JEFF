@@ -123,10 +123,7 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
           SET status = 'cancelled', cancelled_at = $2::timestamptz
           WHERE schedule_sha256 = $1
             AND status = 'active'
-            AND NOT EXISTS (
-              SELECT 1 FROM jeff_os_schedule_runs
-              WHERE schedule_sha256 = $1 AND status = 'reserved'
-            )
+            AND reserved_run_index IS NULL
           RETURNING schedule_sha256
         `, [scheduleSha256, cancelledAt]);
         if (rowsFrom(result).length !== 1) throw new Error('JEFF_OS_SCHEDULE_CANCEL_DENIED');
@@ -139,30 +136,25 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
       if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
         || !Number.isSafeInteger(maximumRuns)
         || maximumRuns < 1
+        || maximumRuns > 24
         || !Number.isSafeInteger(available)
         || available < 0) throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
       try {
         const result = await db.query(`
           /* jeff_os.claim_schedule_run */
-          WITH definition AS (
-            SELECT maximum_runs
-            FROM jeff_os_schedules
+          WITH reservation AS (
+            UPDATE jeff_os_schedules
+            SET reserved_run_index = completed_runs + 1
             WHERE schedule_sha256 = $1 AND status = 'active' AND expires_at > now()
-          ), state AS (
-            SELECT
-              COALESCE(MAX(run_index), 0) + 1 AS next_run,
-              COALESCE(BOOL_OR(status = 'reserved'), false) AS has_in_flight
-            FROM jeff_os_schedule_runs
-            WHERE schedule_sha256 = $1
+              AND maximum_runs = $2
+              AND reserved_run_index IS NULL
+              AND completed_runs + 1 <= $2
+              AND completed_runs + 1 <= $3
+            RETURNING schedule_sha256, reserved_run_index
           )
           INSERT INTO jeff_os_schedule_runs (schedule_sha256, run_index, status)
-          SELECT $1, next_run, 'reserved'
-          FROM state, definition
-          WHERE definition.maximum_runs = $2
-            AND has_in_flight = false
-            AND next_run <= $2
-            AND next_run <= $3
-          ON CONFLICT DO NOTHING
+          SELECT schedule_sha256, reserved_run_index, 'reserved'
+          FROM reservation
           RETURNING run_index
         `, [scheduleSha256, maximumRuns, available]);
         const rows = rowsFrom(result);
@@ -181,16 +173,30 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
       if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
         || !Number.isSafeInteger(runIndex)
         || runIndex < 1
+        || runIndex > 24
         || !JEFF_HASH.test(String(receiptSha256 ?? ''))) {
         throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
       }
       try {
         const result = await db.query(`
           /* jeff_os.complete_schedule_run */
-          UPDATE jeff_os_schedule_runs
+          WITH completed AS (
+            UPDATE jeff_os_schedules
+            SET completed_runs = $2, reserved_run_index = NULL
+            WHERE schedule_sha256 = $1 AND reserved_run_index = $2
+              AND status = 'active'
+              AND EXISTS (
+                SELECT 1 FROM jeff_os_schedule_runs
+                WHERE schedule_sha256 = $1 AND run_index = $2 AND status = 'reserved'
+              )
+            RETURNING schedule_sha256
+          )
+          UPDATE jeff_os_schedule_runs AS runs
           SET status = 'completed', receipt_sha256 = $3, completed_at = now()
-          WHERE schedule_sha256 = $1 AND run_index = $2 AND status = 'reserved'
-          RETURNING schedule_sha256
+          FROM completed
+          WHERE runs.schedule_sha256 = completed.schedule_sha256
+            AND runs.run_index = $2 AND runs.status = 'reserved'
+          RETURNING runs.schedule_sha256
         `, [scheduleSha256, runIndex, receiptSha256]);
         if (rowsFrom(result).length !== 1) throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
       } catch (error) {
@@ -201,12 +207,25 @@ export function createJeffPostgresScheduleStore({ database } = {}) {
     async abort({ scheduleSha256, runIndex }) {
       if (!JEFF_HASH.test(String(scheduleSha256 ?? ''))
         || !Number.isSafeInteger(runIndex)
-        || runIndex < 1) throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
+        || runIndex < 1 || runIndex > 24) throw new Error('JEFF_OS_SCHEDULE_RESERVATION_INVALID');
       try {
         await db.query(`
           /* jeff_os.abort_schedule_run */
-          DELETE FROM jeff_os_schedule_runs
-          WHERE schedule_sha256 = $1 AND run_index = $2 AND status = 'reserved'
+          WITH aborted AS (
+            UPDATE jeff_os_schedules
+            SET reserved_run_index = NULL
+            WHERE schedule_sha256 = $1 AND reserved_run_index = $2
+              AND status = 'active'
+              AND EXISTS (
+                SELECT 1 FROM jeff_os_schedule_runs
+                WHERE schedule_sha256 = $1 AND run_index = $2 AND status = 'reserved'
+              )
+            RETURNING schedule_sha256
+          )
+          DELETE FROM jeff_os_schedule_runs AS runs
+          USING aborted
+          WHERE runs.schedule_sha256 = aborted.schedule_sha256
+            AND runs.run_index = $2 AND runs.status = 'reserved'
         `, [scheduleSha256, runIndex]);
       } catch (error) {
         throw publicStoreError(error);
