@@ -14,8 +14,8 @@ JEFF Holder Alpha does not fork or rename Hermes. It reuses JEFF's existing audi
 | SQLite and FTS5 memory | Reference for a later durable adapter | Holder Alpha already has encrypted, owner-epoch-isolated memory behind an adapter contract. |
 | Tool registry | Adapt the capability pattern | JEFF tools remain deny-by-default, mode-labeled, owner-policy-scoped, and proposal-only unless a separate gate approves execution. |
 | MCP | Reuse JEFF's existing MCP intake | JEFF already hash-binds authorized resources and quarantines unsafe context. |
-| Skills and plugins | Defer | Holder Alpha proves one safe vertical slice before adding an extension ecosystem. |
-| Cron and gateway | Defer | Always-on scheduling and messaging are deployment concerns after the local holder flow passes. |
+| Skills and plugins | Adapt the capability pattern | JEFF now provides hash-bound, server-registered skill manifests for read-only, simulation, and prepare-only adapters. It does not hot-load third-party code. |
+| Cron and gateway | Adapt the control-plane pattern | JEFF now provides bounded schedules with atomic run reservations and non-authoritative agent message envelopes. Hosting and external delivery remain deployment responsibilities. |
 | Container backends | Reference for hosting | JEFF remains deployable on local machines, VPS hosts, or managed containers. |
 | Command approval | Adapt | JEFF retains its own owner policy, trusted authorization, and execution gate. |
 | Identity and ownership | Keep JEFF-native | Wallet proof, Agent NFT identity, owner epoch, transfer revocation, and token-bound accounts are JEFF responsibilities. |

@@ -542,6 +542,66 @@ export function createJeffHolderSessionAuthorizationVerifier({
   });
 }
 
+export function createJeffHolderOsAuthorizationVerifier({
+  store,
+  ownershipResolver,
+  authorize,
+  now = () => new Date().toISOString(),
+} = {}) {
+  if (!store || typeof store.getSession !== 'function' || typeof store.revokeSession !== 'function') {
+    throw new Error('JEFF_HOLDER_STORE_INVALID');
+  }
+  if (!ownershipResolver || typeof ownershipResolver.resolveCurrentOwner !== 'function') {
+    throw new Error('JEFF_HOLDER_OWNERSHIP_RESOLVER_REQUIRED');
+  }
+  if (typeof authorize !== 'function') throw new Error('JEFF_HOLDER_OS_POLICY_REQUIRED');
+  return Object.freeze({
+    async attest(input) {
+      if (!isJeffRecord(input)
+        || !isJeffRecord(input.scope)
+        || typeof input.subject !== 'string'
+        || !input.subject.startsWith('session:')
+        || typeof input.operation !== 'string'
+        || !(
+          input.operation.startsWith('use_skill:')
+          || input.operation === 'run_schedule'
+          || input.operation === 'route_agent_message'
+        )) {
+        throw new Error('JEFF_HOLDER_OS_AUTHORIZATION_DENIED');
+      }
+      const sessionId = input.subject.slice('session:'.length);
+      if (!SESSION_ID.test(sessionId)) throw new Error('JEFF_HOLDER_OS_AUTHORIZATION_DENIED');
+      const currentAt = nowIso(now);
+      const session = validateSession(await store.getSession(sessionId), currentAt);
+      const ownership = validateOwnership(
+        await ownershipResolver.resolveCurrentOwner(clone(session.agentNft)),
+        session.agentNft,
+        currentAt,
+      );
+      if (ownership.currentOwner !== session.wallet || ownership.ownerEpoch !== session.ownerEpoch) {
+        await store.revokeSession(session.sessionId, 'ownership_changed', currentAt);
+        throw new Error('JEFF_HOLDER_OWNERSHIP_CHANGED');
+      }
+      if (input.ownerEpoch !== session.ownerEpoch
+        || await authorize(Object.freeze({
+          session: clone(session),
+          scope: clone(input.scope),
+          operation: input.operation,
+        })) !== true) {
+        throw new Error('JEFF_HOLDER_OS_AUTHORIZATION_DENIED');
+      }
+      return createJeffAuthorizationAttestation({
+        scope: input.scope,
+        subject: input.subject,
+        operation: input.operation,
+        ownerEpoch: input.ownerEpoch,
+        observedAt: currentAt,
+        expiresAt: new Date(Date.parse(currentAt) + AUTH_TTL_MS).toISOString(),
+      });
+    },
+  });
+}
+
 export function createJeffHolderRuntime({
   store,
   walletVerifier,
