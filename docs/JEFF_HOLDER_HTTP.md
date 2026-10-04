@@ -27,4 +27,4 @@ The endpoint accepts five strict action envelopes:
 
 `createJeffHolderHttpHandler` is dependency-injected and does not silently create development substitutes. A deployment must provide the hardened holder runtime, a distributed rate limiter, and a client identity resolver that trusts only the hosting platform's authenticated proxy metadata.
 
-The included fixed-window limiter is for local tests and single-process development. It is not a distributed production limiter.
+The included fixed-window limiter is for local tests and single-process development. It is not a distributed production limiter. The exported PostgreSQL adapter provides atomic challenge consumption, hashed session identifiers, concurrency-safe memory chaining, and a shared rate limiter. Apply [`docs/sql/jeff-holder-postgres.sql`](sql/jeff-holder-postgres.sql) with a server-only database role before using it.

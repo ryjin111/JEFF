@@ -75,6 +75,7 @@
     "./authorization": "./api/_lib/jeff-trusted-authorization.mjs",
     "./holder-alpha": "./api/_lib/jeff-holder-runtime.mjs",
     "./holder-http": "./api/_lib/jeff-holder-http.mjs",
+    "./holder-postgres": "./api/_lib/jeff-holder-postgres.mjs",
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",

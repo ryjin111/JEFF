@@ -33,7 +33,7 @@ Holder Alpha is the first end-to-end holder runtime above JEFF v0.5. It is local
 
 ## Production adapters still required
 
-- A durable store with atomic challenge consumption and session revocation.
+- A production database deployment using the included atomic PostgreSQL store and migration.
 - A wallet signature verifier using the target chain's canonical message rules.
 - A fresh on-chain ownership resolver pinned to the intended collection and chain.
 - Secret-managed AES and Ed25519 keys with rotation and audit procedures.
