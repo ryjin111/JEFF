@@ -6,6 +6,8 @@ JEFF is an open, token-agnostic decision model and runtime for Agent NFTs. It tu
 
 JEFF v0.5 is intentionally shadow-only. It cannot sign, submit, publish, spend, or execute transactions. Every response keeps `executionAuthorized: false`.
 
+Experimental [JEFF OS Holder Alpha](docs/JEFF_HOLDER_ALPHA.md) now provides a local end-to-end holder flow above the unchanged v0.5 release: single-use wallet challenges, current-owner verification, owner-epoch sessions, encrypted memory, one guarded read-only tool, transfer revocation, and Ed25519-signed shadow receipts. It is not enabled on the live endpoint. The [Hermes reuse map](docs/HERMES_REUSE_MAP.md) records which open-source patterns JEFF adapts and which NFT-native responsibilities remain independent.
+
 The current release includes [JEFF Brain v1](docs/JEFF_BRAIN_V1.md), which adds authorized encrypted recall, MCP context intake, planning, critique, proposal-only tools, review-gated learning feedback, and hash-bound brain receipts above the v0.9 decision core. Brain v1 is also shadow-only.
 
 The release also provides a server-authenticated [Brain shadow HTTP API](docs/JEFF_BRAIN_HTTP.md) for calling the complete non-executing reasoning loop through `https://www.isoclockers.world/api/jeff-brain`. Public verification is available at `https://www.isoclockers.world/jeff-brain-certification/`.

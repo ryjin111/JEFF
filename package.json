@@ -53,6 +53,8 @@
     "benchmark:v2:verify-freeze": "node scripts/build-jeff-v2-reliability-stimuli.mjs --verify && node scripts/run-jeff-v2-reliability.mjs --verify",
     "demo": "node examples/infer.mjs",
     "review": "node examples/review.mjs",
+    "demo:holder": "node examples/holder-alpha.mjs",
+    "test:holder": "node --test test/holder-runtime.test.mjs",
     "soul:verify": "node scripts/verify-soul.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "node scripts/verify-release.mjs && npm test"
@@ -69,6 +71,7 @@
     "./learning": "./api/_lib/jeff-learning-feedback.mjs",
     "./open-weights": "./api/_lib/jeff-open-weights-provider.mjs",
     "./authorization": "./api/_lib/jeff-trusted-authorization.mjs",
+    "./holder-alpha": "./api/_lib/jeff-holder-runtime.mjs",
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",
