@@ -38,7 +38,7 @@ Holder Alpha is the first end-to-end holder runtime above JEFF v0.5. It is local
 - A fresh on-chain ownership resolver pinned to the intended collection and chain.
 - Secret-managed AES and Ed25519 keys with rotation and audit procedures.
 - Rate limits, abuse controls, observability, backups, and an incident kill switch.
-- A holder web interface and authenticated HTTP boundary.
+- A holder web interface and a deployment binding for the implemented authenticated HTTP boundary.
 - A pinned Bankr model provider route for the hosted holder pilot.
 
 The included in-memory store and example adapters are for tests and local development only.

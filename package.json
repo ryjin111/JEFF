@@ -74,6 +74,7 @@
     "./open-weights": "./api/_lib/jeff-open-weights-provider.mjs",
     "./authorization": "./api/_lib/jeff-trusted-authorization.mjs",
     "./holder-alpha": "./api/_lib/jeff-holder-runtime.mjs",
+    "./holder-http": "./api/_lib/jeff-holder-http.mjs",
     "./contract": "./api/_lib/jeff-agent-nft-contract.mjs",
     "./capabilities": "./api/_lib/jeff-agent-nft-capabilities.mjs",
     "./review": "./api/_lib/jeff-review.mjs",
