@@ -140,6 +140,29 @@ test('boot stores the session only in a secure HttpOnly cookie', async () => {
   assert.match(response.headers['set-cookie'], /HttpOnly; Secure; SameSite=Strict/);
 });
 
+test('boot failures report only a sanitized runtime stage', async () => {
+  const runtime = runtimeStub({
+    async boot() { throw new Error('private boot detail'); },
+  });
+  const logs = [];
+  const originalError = console.error;
+  const { handler } = createFixture({ runtime });
+  console.error = (value) => logs.push(String(value));
+  let response;
+  try {
+    response = await invoke(handler, {
+      body: { action: 'boot', challengeSha256: 'b'.repeat(64), signature: 'signature' },
+    });
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.error, 'INTERNAL_FAILURE');
+  const diagnostic = JSON.parse(logs[0]);
+  assert.equal(diagnostic.stage, 'boot_runtime');
+  assert.equal(logs[0].includes('private boot detail'), false);
+});
+
 test('authenticated actions require one canonical holder cookie', async () => {
   const { handler, runtime } = createFixture();
   let response = await invoke(handler, { body: { action: 'run', objective: 'Read status.' } });

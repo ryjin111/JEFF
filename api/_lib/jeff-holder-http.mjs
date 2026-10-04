@@ -221,12 +221,16 @@ function reportFailure(error, publicCode, stage) {
   const internalCode = typeof error?.message === 'string' && error.message.startsWith('JEFF_')
     ? error.message
     : 'UNEXPECTED_ERROR';
+  const runtimeStage = typeof error?.jeffHolderStage === 'string'
+    && /^boot_(?:consume_challenge|wallet_verify|initial_ownership|soul_verify|final_ownership|store_session)$/.test(error.jeffHolderStage)
+    ? error.jeffHolderStage
+    : stage;
   console.error(JSON.stringify({
     event: 'jeff_holder_request_failed',
     publicCode,
     internalCode,
     errorType: typeof error?.name === 'string' ? error.name : 'UnknownError',
-    stage,
+    stage: runtimeStage,
   }));
 }
 
@@ -359,7 +363,9 @@ export function createJeffHolderHttpHandler({
       }
 
       if (body.action === 'boot') {
+        stage = 'boot_rate_limit';
         await enforceRateLimit(rateLimiter, 'boot', client, response);
+        stage = 'boot_runtime';
         const session = await runtime.boot({
           challengeSha256: body.challengeSha256,
           signature: body.signature,
@@ -373,9 +379,12 @@ export function createJeffHolderHttpHandler({
         });
       }
 
+      stage = 'authenticated_session';
       const sessionId = sessionFromRequest(request);
+      stage = 'action_rate_limit';
       await enforceRateLimit(rateLimiter, body.action, hashJeffBrainValue(sessionId), response);
       if (body.action === 'run') {
+        stage = 'run_runtime';
         const output = await runtime.run({ sessionId, objective: body.objective });
         if (output.result?.executionAuthorized !== false
           || output.result?.actionsExecuted !== 0
@@ -386,6 +395,7 @@ export function createJeffHolderHttpHandler({
         return sendJson(response, 200, { schema: RESPONSE_SCHEMA, action: body.action, output });
       }
       if (body.action === 'remember') {
+        stage = 'remember_runtime';
         const record = await runtime.remember({
           sessionId,
           id: body.id,
@@ -401,6 +411,7 @@ export function createJeffHolderHttpHandler({
         });
       }
       if (body.action === 'logout') {
+        stage = 'logout_runtime';
         await runtime.logout({ sessionId });
         clearSessionCookie(response);
         return sendJson(response, 200, {

@@ -302,7 +302,11 @@ test('soul verification failure prevents session boot', async () => {
       challengeSha256: challenge.challengeSha256,
       signature: 'valid-holder-signature',
     }),
-    /SOUL_FILE_HASH_MISMATCH/,
+    (error) => {
+      assert.match(error.message, /SOUL_FILE_HASH_MISMATCH/);
+      assert.equal(error.jeffHolderStage, 'boot_soul_verify');
+      return true;
+    },
   );
   const snapshot = await fixture.store.snapshot();
   assert.equal(snapshot.sessions.length, 0);

@@ -43,6 +43,19 @@ function clone(value) {
   return structuredClone(value);
 }
 
+async function holderStage(stage, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error('JEFF_HOLDER_RUNTIME_FAILED');
+    Object.defineProperty(failure, 'jeffHolderStage', {
+      value: stage,
+      configurable: true,
+    });
+    throw failure;
+  }
+}
+
 function exactKeys(value, keys) {
   return isJeffRecord(value)
     && Object.keys(value).length === keys.length
@@ -718,21 +731,30 @@ export function createJeffHolderRuntime({
 
     async boot({ challengeSha256, signature } = {}) {
       if (!JEFF_HASH.test(String(challengeSha256 ?? ''))) throw new Error('JEFF_HOLDER_CHALLENGE_INVALID');
-      const stored = await store.consumeChallenge(challengeSha256);
+      const stored = await holderStage(
+        'boot_consume_challenge',
+        () => store.consumeChallenge(challengeSha256),
+      );
       if (!stored) throw new Error('JEFF_HOLDER_CHALLENGE_CONSUMED_OR_UNKNOWN');
       let currentAt = nowIso(now);
       let challenge = validateChallenge(stored, currentAt);
-      const verification = await walletVerifier.verify(Object.freeze({
-        challengeSha256,
-        message: challenge.message,
-        signature: assertJeffText(signature, 'JEFF_HOLDER_SIGNATURE_INVALID', 2_048),
-        wallet: challenge.wallet,
-        chainId: challenge.agentNft.chainId,
-      }));
+      const verification = await holderStage(
+        'boot_wallet_verify',
+        () => walletVerifier.verify(Object.freeze({
+          challengeSha256,
+          message: challenge.message,
+          signature: assertJeffText(signature, 'JEFF_HOLDER_SIGNATURE_INVALID', 2_048),
+          wallet: challenge.wallet,
+          chainId: challenge.agentNft.chainId,
+        })),
+      );
       currentAt = nowIso(now);
       challenge = validateChallenge(stored, currentAt);
       validateWalletVerification(verification, challenge, currentAt);
-      const rawOwnership = await ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft));
+      const rawOwnership = await holderStage(
+        'boot_initial_ownership',
+        () => ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft)),
+      );
       currentAt = nowIso(now);
       challenge = validateChallenge(stored, currentAt);
       let ownership = validateOwnership(
@@ -741,12 +763,18 @@ export function createJeffHolderRuntime({
         currentAt,
       );
       if (ownership.currentOwner !== challenge.wallet) throw new Error('JEFF_HOLDER_NOT_CURRENT_OWNER');
-      const soul = validateSoulBundle(await soulVerifier.verify(Object.freeze({
-        agentNft: clone(challenge.agentNft),
-      })));
+      const soul = await holderStage(
+        'boot_soul_verify',
+        async () => validateSoulBundle(await soulVerifier.verify(Object.freeze({
+          agentNft: clone(challenge.agentNft),
+        }))),
+      );
       currentAt = nowIso(now);
       challenge = validateChallenge(stored, currentAt);
-      const finalRawOwnership = await ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft));
+      const finalRawOwnership = await holderStage(
+        'boot_final_ownership',
+        () => ownershipResolver.resolveCurrentOwner(clone(challenge.agentNft)),
+      );
       currentAt = nowIso(now);
       challenge = validateChallenge(stored, currentAt);
       ownership = validateOwnership(finalRawOwnership, challenge.agentNft, currentAt);
@@ -768,7 +796,7 @@ export function createJeffHolderRuntime({
         expiresAt: new Date(Date.parse(currentAt) + SESSION_TTL_MS).toISOString(),
         status: 'active',
       });
-      await store.putSession(session);
+      await holderStage('boot_store_session', () => store.putSession(session));
       return Object.freeze({
         sessionId: session.sessionId,
         instanceId: session.instanceId,
