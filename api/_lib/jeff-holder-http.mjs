@@ -213,17 +213,25 @@ function classifyFailure(error) {
   return [500, 'INTERNAL_FAILURE'];
 }
 
-function reportFailure(error, publicCode) {
+function reportFailure(error, publicCode, stage) {
   if (publicCode !== 'INTERNAL_FAILURE') return;
   if (typeof console?.error !== 'function') return;
   const internalCode = typeof error?.message === 'string' && error.message.startsWith('JEFF_')
     ? error.message
     : 'UNEXPECTED_ERROR';
+  const unexpectedMessage = internalCode === 'UNEXPECTED_ERROR'
+    ? String(error?.message ?? 'unavailable')
+      .slice(0, 256)
+      .replace(/https?:\/\/\S+/giu, '[url]')
+      .replace(/[A-Za-z0-9+/_=-]{24,}/gu, '[redacted]')
+    : undefined;
   console.error(JSON.stringify({
     event: 'jeff_holder_request_failed',
     publicCode,
     internalCode,
     errorType: typeof error?.name === 'string' ? error.name : 'UnknownError',
+    stage,
+    ...(unexpectedMessage ? { unexpectedMessage } : {}),
   }));
 }
 
@@ -327,6 +335,7 @@ export function createJeffHolderHttpHandler({
       return sendJson(response, 405, errorBody('METHOD_NOT_ALLOWED'));
     }
 
+    let stage = 'request_boundary';
     try {
       assertSameOrigin(request, origin);
       const contentType = String(requestHeader(request, 'content-type') ?? '').toLowerCase();
@@ -335,13 +344,16 @@ export function createJeffHolderHttpHandler({
       }
       const body = await readJsonBody(request, maximumBodyBytes);
       if (!validActionEnvelope(body)) throw new Error('JEFF_HOLDER_HTTP_ENVELOPE_INVALID');
+      stage = 'client_identity';
       const client = await clientIdentity(request);
       if (typeof client !== 'string' || !client || client.length > 512) {
         throw new Error('JEFF_HOLDER_HTTP_CONFIG_INVALID');
       }
 
       if (body.action === 'challenge') {
+        stage = 'challenge_rate_limit';
         await enforceRateLimit(rateLimiter, 'challenge', client, response);
+        stage = 'challenge_issue';
         const challenge = await runtime.issueChallenge({
           domain,
           uri: pageUri,
@@ -405,7 +417,7 @@ export function createJeffHolderHttpHandler({
       throw new Error('JEFF_HOLDER_HTTP_ENVELOPE_INVALID');
     } catch (error) {
       const [status, code] = classifyFailure(error);
-      reportFailure(error, code);
+      reportFailure(error, code, stage);
       if (status === 401) clearSessionCookie(response);
       return sendJson(response, status, errorBody(code));
     }
