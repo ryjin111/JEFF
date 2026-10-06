@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "simple-jeff",
   "version": "0.1.0",
   "private": true,
@@ -10,8 +10,9 @@
     "smoke": "node --env-file-if-exists=.env scripts/runtime-smoke.mjs"
   },
   "dependencies": {
-    "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.1.tgz",
+    "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.1-5909a4d.tgz",
     "openclaw": "2026.9.8",
     "viem": "2.57.3"
   }
 }
+

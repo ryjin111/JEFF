@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { isAddress } from 'viem';
 
 const monthMs = 30 * 86400000;
-const nftKey = scope => createHash('sha256').update(`${scope.chainId}:${scope.collection}:${scope.tokenId}`).digest('hex');
+const nftKey = scope => createHash('sha256').update(scope.kind === 'account' ? `account:${scope.chainId}:${scope.owner}` : `${scope.chainId}:${scope.collection}:${scope.tokenId}`).digest('hex');
 export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, now = () => Date.now() }) {
   const directory = resolve(dataRoot, 'hosting');
   const file = resolve(directory, 'ledger.json');
@@ -31,7 +31,7 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
   async function status(scope) {
     const ledger = await read();
     const paidExpiry = Date.parse(ledger.entitlements[nftKey(scope)]?.expiresAt || '');
-    const pilot = pilotIds.has(scope.tokenId) && pilotExpiry > now();
+    const pilot = scope.kind !== 'account' && pilotIds.has(scope.tokenId) && pilotExpiry > now();
     const expiry = Math.max(Number.isFinite(paidExpiry) ? paidExpiry : 0, pilot ? pilotExpiry : 0);
     return { active: expiry > now(), source: paidExpiry > now() ? 'paid' : pilot ? 'pilot' : null,
       expiresAt: expiry ? new Date(expiry).toISOString() : null, periodDays: 30,

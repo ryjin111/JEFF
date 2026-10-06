@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
-import { createJeffOpenClawNftBridge } from 'jeff-agent-nft/openclaw';
+import { createJeffOpenClawNftBridge, createJeffOpenClawAccountBridge } from 'jeff-agent-nft/openclaw';
 import { createOwnershipResolver } from './chain.mjs';
 import { createHolderSessions } from './auth.mjs';
+import { createAccountSessions } from './account-auth.mjs';
 import { createOpenClawRunner } from './openclaw-runner.mjs';
 import { createHostingLedger } from './hosting.mjs';
 import { createClockersPaymentVerifier } from './payment.mjs';
@@ -15,7 +16,9 @@ const collection = (process.env.JEFF_COLLECTION || '0xf4127ac7e73a807060cbdd08fc
 const rpcUrl = process.env.JEFF_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
 const resolveOwner = createOwnershipResolver({ chainId, collection, rpcUrl });
 const sessions = createHolderSessions({ origin, chainId, collection, resolveOwner });
+const accountSessions = createAccountSessions({ origin, chainId, dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data') });
 const bridge = createJeffOpenClawNftBridge({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), resolveOwner, runAgent: createOpenClawRunner() });
+const accountBridge = createJeffOpenClawAccountBridge({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), resolveAccount: accountSessions.registered, runAgent: createOpenClawRunner() });
 const hosting = createHostingLedger({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
 const usage = new Map();
 const publicRoot = resolve('public');
@@ -36,12 +39,15 @@ const server = createServer(async (request, response) => {
     if (method === 'GET' && url.pathname === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw' });
     if (method === 'GET' && url.pathname === '/api/config') return send(response, 200, { product: 'Simple JEFF', stage: process.env.JEFF_CONTINUOUS_HOSTING === 'true' ? 'hosted-pilot' : 'local-runtime-pilot',
       chainId, collection, releaseSha: process.env.JEFF_RELEASE_SHA || null, modelConfigured: Boolean(process.env.BANKR_LLM_API_KEY), billingEnabled: hosting.enabled,
-      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', toolsEnabled: false });
+      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true, toolsEnabled: false });
+    if (method === 'POST' && url.pathname === '/api/account/auth/challenge') return send(response, 200, await accountSessions.challenge(await body(request)));
+    if (method === 'POST' && url.pathname === '/api/account/auth/verify') return send(response, 200, await accountSessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/challenge') return send(response, 200, await sessions.challenge(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/verify') return send(response, 200, await sessions.verify(await body(request)));
-    if (method === 'POST' && url.pathname === '/api/auth/logout') { sessions.logout(token(request)); return send(response, 200, { loggedOut: true }); }
+    if (method === 'POST' && url.pathname === '/api/auth/logout') { sessions.logout(token(request)); accountSessions.logout(token(request)); return send(response, 200, { loggedOut: true }); }
     if (url.pathname.startsWith('/api/')) {
-      const scope = await sessions.authenticate(token(request));
+      const scope = await (accountSessions.has(token(request)) ? accountSessions : sessions).authenticate(token(request));
+      const activeBridge = scope.kind === 'account' ? accountBridge : bridge;
       if (method === 'GET' && url.pathname === '/api/hosting') return send(response, 200, await hosting.status(scope));
       if (method === 'POST' && url.pathname === '/api/hosting/invoice') return send(response, 200, await hosting.invoice(scope));
       if (method === 'POST' && url.pathname === '/api/hosting/activate') return send(response, 200, await hosting.activate(scope, await body(request)));
@@ -54,11 +60,11 @@ const server = createServer(async (request, response) => {
         for (const key of usage.keys()) if (!key.endsWith(`:${hour}`)) usage.delete(key);
         if ((usage.get(meterKey) || 0) >= 10) throw new Error('JEFF_USAGE_LIMIT_REACHED');
         usage.set(meterKey, (usage.get(meterKey) || 0) + 1);
-        return send(response, 202, await bridge.start(scope, input.objective));
+        return send(response, 202, await activeBridge.start(scope, input.objective));
       }
-      if (method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, { jobs: await bridge.list(scope) });
-      if (method === 'POST' && /^\/api\/jobs\/[a-f0-9-]{36}\/retry-save$/.test(url.pathname)) return send(response, 200, await bridge.retrySave(scope, url.pathname.split('/')[3]));
-      if (method === 'GET' && /^\/api\/jobs\/[a-f0-9-]{36}$/.test(url.pathname)) return send(response, 200, await bridge.retrieve(scope, url.pathname.split('/').at(-1)));
+      if (method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, { jobs: await activeBridge.list(scope) });
+      if (method === 'POST' && /^\/api\/jobs\/[a-f0-9-]{36}\/retry-save$/.test(url.pathname)) return send(response, 200, await activeBridge.retrySave(scope, url.pathname.split('/')[3]));
+      if (method === 'GET' && /^\/api\/jobs\/[a-f0-9-]{36}$/.test(url.pathname)) return send(response, 200, await activeBridge.retrieve(scope, url.pathname.split('/').at(-1)));
       return send(response, 404, { error: 'JEFF_ROUTE_NOT_FOUND' });
     }
     if (method !== 'GET' && method !== 'HEAD') return send(response, 405, { error: 'JEFF_METHOD_DENIED' });

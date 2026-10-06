@@ -1,6 +1,7 @@
 ﻿# Simple JEFF
 
-NFT-controlled JEFF assistants hosted on the actual OpenClaw 2026.9.8 runtime.
+JEFF assistants hosted on the actual OpenClaw 2026.9.8 runtime, with NFT holder
+access and standalone wallet accounts.
 
 Live pilot: https://simple-jeff-production.up.railway.app
 
@@ -34,6 +35,8 @@ JSON API responses use `Cache-Control: no-store`.
 | POST | `/api/auth/challenge` | challenge for `{wallet, tokenId}` |
 | POST | `/api/auth/verify` | verify `{nonce, signature}`, issue session |
 | POST | `/api/auth/logout` | revoke bearer session |
+| POST | `/api/account/auth/challenge` | standalone wallet challenge, no NFT required |
+| POST | `/api/account/auth/verify` | create or open wallet account after signature |
 | POST | `/api/jobs` | submit `{objective}`, return running job with HTTP 202 |
 | GET | `/api/jobs` | authenticated history including unfinished jobs |
 | GET | `/api/jobs/:id` | retrieve scoped job |
@@ -54,6 +57,13 @@ Chain 4663 Clockers uses `ownerOf` and `transferNonceOf` at the same block. Othe
 collections require an epoch adapter that observes every transfer. An A to B to A
 transfer creates a new workspace even if the original wallet receives the NFT back.
 Private context never follows a new owner. A hosting term stays attached to the NFT.
+
+Standalone accounts use a separate `kind: account` scope bound to the wallet and
+payment chain. A signature creates the durable account; its private jobs and paid
+term stay attached to that account. NFT pilot time does not grant account hosting,
+even for the same wallet. Both entry points use the shared jobs and hosting API.
+New accounts start inactive while checkout is unavailable. Account login requires
+no on-chain transaction. Contract-wallet signature validation is not implemented.
 
 This pilot runs one server process with a persistent `/data` volume. Holder sessions
 and usage counters are in memory. Usage is capped at ten submitted tasks per wallet
