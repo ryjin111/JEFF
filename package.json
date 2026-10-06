@@ -87,6 +87,7 @@
     "./review": "./api/_lib/jeff-review.mjs",
     "./memory": "./api/_lib/jeff-memory-layer.mjs",
     "./soul": "./api/_lib/jeff-soul-bundle.mjs",
+    "./openclaw": "./api/_lib/jeff-openclaw-nft.mjs",
     "./soak": "./api/_lib/jeff-live-shadow-soak.mjs",
     "./benchmark": "./api/_lib/jeff-benchmark-v2.mjs"
   },
