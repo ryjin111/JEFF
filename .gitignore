@@ -1,0 +1,9 @@
+node_modules/
+.env
+.private/
+data/
+tools/
+evidence/
+*.log
+/scripts/prepare-private-model.mjs
+/scripts/find-private-model.mjs
