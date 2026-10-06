@@ -35,3 +35,16 @@ test('unsaved completed output must not claim persistence', async () => {
   await assert.rejects(validateRecord({ ...unsaved, saved: true }, scope, id), /RESULT_INVALID/);
   await assert.rejects(validateRecord({ ...result, saved: false }, scope, id), /RESULT_INVALID/);
 });
+test('standalone account sessions and results are separate from NFT holder workspaces', async () => {
+  const account = { kind: 'account', chainId: scope.chainId, owner: scope.owner };
+  assert.notEqual(scopeKey(account), scopeKey(scope));
+  assert.notEqual(scopeKey(account), scopeKey({ ...account, owner: '0x' + '22'.repeat(20) }));
+  const config = { chainId: scope.chainId, collection: scope.collection, standaloneAccounts: true };
+  const session = { token: 'aa'.repeat(32), scope: account, expiresAt: '2026-10-06T15:00:00Z' };
+  assert.equal(validSession(session, config, 0), true);
+  assert.equal(validSession(session, { ...config, standaloneAccounts: false }, 0), false);
+  const accountResult = { ...result, scope: account };
+  assert.deepEqual(await validateRecord(accountResult, account, id), accountResult);
+  await assert.rejects(validateRecord(result, account, id), /RESULT_INVALID/);
+  await assert.rejects(validateRecord(accountResult, scope, id), /RESULT_INVALID/);
+});

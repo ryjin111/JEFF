@@ -1,17 +1,22 @@
 export const JOB_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 export function validScope(scope) {
+  if (scope?.kind === 'account') return Boolean(Number.isSafeInteger(scope.chainId) && scope.chainId > 0
+    && /^0x[a-f0-9]{40}$/.test(scope.owner) && scope.collection === undefined && scope.tokenId === undefined && scope.ownerEpoch === undefined);
   return Boolean(scope && Number.isSafeInteger(scope.chainId) && scope.chainId > 0
+    && scope.kind === undefined
     && /^0x[a-f0-9]{40}$/.test(scope.collection) && /^0x[a-f0-9]{40}$/.test(scope.owner)
     && /^(0|[1-9]\d*)$/.test(scope.tokenId) && BigInt(scope.tokenId) < 2n ** 256n
     && Number.isSafeInteger(scope.ownerEpoch) && scope.ownerEpoch >= 0);
 }
 export function scopeKey(scope) {
   if (!validScope(scope)) throw new Error('JEFF_SCOPE_INVALID');
+  if (scope.kind === 'account') return ['account', scope.chainId, scope.owner].join(':');
   return [scope.chainId, scope.collection, scope.tokenId, scope.owner, scope.ownerEpoch].join(':');
 }
 export function validSession(session, config, now = Date.now()) {
   return Boolean(session && /^[a-f0-9]{64}$/.test(session.token) && validScope(session.scope)
-    && session.scope.chainId === config.chainId && session.scope.collection === config.collection.toLowerCase()
+    && session.scope.chainId === config.chainId
+    && (session.scope.kind === 'account' ? config.standaloneAccounts === true : session.scope.collection === config.collection.toLowerCase())
     && Date.parse(session.expiresAt) > now);
 }
 export function jobIndex(value) {
@@ -35,7 +40,9 @@ export async function validateRecord(record, scope, expectedId) {
   return record;
 }
 export const labels = {
-  JEFF_HOSTING_INACTIVE: 'Hosting is inactive for this NFT. Activate or renew hosting to run new tasks. Saved results are still accessible.',
+  JEFF_OPENCLAW_ACCOUNT_DENIED: 'This account is unavailable. Sign in again to open your registered wallet workspace.',
+  JEFF_ACCOUNT_INVALID: 'The wallet account could not be registered. Check the connected wallet and try again.',
+  JEFF_HOSTING_INACTIVE: 'Hosting is inactive for this workspace. Activate or renew hosting to run new tasks. Saved results are still accessible.',
   JEFF_CHECKOUT_UNAVAILABLE: 'Monthly checkout is not available yet. No payment has been requested.',
   JEFF_HOSTING_INVALID: 'Hosting details could not be verified. New tasks and checkout remain unavailable.',
   JEFF_INVOICE_INVALID: 'This invoice is invalid, expired, or belongs to another holder workspace. No payment was sent.',

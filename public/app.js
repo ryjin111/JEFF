@@ -5,6 +5,8 @@ const SESSION_KEY = 'simple-jeff:session:v1';
 let config, session, provider, loginWallet, busy = false, waiting = false, version = 0, currentResult, expiryTimer, pollTimer;
 let serverJobs = [];
 let hosting, invoice, tokenDecimals, hostingTimer;
+let accessMode = new URLSearchParams(location.search).get('mode') === 'standalone' ? 'standalone' : 'holder';
+const standaloneSession = () => session?.scope?.kind === 'account';
 const checkoutAvailable = () => Boolean(session && config?.billingEnabled && hosting?.checkoutEnabled);
 const hostingActive = () => Boolean(hosting?.active && Date.parse(hosting.expiresAt) > Date.now());
 const invoiceKey = () => `simple-jeff:invoice:v1:${scopeKey(session.scope)}`;
@@ -40,7 +42,7 @@ function invalidate() {
   if (token) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', keepalive: true }).catch(() => {});
 }
 function handleError(error) {
-  if (/^JEFF_(SESSION_|OPENCLAW_OWNER_REVOKED)/.test(error.message)) invalidate();
+  if (/^JEFF_(SESSION_|OPENCLAW_OWNER_REVOKED|OPENCLAW_ACCOUNT_DENIED)/.test(error.message)) invalidate();
   if (error.message === 'JEFF_HOSTING_INACTIVE' && hosting) { hosting = { ...hosting, active: false }; render(); }
   showNotice(errorLabel(error), true);
 }
@@ -52,12 +54,14 @@ function renderHistory() {
   for (const id of known) { const record = serverJobs.find(job => job.id === id); const button = document.createElement('button'); button.className = 'history-item'; button.textContent = record ? `${record.status.replaceAll('_', ' ')} | ${record.objective.slice(0, 100)} | ${id}` : id; button.disabled = busy || waiting; button.addEventListener('click', () => retrieve(id)); list.append(button); }
 }
 function render() {
+  const standalone = session ? standaloneSession() : accessMode === 'standalone';
+  renderAccess();
   $('logout').hidden = !session; $('logout').disabled = false;
   $('login-form').hidden = Boolean(session); $('scope-details').hidden = !session;
-  $('token-id').disabled = busy; $('login').disabled = !config || busy;
-  $('login').textContent = busy && !session ? 'Waiting for wallet' : 'Connect wallet & sign in';
-  $('agent-name').textContent = session ? `Room #${session.scope.tokenId}` : 'Connect your NFT';
-  $('identity-copy').textContent = session ? 'Private workspace for this NFT, holder, and ownership epoch.' : 'Sign in with the wallet that holds your Clockers Agent NFT.';
+  $('token-id').disabled = busy; $('login').disabled = !config || busy || (standalone && config?.standaloneAccounts !== true);
+  $('login').textContent = busy && !session ? 'Waiting for wallet' : standalone && config?.standaloneAccounts !== true ? 'Standalone signup coming soon' : 'Connect wallet & sign in';
+  $('agent-name').textContent = session ? standalone ? 'My JEFF' : `Room #${session.scope.tokenId}` : standalone ? 'Create your JEFF account' : 'Connect your NFT';
+  $('identity-copy').textContent = session ? standalone ? 'A private agent workspace controlled by your wallet.' : 'Private workspace for this NFT, holder, and ownership epoch.' : standalone ? config?.standaloneAccounts === true ? 'Sign in with your wallet. No NFT or Room ID is required.' : 'Standalone wallet signup is being configured. NFT holder access is available now.' : 'Sign in with the wallet that holds your Clockers Agent NFT.';
   $('holder-wallet').textContent = session?.scope.owner || '';
   $('owner-epoch').textContent = session ? String(session.scope.ownerEpoch) : '';
   $('session-expiry').textContent = session ? formatDate(session.expiresAt) : '';
@@ -71,30 +75,57 @@ function render() {
   $('task-hint').textContent = !session ? 'Sign in to run a task or retrieve a saved result.' : !hosting ? 'Checking hosting access. Saved results remain accessible.' : !hostingActive() ? 'Hosting is inactive. Activate or renew to run new tasks; saved results remain accessible.' : !config?.modelConfigured ? 'The model connection is not configured. You can still retrieve saved results.' : waiting ? `Task ${currentResult?.id || ''} is running. You can return later; it appears in server history.` : 'A task can take up to 150 seconds. Its job ID is available immediately.';
   renderHistory(); renderHosting();
 }
+function renderAccess() {
+  const standalone = session ? standaloneSession() : accessMode === 'standalone';
+  $('holder-mode').setAttribute('aria-pressed', String(!standalone));
+  $('standalone-mode').setAttribute('aria-pressed', String(standalone));
+  $('holder-mode').disabled = Boolean(session) || busy; $('standalone-mode').disabled = Boolean(session) || busy;
+  $('token-field').hidden = standalone; $('token-id').required = !standalone;
+  $('epoch-field').hidden = standalone;
+  $('wallet-label').textContent = standalone ? 'Account wallet' : 'Holder wallet';
+  $('objective').placeholder = standalone ? 'Turn this idea into a practical launch checklist: a hosted assistant that prepares a daily briefing.' : 'Turn this idea into a practical launch checklist: a hosted assistant controlled by its Agent NFT.';
+  $('product-eyebrow').textContent = standalone ? 'SIMPLE JEFF / MANAGED AGENT' : 'JEFF / OPENCLAW / AGENT NFT';
+  $('product-heading').innerHTML = standalone ? 'Your agent.<br>A place to work.' : 'Your NFT.<br>Your agent.';
+  $('product-lede').textContent = standalone ? 'Use JEFF without an NFT. Sign in with your wallet and manage your own hosted workspace.' : 'Give your Agent NFT a task. Get a useful result. Come back to it when you need it.';
+  $('login-boundary').textContent = standalone ? 'Login proves control of your wallet. It does not approve spending.' : 'Login proves NFT ownership. It does not approve spending.';
+  $('signup-copy').textContent = standalone ? 'Standalone wallet accounts do not require an NFT.' : 'Use Simple JEFF for standalone access without an NFT.';
+}
+function switchAccess(mode) {
+  if (session || busy) return;
+  accessMode = mode; showNotice('');
+  const url = new URL(location.href); url.searchParams.set('mode', mode === 'standalone' ? 'standalone' : 'nft'); history.replaceState(null, '', url);
+  render();
+}
+$('holder-mode').addEventListener('click', () => switchAccess('holder'));
+$('standalone-mode').addEventListener('click', () => switchAccess('standalone'));
 function scheduleExpiry() { clearTimeout(expiryTimer); if(session) expiryTimer = setTimeout(() => { invalidate(); showNotice('Your session expired. Sign in again to retrieve saved results.'); }, Math.max(0, Date.parse(session.expiresAt) - Date.now())); }
 function bindProvider(next) {
   if (provider === next) return;
   provider?.removeListener?.('accountsChanged', walletChanged); provider?.removeListener?.('chainChanged', walletChanged);
   provider = next; provider?.on?.('accountsChanged', walletChanged); provider?.on?.('chainChanged', walletChanged);
 }
-function walletChanged() { if (!session && !loginWallet) return; invalidate(); showNotice('Wallet or network changed. Sign in again for your current holder workspace.'); }
+function walletChanged() { if (!session && !loginWallet) return; invalidate(); showNotice('Wallet or network changed. Sign in again for your current workspace.'); }
 $('login-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy || !config) return;
+  const accountLogin = accessMode === 'standalone';
+  if (accountLogin && config.standaloneAccounts !== true) { showNotice('Standalone signup is not available on this deployment yet.'); return; }
   const tokenId = $('token-id').value.trim();
-  if (!/^(0|[1-9]\d*)$/.test(tokenId) || BigInt(tokenId) >= 2n ** 256n) { showNotice('Enter a valid Room / token ID.', true); return; }
-  const operation = ++version; busy = true; clearResult(); showNotice('Approve wallet access, then sign the holder login message.'); render();
+  if (!accountLogin && (!/^(0|[1-9]\d*)$/.test(tokenId) || BigInt(tokenId) >= 2n ** 256n)) { showNotice('Enter a valid Room / token ID.', true); return; }
+  const authPath = accountLogin ? '/api/account/auth' : '/api/auth';
+  const operation = ++version; busy = true; clearResult(); showNotice(accountLogin ? 'Approve wallet access, then sign the standalone account login message.' : 'Approve wallet access, then sign the holder login message.'); render();
   let candidate;
   try {
     bindProvider(window.ethereum); if (!provider?.request) throw new Error('JEFF_WALLET_UNAVAILABLE');
     const accounts = await provider.request({ method: 'eth_requestAccounts' }); if (operation !== version) return;
     const wallet = accounts?.[0]?.toLowerCase(); if (!/^0x[a-f0-9]{40}$/.test(wallet)) throw new Error('JEFF_WALLET_UNAVAILABLE');
     loginWallet = wallet;
-    const challenge = await api('/api/auth/challenge', { method: 'POST', body: { wallet, tokenId } }); if (operation !== version) return;
+    const challenge = await api(`${authPath}/challenge`, { method: 'POST', body: accountLogin ? { wallet } : { wallet, tokenId } }); if (operation !== version) return;
     const message = '0x' + Array.from(new TextEncoder().encode(challenge.message), byte => byte.toString(16).padStart(2, '0')).join('');
     const signature = await provider.request({ method: 'personal_sign', params: [message, wallet] }); if (operation !== version) return;
-    candidate = await api('/api/auth/verify', { method: 'POST', body: { nonce: challenge.nonce, signature } });
+    candidate = await api(`${authPath}/verify`, { method: 'POST', body: { nonce: challenge.nonce, signature } });
     if (operation !== version) { fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${candidate.token}` } }).catch(() => {}); return; }
-    if (!validSession(candidate, config) || candidate.scope.owner !== wallet || candidate.scope.tokenId !== tokenId) throw new Error('JEFF_SCOPE_INVALID');
+    if (!validSession(candidate, config) || candidate.scope.owner !== wallet
+      || (accountLogin ? candidate.scope.kind !== 'account' : candidate.scope.kind !== undefined || candidate.scope.tokenId !== tokenId)) throw new Error('JEFF_SCOPE_INVALID');
     session = candidate; saveSession(); scheduleExpiry(); showNotice('Signed in. Your workspace is ready for saved result retrieval.');
   } catch (error) { if (operation === version) handleError(error); }
   finally { if (operation === version) { loginWallet = undefined; busy = false; render(); if (session) refreshWorkspace(); } }
@@ -118,7 +149,7 @@ function acceptRecord(record) {
 async function retrieve(id, poll = false) {
   if (!session || busy || (waiting && !poll)) return;
   if (!JOB_ID.test(id)) { showNotice('Enter a valid saved job ID.', true); return; }
-  const operation = version, scope = session.scope; busy = true; if (!poll) clearResult(); showNotice('Checking ownership and retrieving your saved result.'); render();
+  const operation = version, scope = session.scope; busy = true; if (!poll) clearResult(); showNotice(standaloneSession() ? 'Checking account access and retrieving your saved result.' : 'Checking ownership and retrieving your saved result.'); render();
   try {
     const record = await api(`/api/jobs/${id}`, { authenticated: true });
     await validateRecord(record, scope, id); if (operation !== version) return;
@@ -171,7 +202,7 @@ function renderHosting() {
   const active = hostingActive();
   $('hosting-status').textContent = !session ? 'Sign in to view' : !hosting ? 'Checking' : active ? 'Active' : 'Inactive';
   $('hosting-status').className = 'status ' + (hosting ? active ? 'active' : 'inactive' : '');
-  $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and the expiry for your NFT.' : !hosting ? 'Loading this NFT’s hosting entitlement.' : active ? 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
+  $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and expiry.' : !hosting ? 'Loading your hosting entitlement.' : active ? standaloneSession() ? 'Hosting access is active for your wallet account.' : 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
   $('hosting-plan').textContent = !hosting ? 'Not loaded' : hosting.source === 'pilot' ? 'Pilot access' : hosting.source === 'paid' ? '30-day hosting' : 'Not active';
   $('hosting-expiry').textContent = hosting?.expiresAt ? formatDate(hosting.expiresAt) : 'No active term';
   $('hosting-usage').textContent = hosting ? 'Service-funded, with task limits' : 'Not loaded';
@@ -286,8 +317,9 @@ async function initialize() {
   try {
     config = await api('/api/config');
     if (!Number.isSafeInteger(config.chainId) || !/^0x[a-f0-9]{40}$/i.test(config.collection)) throw new Error('JEFF_SERVICE_UNAVAILABLE');
+    if (!new URLSearchParams(location.search).has('mode') && config.standaloneAccounts === true) accessMode = 'standalone';
     $('model-status').textContent = config.modelConfigured ? 'Model connection configured' : 'Model connection needed';
-    $('model-copy').textContent = config.modelConfigured ? 'NFT holder tasks are available. External actions are disabled.' : 'New tasks are unavailable until the operator configures the model connection. Saved results can still be retrieved.';
+    $('model-copy').textContent = config.modelConfigured ? 'Tasks are available with active hosting. External actions are disabled.' : 'New tasks are unavailable until the operator configures the model connection. Saved results can still be retrieved.';
     const cached = readStorage(sessionStorage, SESSION_KEY);
     if (validSession(cached, config)) { session = cached; scheduleExpiry(); } else saveSession();
     $('stage').textContent = config.continuousHosting ? 'HOSTED PILOT' : 'LOCAL PILOT';

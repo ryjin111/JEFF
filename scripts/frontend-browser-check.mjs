@@ -22,6 +22,14 @@ try {
   assert.equal(await page.locator('#login').isEnabled(), true);
   await page.screenshot({ path: resolve(output, 'live-desktop.png'), fullPage: true });
   checks.push('Live service readiness is displayed; signed-out tasks are disabled and login is available');
+  await page.locator('#standalone-mode').click();
+  assert.equal(await page.locator('#token-field').isHidden(),true);
+  const liveConfig = await page.evaluate(async () => (await fetch('/api/config')).json());
+  assert.equal(await page.locator('#login').isDisabled(),liveConfig.standaloneAccounts !== true);
+  await page.screenshot({path:resolve(output,'standalone-entry.png'),fullPage:true});
+  await page.locator('#holder-mode').click();
+  assert.equal(await page.locator('#token-field').isVisible(),true);
+  checks.push('Standalone entry hides the NFT field and reflects its backend availability flag');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: resolve(output, 'live-mobile.png'), fullPage: true });
@@ -144,6 +152,70 @@ try {
   assert.equal(await page.locator('#result-text').textContent(), '');
   assert.ok(logoutRequests >= 1);
   checks.push('Logout during a job clears private UI and suppresses a late response');
+  const accountPage = await context.newPage();
+  accountPage.on('pageerror',error=>errors.push(error.message));
+  const accountScope = {kind:'account',chainId:4663,owner:scope.owner};
+  const accountId = 'abcdefab-1234-1234-1234-123456789abc';
+  const accountText = 'Private standalone account result';
+  const accountRecord = {...record,id:accountId,scope:accountScope,objective:'Account task',text:accountText,textSha256:createHash('sha256').update(accountText).digest('hex')};
+  let accountActive=false,accountRuns=0,accountRetrievals=0;
+  const accountChallenge='Fixture standalone account login\nNo NFT required.';
+  await accountPage.route('**/api/**',async route=>{
+    const request=route.request(),path=new URL(request.url()).pathname;
+    let value;
+    if(path==='/api/config')value={chainId:4663,collection:scope.collection,modelConfigured:true,billingEnabled:false,continuousHosting:true,standaloneAccounts:true,toolsEnabled:false};
+    else if(path==='/api/account/auth/challenge'){assert.deepEqual(request.postDataJSON(),{wallet:scope.owner});value={nonce:'account-only',message:accountChallenge};}
+    else if(path==='/api/account/auth/verify')value={token:'cc'.repeat(32),scope:accountScope,expiresAt:new Date(Date.now()+3600000).toISOString()};
+    else if(path==='/api/auth/logout')value={loggedOut:true};
+    else{
+      assert.equal(request.headers().authorization,'Bearer '+'cc'.repeat(32));
+      if(path==='/api/hosting')value={...hostStatus(),active:accountActive,source:accountActive?'paid':null,expiresAt:accountActive?new Date(Date.now()+86400000).toISOString():null,checkoutEnabled:false};
+      else if(path==='/api/jobs'&&request.method()==='GET')value={jobs:accountRuns?[accountRecord]:[]};
+      else if(path==='/api/jobs'&&request.method()==='POST'){accountRuns++;assert.equal(request.postDataJSON().objective,'Account task');return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({...running,id:accountId,scope:accountScope,objective:'Account task'})});}
+      else if(path===`/api/jobs/${accountId}`){accountRetrievals++;value=accountRecord;}
+      else if(path===`/api/jobs/${id}`)value=record;
+      else throw Error('Unexpected account route '+path);
+    }
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)});
+  });
+  await accountPage.addInitScript(({wallet,challenge})=>{
+    window.ethereum={async request({method,params}){
+      if(method==='eth_requestAccounts')return[wallet];
+      if(method==='personal_sign'){
+        const bytes=Uint8Array.from(params[0].slice(2).match(/.{2}/g),byte=>parseInt(byte,16));
+        if(new TextDecoder().decode(bytes)!==challenge)throw Error('Wrong account signature');
+        return 'account-fixture-signature';
+      }
+      throw Error('Unexpected account wallet method');
+    }};
+  },{wallet:scope.owner,challenge:accountChallenge});
+  await accountPage.goto(base+'/?mode=standalone');
+  await accountPage.locator('#login').filter({hasText:'Connect wallet & sign in'}).waitFor();
+  assert.equal(await accountPage.locator('#token-field').isHidden(),true);
+  await accountPage.locator('#login').click();await accountPage.locator('#hosting-status').filter({hasText:'Inactive'}).waitFor();
+  assert.equal(await accountPage.locator('#agent-name').textContent(),'My JEFF');
+  assert.equal(await accountPage.locator('#epoch-field').isHidden(),true);
+  assert.equal(await accountPage.locator('#run').isDisabled(),true);
+  assert.equal(await accountPage.locator('#retrieve').isEnabled(),true);
+  assert.equal(await accountPage.locator('.history-item').count(),0);
+  checks.push('Standalone wallet signup signs the account challenge without any NFT input; inactive account cannot run tasks');
+  accountActive=true;await accountPage.locator('#refresh-hosting').click();
+  await accountPage.locator('#run').waitFor();
+  await accountPage.locator('#objective').fill('Account task');await accountPage.locator('#run').click();
+  await accountPage.getByText('Saved to workspace',{exact:true}).waitFor();
+  await accountPage.reload();await accountPage.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
+  assert.equal(accountRuns,1);assert.ok(accountRetrievals>=1);
+  assert.equal(await accountPage.locator('#result-text').textContent(),accountText);
+  assert.equal(await accountPage.locator('.history-item').count(),1);
+  checks.push('Entitled standalone account runs and retrieves its own result without loading NFT history');
+  await accountPage.setViewportSize({width:390,height:844});
+  assert.equal(await accountPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await accountPage.screenshot({path:resolve(output,'standalone-account-mobile.png'),fullPage:true});
+  await accountPage.locator('#job-id').fill(id);await accountPage.locator('#retrieve').click();
+  await accountPage.getByText('This result did not match the current workspace or pass the integrity check. It was withheld.',{exact:true}).waitFor();
+  assert.equal(await accountPage.locator('#result').isHidden(),true);
+  checks.push('Cross-scope NFT response is withheld from standalone account UI');
+  await accountPage.locator('#logout').click();assert.equal(await accountPage.locator('#result-text').textContent(),'');
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'browser-check.json'), JSON.stringify({ checkedAt: new Date().toISOString(), checks, browserErrors: errors, modelProof: 'Not tested: workflow checks use an explicit fixture', realHolderProof: 'Not tested: fixture wallet' }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, errors, evidence: output, modelProof: 'fixture only' }));
