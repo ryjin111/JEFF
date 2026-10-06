@@ -35,6 +35,20 @@ export async function validateRecord(record, scope, expectedId) {
   return record;
 }
 export const labels = {
+  JEFF_HOSTING_INACTIVE: 'Hosting is inactive for this NFT. Activate or renew hosting to run new tasks. Saved results are still accessible.',
+  JEFF_CHECKOUT_UNAVAILABLE: 'Monthly checkout is not available yet. No payment has been requested.',
+  JEFF_HOSTING_INVALID: 'Hosting details could not be verified. New tasks and checkout remain unavailable.',
+  JEFF_INVOICE_INVALID: 'This invoice is invalid, expired, or belongs to another holder workspace. No payment was sent.',
+  JEFF_INVOICE_EXPIRED: 'The invoice expired. Keep your payment reference and contact support before sending another payment.',
+  JEFF_PAYMENT_CONFIRMING: 'The payment is waiting for chain confirmations. Keep the same transaction reference; do not pay again.',
+  JEFF_PAYMENT_ALREADY_USED: 'That transaction has already been used. No additional hosting time was applied.',
+  JEFF_PAYMENT_BINDING_INVALID: 'The transaction does not match this invoice. Check the token, amount, recipient, and payment time.',
+  JEFF_PAYMENT_FAILED: 'The chain reports that this payment failed. Hosting was not activated.',
+  JEFF_PAYMENT_CHAIN_MISMATCH: 'The payment network does not match this invoice. Hosting was not activated.',
+  JEFF_INVOICE_DENIED: 'This invoice belongs to a different holder workspace.',
+  JEFF_TOKEN_DETAILS_UNAVAILABLE: 'The token amount could not be displayed safely. Wallet payment is disabled. No transaction was sent.',
+  JEFF_WALLET_NETWORK_MISMATCH: 'Switch your wallet to the invoice network and sign in again before paying.',
+  JEFF_USAGE_LIMIT_REACHED: 'The hourly task limit was reached. Saved results are still available; try a new task next hour.',
   JEFF_MODEL_NOT_CONFIGURED: 'The model connection is not configured yet. Saved result retrieval is still available.',
   JEFF_OWNER_REQUIRED: 'This wallet does not currently hold that NFT. Choose an NFT you own.',
   JEFF_OPENCLAW_OWNER_REVOKED: 'NFT ownership changed. Sign in again to access your current workspace.',

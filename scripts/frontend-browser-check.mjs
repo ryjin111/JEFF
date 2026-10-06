@@ -34,19 +34,24 @@ try {
   const record = { schema: 'jeff-openclaw-job-v1', id, scope, status: 'completed', objective: 'Fixture task', text,
     textSha256: createHash('sha256').update(text).digest('hex'), saved: true, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), model: 'frontend-test-fixture', externalActionsAuthorized: false };
   const running = { schema: record.schema, id, scope, objective: record.objective, status: 'running', saved: true, startedAt: record.startedAt, externalActionsAuthorized: false };
-  let jobRequests = 0, retrievals = 0, logoutRequests = 0, revoked = false, pendingJob, pollEntered, jobCreated = false, unsaved = false, retrySaves = 0, failSave = false;
+  let jobRequests = 0, retrievals = 0, logoutRequests = 0, revoked = false, pendingJob, pollEntered, jobCreated = false, unsaved = false, retrySaves = 0, failSave = false, hostingActive = true, checkoutEnabled = false, payments = 0, invoices = 0, activations = 0, confirming = false;
+  const quote = { id, scope, chainId: 4663, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20), amount: '1000000000000000001', periodDays: 30, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() };
+  const hostStatus = () => ({ active: hostingActive, source: hostingActive ? 'pilot' : null, expiresAt: hostingActive ? new Date(Date.now() + 86400000).toISOString() : null, periodDays: 30, checkoutEnabled, token: quote.token, amount: checkoutEnabled ? quote.amount : null, recipient: checkoutEnabled ? quote.recipient : null, chainId: 4663, automaticRenewal: false });
   const challenge = 'Fixture holder login\nNo transaction authorization.';
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     let value;
-    if (path === '/api/config') value = { chainId: scope.chainId, collection: scope.collection, modelConfigured: true, billingEnabled: false, continuousHosting: false, toolsEnabled: false };
+    if (path === '/api/config') value = { chainId: scope.chainId, collection: scope.collection, modelConfigured: true, billingEnabled: checkoutEnabled, continuousHosting: true, toolsEnabled: false };
     else if (path === '/api/auth/challenge') { assert.deepEqual(request.postDataJSON(), { wallet: scope.owner, tokenId: '35' }); value = { nonce: 'test-only', message: challenge }; }
     else if (path === '/api/auth/verify') value = { token: 'aa'.repeat(32), scope, expiresAt: new Date(Date.now() + 3600000).toISOString() };
     else if (path === '/api/auth/logout') { logoutRequests++; value = { loggedOut: true }; }
     else {
       assert.equal(request.headers().authorization, 'Bearer ' + 'aa'.repeat(32));
       if (revoked) return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'JEFF_SESSION_REVOKED' }) });
-      if (path === '/api/jobs' && request.method() === 'POST') { jobRequests++; jobCreated = true; assert.equal(request.postDataJSON().objective, 'Fixture task'); return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(running) }); }
+      if (path === '/api/hosting') value = hostStatus();
+      else if (path === '/api/hosting/invoice') { invoices++; assert.equal(checkoutEnabled,true); value=quote; }
+      else if (path === '/api/hosting/activate') { activations++; assert.deepEqual(request.postDataJSON(),{invoiceId:id,transactionHash:'0x'+'bb'.repeat(32)}); if(confirming) return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'JEFF_PAYMENT_CONFIRMING'})});hostingActive=true;value=hostStatus(); }
+      else if (path === '/api/jobs' && request.method() === 'POST') { jobRequests++; jobCreated = true; assert.equal(request.postDataJSON().objective, 'Fixture task'); return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(running) }); }
       else if (path === '/api/jobs') value = { jobs: jobCreated ? [unsaved ? { ...record, status: 'completed_unsaved', saved: false } : record] : [] };
       else if (path === `/api/jobs/${id}`) { retrievals++; if (pendingJob) { pollEntered?.(); await pendingJob; } value = unsaved ? { ...record, status: 'completed_unsaved', saved: false } : record; }
       else if (path === `/api/jobs/${id}/retry-save`) { retrySaves++; if (failSave) return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'JEFF_SERVICE_UNAVAILABLE'})}); unsaved = false; value = record; }
@@ -62,6 +67,10 @@ try {
       removeListener(name) { delete events[name]; },
       async request({ method, params }) {
         if (method === 'eth_requestAccounts') { events.accountsChanged?.([wallet]); return [wallet]; }
+        if (method === 'eth_accounts') return [wallet];
+        if (method === 'eth_chainId') return '0x1237';
+        if (method === 'eth_call') return '0x12';
+        if (method === 'eth_sendTransaction') {window.__payments=(window.__payments||0)+1;window.__transfer=params[0];return '0x'+'bb'.repeat(32);}
         if (method === 'personal_sign') {
           const bytes = Uint8Array.from(params[0].slice(2).match(/.{2}/g), byte => parseInt(byte, 16));
           if (new TextDecoder().decode(bytes) !== challengeText || params[1] !== wallet) throw Error('Wrong login signature input');
@@ -74,6 +83,10 @@ try {
   await page.reload();
   await page.locator('#token-id').fill('35'); await page.locator('#login').click();
   await page.locator('#logout').waitFor();
+  await page.locator('#hosting-status').filter({hasText:'Active'}).waitFor();
+  assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
+  assert.equal(await page.locator('#create-invoice').isHidden(),true);
+  checks.push('Hosted flags replace local labels; pilot entitlement is visible and unconfigured checkout stays hidden');
   await page.locator('#objective').fill('Fixture task'); await page.locator('#run').click();
   await page.getByText('Saved to workspace', { exact: true }).waitFor();
   assert.equal(await page.locator('#result-text script').count(), 0);
@@ -97,6 +110,20 @@ try {
   await page.locator('#retry-save').click(); await page.getByText('Saved to workspace', { exact: true }).waitFor();
   assert.equal(jobRequests, 1); assert.equal(retrySaves, 2);
   checks.push('Failed save retry preserves output; a successful retry persists it without another model request');
+  hostingActive=false;await page.locator('#refresh-hosting').click();await page.locator('#hosting-status').filter({hasText:'Inactive'}).waitFor();
+  assert.equal(await page.locator('#run').isDisabled(),true);assert.equal(await page.locator('#retrieve').isEnabled(),true);
+  checks.push('Inactive hosting blocks new tasks while saved result retrieval remains available');
+  checkoutEnabled=true;await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
+  await page.locator('#create-invoice').click();await page.locator('#pay-invoice').filter({hasText:'Pay 1.000000000000000001 $CLOCKERS'}).waitFor();
+  assert.equal(invoices,1);assert.equal(await page.evaluate(()=>window.__payments||0),0);
+  confirming=true;await page.locator('#pay-invoice').click();await page.getByText('The payment is waiting for chain confirmations. Keep the same transaction reference; do not pay again.',{exact:true}).waitFor();
+  assert.equal(await page.locator('#pay-invoice').isDisabled(),true);assert.equal(await page.locator('#hosting-status').textContent(),'Inactive');
+  assert.equal(await page.evaluate(()=>window.__payments),1);
+  await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
+  assert.equal(await page.locator('#transaction-hash').inputValue(),'0x'+'bb'.repeat(32));
+  confirming=false;await page.locator('#activate').click();await page.getByText('Payment verified. Hosting is active; the expiry above includes your new term.',{exact:true}).waitFor();
+  assert.equal(activations,2);assert.equal(await page.locator('#hosting-status').textContent(),'Active');
+  checks.push('Fixture invoice displays exact amount; one wallet transfer stays inactive until verified and its reference survives reload');
   revoked = true; await page.locator('#refresh').click();
   await page.getByText('NFT ownership changed. Sign in again to access your current workspace.', { exact: true }).waitFor();
   assert.equal(await page.locator('#result').isHidden(), true);
