@@ -5,6 +5,8 @@ import { createJeffOpenClawNftBridge } from 'jeff-agent-nft/openclaw';
 import { createOwnershipResolver } from './chain.mjs';
 import { createHolderSessions } from './auth.mjs';
 import { createOpenClawRunner } from './openclaw-runner.mjs';
+import { createHostingLedger } from './hosting.mjs';
+import { createClockersPaymentVerifier } from './payment.mjs';
 
 const port = Number(process.env.PORT || 8788);
 const origin = process.env.JEFF_PUBLIC_ORIGIN || `http://127.0.0.1:${port}`;
@@ -14,6 +16,8 @@ const rpcUrl = process.env.JEFF_RPC_URL || 'https://rpc.mainnet.chain.robinhood.
 const resolveOwner = createOwnershipResolver({ chainId, collection, rpcUrl });
 const sessions = createHolderSessions({ origin, chainId, collection, resolveOwner });
 const bridge = createJeffOpenClawNftBridge({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), resolveOwner, runAgent: createOpenClawRunner() });
+const hosting = createHostingLedger({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
+const usage = new Map();
 const publicRoot = resolve('public');
 const token = request => request.headers.authorization?.replace(/^Bearer /, '');
 async function body(request) {
@@ -29,21 +33,31 @@ const server = createServer(async (request, response) => {
     if (request.headers.origin && request.headers.origin !== origin) return send(response, 403, { error: 'JEFF_ORIGIN_DENIED' });
     const url = new URL(request.url, origin);
     const method = request.method;
-    if (method === 'GET' && url.pathname === '/api/config') return send(response, 200, { product: 'Simple JEFF', stage: 'local-runtime-pilot',
-      chainId, collection, modelConfigured: Boolean(process.env.BANKR_LLM_API_KEY), billingEnabled: false, continuousHosting: false, toolsEnabled: false });
+    if (method === 'GET' && url.pathname === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw' });
+    if (method === 'GET' && url.pathname === '/api/config') return send(response, 200, { product: 'Simple JEFF', stage: process.env.JEFF_CONTINUOUS_HOSTING === 'true' ? 'hosted-pilot' : 'local-runtime-pilot',
+      chainId, collection, releaseSha: process.env.JEFF_RELEASE_SHA || null, modelConfigured: Boolean(process.env.BANKR_LLM_API_KEY), billingEnabled: hosting.enabled,
+      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', toolsEnabled: false });
     if (method === 'POST' && url.pathname === '/api/auth/challenge') return send(response, 200, await sessions.challenge(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/verify') return send(response, 200, await sessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/logout') { sessions.logout(token(request)); return send(response, 200, { loggedOut: true }); }
     if (url.pathname.startsWith('/api/')) {
       const scope = await sessions.authenticate(token(request));
+      if (method === 'GET' && url.pathname === '/api/hosting') return send(response, 200, await hosting.status(scope));
+      if (method === 'POST' && url.pathname === '/api/hosting/invoice') return send(response, 200, await hosting.invoice(scope));
+      if (method === 'POST' && url.pathname === '/api/hosting/activate') return send(response, 200, await hosting.activate(scope, await body(request)));
       if (method === 'POST' && url.pathname === '/api/jobs') {
+        await hosting.requireActive(scope);
         if (!process.env.BANKR_LLM_API_KEY) return send(response, 503, { error: 'JEFF_MODEL_NOT_CONFIGURED' });
         const input = await body(request);
         if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) return send(response, 400, { error: 'JEFF_OBJECTIVE_INVALID' });
-        // The durable bridge record owns the job ID. This request remains open for
-        // the first slice; its result can always be fetched again after reconnect.
-        return send(response, 200, await bridge.run(scope, input.objective));
+        const hour = Math.floor(Date.now()/3600000); const meterKey = `${scope.owner}:${hour}`;
+        for (const key of usage.keys()) if (!key.endsWith(`:${hour}`)) usage.delete(key);
+        if ((usage.get(meterKey) || 0) >= 10) throw new Error('JEFF_USAGE_LIMIT_REACHED');
+        usage.set(meterKey, (usage.get(meterKey) || 0) + 1);
+        return send(response, 202, await bridge.start(scope, input.objective));
       }
+      if (method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, { jobs: await bridge.list(scope) });
+      if (method === 'POST' && /^\/api\/jobs\/[a-f0-9-]{36}\/retry-save$/.test(url.pathname)) return send(response, 200, await bridge.retrySave(scope, url.pathname.split('/')[3]));
       if (method === 'GET' && /^\/api\/jobs\/[a-f0-9-]{36}$/.test(url.pathname)) return send(response, 200, await bridge.retrieve(scope, url.pathname.split('/').at(-1)));
       return send(response, 404, { error: 'JEFF_ROUTE_NOT_FOUND' });
     }
@@ -60,4 +74,11 @@ const server = createServer(async (request, response) => {
     send(response, status, { error: message });
   }
 });
-server.listen(port, process.env.JEFF_BIND || '127.0.0.1', () => console.log(`Simple JEFF local pilot: ${origin}`));
+server.listen(port, process.env.JEFF_BIND || '127.0.0.1', () => {
+  console.log(`Simple JEFF: ${origin}`);
+  if (process.env.JEFF_VERIFY_RUNTIME === 'true') {
+    import('./operator-smoke.mjs').then(module => module.verifyHostedRuntime())
+      .then(proof => console.log(JSON.stringify({ event: 'JEFF_HOSTED_RUNTIME_VERIFIED', ...proof })))
+      .catch(() => console.error('JEFF_HOSTED_RUNTIME_VERIFICATION_FAILED'));
+  }
+});

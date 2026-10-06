@@ -7,3 +7,5 @@ evidence/
 *.log
 /scripts/prepare-private-model.mjs
 /scripts/find-private-model.mjs
+/scripts/prepare-railway-model.mjs
+/scripts/configure-service.mjs

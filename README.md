@@ -1,76 +1,91 @@
-# Simple JEFF
+﻿# Simple JEFF
 
-Managed hosting for JEFF agents. This first local slice connects the JEFF soul to
-the actual OpenClaw 2026.9.8 runtime, authenticates an NFT holder, generates a text
-result and saves it for retrieval after reconnecting.
+NFT-controlled JEFF assistants hosted on the actual OpenClaw 2026.9.8 runtime.
 
-Status: implementation in review. A real model job still requires a usable model
-API key. Paid activation and 24/7 hosted operation are not enabled.
+Live pilot: https://simple-jeff-production.up.railway.app
+
+The service uses a persistent Railway volume, current NFT ownership and transfer
+epoch checks, signed holder sessions, asynchronous jobs and saved result history.
+Room 35 has a pilot entitlement through 2026-11-05T15:30:00Z. Paid checkout is
+implemented but disabled until the 30-day $CLOCKERS amount and recipient are set.
+A real provider job has completed and survived reopening the storage bridge.
+Holder login acceptance and actual paid activation remain separate checks.
 
 ## Run locally
 
-Use Node 24.16 or newer in the Node 24 series. A portable Node 24.21.0 installation
-is available in `tools/node-v24.21.0-win-x64` in the Builder workspace.
+Use Node 24.16 or newer in the Node 24 series. Run `npm ci`, copy `.env.example`
+to a private `.env`, configure the provider key and pilot expiry, then `npm start`.
+The pinned JEFF adapter is included in `vendor/`, so no sibling checkout is needed.
+The default server address is http://127.0.0.1:8788/.
 
-Keep the JEFF adapter checkout at `../jeff-openclaw-nft`, then run `npm ci`.
-Copy `.env.example` to a private `.env`, configure the model key, and run `npm start`.
-The server binds to `127.0.0.1:8788` by default. Jester owns the frontend in `public/`.
-Do not expose this pilot directly to the Internet.
-
-`npm test` verifies ownership, transfer epochs, signatures, logout, expiry, saved
-result integrity and the installed OpenClaw CLI against an explicitly simulated
-model. `npm run smoke` uses the configured real provider and writes local evidence
-only after a real Room 35 job and a matching retrieval from a new bridge instance.
-The smoke is an operator test, not a signed holder acceptance test.
+`npm test` checks session signatures, ownership epochs, result integrity, CLI
+integration using an explicit model fixture, billing recovery and transfer receipt
+bindings. `npm run smoke` runs the real configured model as an operator and saves
+local evidence. It does not impersonate a signed holder session.
 
 ## API
 
-All API responses use JSON and `Cache-Control: no-store`.
+JSON API responses use `Cache-Control: no-store`.
 
-| Method | Path | Request | Response |
-| --- | --- | --- | --- |
-| GET | `/api/config` | none | chain, collection, model and availability flags |
-| POST | `/api/auth/challenge` | `{wallet, tokenId}` | `{nonce, message, expiresAt}` |
-| POST | `/api/auth/verify` | `{nonce, signature}` | `{token, scope, expiresAt}` |
-| POST | `/api/auth/logout` | Bearer token | `{loggedOut:true}` |
-| POST | `/api/jobs` | Bearer token, `{objective}` | completed durable job record |
-| GET | `/api/jobs/:id` | Bearer token | durable job record |
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/api/config` | runtime and availability flags |
+| POST | `/api/auth/challenge` | challenge for `{wallet, tokenId}` |
+| POST | `/api/auth/verify` | verify `{nonce, signature}`, issue session |
+| POST | `/api/auth/logout` | revoke bearer session |
+| POST | `/api/jobs` | submit `{objective}`, return running job with HTTP 202 |
+| GET | `/api/jobs` | authenticated history including unfinished jobs |
+| GET | `/api/jobs/:id` | retrieve scoped job |
+| POST | `/api/jobs/:id/retry-save` | save retained output without a model rerun |
+| GET | `/api/hosting` | NFT entitlement and checkout availability |
+| POST | `/api/hosting/invoice` | fixed 15-minute payment quote when enabled |
+| POST | `/api/hosting/activate` | verify quoted ERC20 transfer, extend 30 days |
 
-Sign the exact server-provided message. Never use the NFT address as a session.
-The first job request may take up to 150 seconds. Retain its job ID for retrieval.
-A saved ID grants no access by itself. Logout or process restart requires a fresh
-login. The API rechecks ownership and transfer epoch before returning private data.
+Sign the exact server-provided challenge. Sessions last one hour and are revoked
+on logout or process restart. Every authenticated request rechecks the holder and
+transfer epoch. An ID alone grants no private data access. Job execution can take
+150 seconds; clients poll rather than resubmitting. Unsaved output can be lost
+if the process restarts before Retry save succeeds.
 
-## Scope and storage
+## Storage and limits
 
-The first chain adapter supports Clockers on chain 4663 and requires the
-collection's `transferNonceOf` method. Other Agent NFT collections need an epoch
-adapter that observes every transfer. Comparing owner addresses alone is insufficient
-when a token transfers from A to B and then back to A.
+Chain 4663 Clockers uses `ownerOf` and `transferNonceOf` at the same block. Other
+collections require an epoch adapter that observes every transfer. An A to B to A
+transfer creates a new workspace even if the original wallet receives the NFT back.
+Private context never follows a new owner. A hosting term stays attached to the NFT.
 
-Each NFT, owner and epoch has a separate workspace. Old private data is retained
-in its former workspace, never loaded into a new owner's context. Model credentials
-come from the server environment; workspace configuration contains an environment
-reference, not a model key. External tools, shell commands and messaging are disabled.
+This pilot runs one server process with a persistent `/data` volume. Holder sessions
+and usage counters are in memory. Usage is capped at ten submitted tasks per wallet
+per hour and model output at 4096 tokens. Restart resets that counter. Model use is
+operator funded in this pilot. External tools, shell actions and messaging are off.
+The hosted service is continuously available; OpenClaw turns run on demand. Autonomous
+schedules and persistent per-NFT gateways are not implemented.
 
-This is a single-process pilot. Results persist on disk. Holder sessions stay in
-memory and are revoked on restart. This version runs embedded OpenClaw turns on
-demand; it does not keep an always-on gateway or autonomous schedules running.
+Payment verification requires 64 confirmations, the configured chain and token,
+exact sender, recipient and amount, a canonical block and a block timestamp within
+the original quote window. Expired quotes remain redeemable after confirmation or
+reconnection delays. One transaction can fund one invoice, and successful retries
+are idempotent. No automatic renewal or token approval is requested.
 
-## Next deployment inputs
+## Deployment
 
-The paid service needs a Linux host, private credential configuration, the
-30-day $CLOCKERS price and payment recipient, and the chosen model funding policy.
-Those inputs will bind payment verification, persistent worker supervision,
-renewal/expiry and the hosted gateway. No payment should be accepted by this pilot.
+`Dockerfile` pins Node 24.21.0. Railway runs the service with a `/data` volume and
+health check at `/health`. Keep provider secrets in service variables. Project
+archives exclude `.env`, credentials, local data, evidence and development tools.
+Set `JEFF_PUBLIC_ORIGIN` to the deployed HTTPS origin and bind `0.0.0.0`.
+
+Paid activation requires `CLOCKERS_MONTHLY_AMOUNT` in smallest token units,
+`CLOCKERS_PAYMENT_RECIPIENT`, and explicit `JEFF_PAID_CHECKOUT_ENABLED=true`.
+Do not enable checkout until these business values are confirmed.
+
+`JEFF_VERIFY_RUNTIME=true` performs one operator model check in an isolated volume
+workspace and logs its result ID and hash. A saved proof prevents reruns on restart.
+It does not exercise holder login or payment, and has no public trigger endpoint.
 
 ## Competitors checked before implementation
 
-- [SimpleOpenClaw](https://www.simpleopenclaw.com/) advertises managed persistent
-  hosting and bring-your-own model credentials.
-- [Claw Operatives Syndicate](https://www.clawsyndicate.com/whitepaper.pdf) describes
-  NFT ownership controlling a dedicated OpenClaw instance.
-- [OpenClaw deployment docs](https://docs.openclaw.ai/install/docker) document the
-  upstream container deployment. This slice uses the upstream npm runtime locally.
+- [SimpleOpenClaw](https://www.simpleopenclaw.com/): managed persistent hosting and BYOK.
+- [Claw Operatives Syndicate](https://www.clawsyndicate.com/whitepaper.pdf): NFT ownership controlling OpenClaw instances.
+- [OpenClaw deployment docs](https://docs.openclaw.ai/install/docker): upstream containers.
 
 These are published descriptions, not independent verification of competitors.
