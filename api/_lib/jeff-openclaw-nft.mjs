@@ -23,25 +23,49 @@ export function jeffOpenClawWorkspaceId(scope) {
   return hash(JSON.stringify(normalizeJeffOpenClawScope(scope)));
 }
 
+export function normalizeJeffOpenClawAccountScope(input) {
+  if (input?.kind !== 'account' || !Number.isSafeInteger(input.chainId) || input.chainId < 1
+    || !address.test(String(input.owner).toLowerCase())) throw new Error('JEFF_OPENCLAW_SCOPE_INVALID');
+  return Object.freeze({ kind: 'account', chainId: input.chainId, owner: input.owner.toLowerCase() });
+}
+
+// Account registration and session authentication belong to the host. The
+// callback must confirm a registered account; this scope makes no NFT claim.
+export function createJeffOpenClawAccountBridge({ resolveAccount, ...options } = {}) {
+  if (typeof resolveAccount !== 'function') throw new Error('JEFF_OPENCLAW_CONFIG_INVALID');
+  return createScopedBridge({ ...options, normalizeScope: normalizeJeffOpenClawAccountScope,
+    authorizeScope: async scope => {
+      if (await resolveAccount(scope) !== true) throw new Error('JEFF_OPENCLAW_ACCOUNT_DENIED');
+    } });
+}
+
 // Callers establish the wallet session separately. The resolver must read trusted
 // chain state, including an epoch that changes on every transfer (also A -> B -> A).
-export function createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent, now = () => new Date().toISOString(), persistRecord } = {}) {
-  if (!dataRoot || typeof resolveOwner !== 'function' || typeof runAgent !== 'function') {
+export function createJeffOpenClawNftBridge({ resolveOwner, ...options } = {}) {
+  if (typeof resolveOwner !== 'function') throw new Error('JEFF_OPENCLAW_CONFIG_INVALID');
+  return createScopedBridge({ ...options, normalizeScope: normalizeJeffOpenClawScope,
+    authorizeScope: async scope => {
+      const current = await resolveOwner(scope);
+      if (current?.owner?.toLowerCase() !== scope.owner || current.ownerEpoch !== scope.ownerEpoch) {
+        throw new Error('JEFF_OPENCLAW_OWNER_REVOKED');
+      }
+    } });
+}
+
+function createScopedBridge({ dataRoot, normalizeScope, authorizeScope, runAgent, now = () => new Date().toISOString(), persistRecord }) {
+  if (!dataRoot || typeof runAgent !== 'function') {
     throw new Error('JEFF_OPENCLAW_CONFIG_INVALID');
   }
   const busy = new Set();
   const pending = new Map();
   const completions = new Map();
   async function authorize(input) {
-    const scope = normalizeJeffOpenClawScope(input);
-    const current = await resolveOwner(scope);
-    if (current?.owner?.toLowerCase() !== scope.owner || current.ownerEpoch !== scope.ownerEpoch) {
-      throw new Error('JEFF_OPENCLAW_OWNER_REVOKED');
-    }
+    const scope = normalizeScope(input);
+    await authorizeScope(scope);
     return scope;
   }
   const paths = scope => {
-    const id = jeffOpenClawWorkspaceId(scope);
+    const id = workspaceId(scope);
     const root = resolve(dataRoot, id);
     return { id, root, workspace: resolve(root, 'workspace'), results: resolve(root, 'results') };
   };
@@ -53,7 +77,8 @@ export function createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent, 
     await writeFile(temporary, JSON.stringify(result, null, 2), { mode: 0o600 });
     await rename(temporary, file);
   }
-  const keyFor = (scope, id) => `${jeffOpenClawWorkspaceId(scope)}:${id}`;
+  const workspaceId = scope => hash(JSON.stringify(normalizeScope(scope)));
+  const keyFor = (scope, id) => `${workspaceId(scope)}:${id}`;
   async function execute(scope, objective, location, record) {
     const key = keyFor(scope, record.id);
     try {
@@ -107,7 +132,7 @@ export function createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent, 
       let result;
       try { result = pending.get(keyFor(scope, id)) ?? JSON.parse(await readFile(resolve(paths(scope).results, `${id}.json`), 'utf8')); }
       catch { throw new Error('JEFF_OPENCLAW_RESULT_NOT_FOUND'); }
-      if (jeffOpenClawWorkspaceId(result.scope) !== jeffOpenClawWorkspaceId(scope)
+      if (workspaceId(result.scope) !== workspaceId(scope)
         || result.id !== id || result.schema !== 'jeff-openclaw-job-v1'
         || (['completed','completed_unsaved'].includes(result.status) && hash(result.text) !== result.textSha256)) {
         throw new Error('JEFF_OPENCLAW_RESULT_INVALID');
