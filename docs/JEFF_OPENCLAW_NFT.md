@@ -13,6 +13,14 @@ Transfer creates a new scope. The old owner's private results, model sessions,
 credentials and permissions do not become the new owner's context. A return
 transfer to the original wallet also requires a new transfer epoch.
 
+For standalone hosting, import `createJeffOpenClawAccountBridge` from the same
+entry point. Supply a trusted `resolveAccount(scope)` callback that returns true
+only for a registered account. Authenticate the wallet session outside the bridge.
+An account scope is `{kind:'account', chainId, owner}`. It has no collection, token
+or transfer epoch and occupies a different workspace from every NFT scope, even
+for the same wallet. Job execution, persistence, recovery and integrity checks
+use the same storage implementation for both kinds of scope.
+
 The companion `simple-jeff` product supplies wallet authentication, the Clockers
 chain adapter and an actual OpenClaw CLI runner. Its initial pilot generates text
 responses with external tools disabled. Paid hosting and continuous gateways are
