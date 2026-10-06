@@ -1,0 +1,57 @@
+export const JOB_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+export function validScope(scope) {
+  return Boolean(scope && Number.isSafeInteger(scope.chainId) && scope.chainId > 0
+    && /^0x[a-f0-9]{40}$/.test(scope.collection) && /^0x[a-f0-9]{40}$/.test(scope.owner)
+    && /^(0|[1-9]\d*)$/.test(scope.tokenId) && BigInt(scope.tokenId) < 2n ** 256n
+    && Number.isSafeInteger(scope.ownerEpoch) && scope.ownerEpoch >= 0);
+}
+export function scopeKey(scope) {
+  if (!validScope(scope)) throw new Error('JEFF_SCOPE_INVALID');
+  return [scope.chainId, scope.collection, scope.tokenId, scope.owner, scope.ownerEpoch].join(':');
+}
+export function validSession(session, config, now = Date.now()) {
+  return Boolean(session && /^[a-f0-9]{64}$/.test(session.token) && validScope(session.scope)
+    && session.scope.chainId === config.chainId && session.scope.collection === config.collection.toLowerCase()
+    && Date.parse(session.expiresAt) > now);
+}
+export function jobIndex(value) {
+  return Array.isArray(value) ? [...new Set(value.filter(id => typeof id === 'string' && JOB_ID.test(id)))].slice(0, 30) : [];
+}
+export async function validateRecord(record, scope, expectedId) {
+  if (!record || record.schema !== 'jeff-openclaw-job-v1' || !JOB_ID.test(record.id)
+    || (expectedId && record.id !== expectedId) || !validScope(record.scope)
+    || typeof record.objective !== 'string' || record.objective.length > 4000
+    || scopeKey(record.scope) !== scopeKey(scope) || record.externalActionsAuthorized !== false
+    || !['running', 'completed', 'completed_unsaved', 'failed', 'interrupted'].includes(record.status)) throw new Error('JEFF_RESULT_INVALID');
+  if (['completed', 'completed_unsaved'].includes(record.status)) {
+    if (typeof record.text !== 'string' || !record.text.trim() || record.text.length > 65536
+      || typeof record.objective !== 'string' || !Number.isFinite(Date.parse(record.finishedAt))
+      || (record.status === 'completed' && record.saved !== true)
+      || (record.status === 'completed_unsaved' && record.saved !== false)) throw new Error('JEFF_RESULT_INVALID');
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(record.text));
+    const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (hash !== record.textSha256) throw new Error('JEFF_RESULT_INVALID');
+  }
+  return record;
+}
+export const labels = {
+  JEFF_MODEL_NOT_CONFIGURED: 'The model connection is not configured yet. Saved result retrieval is still available.',
+  JEFF_OWNER_REQUIRED: 'This wallet does not currently hold that NFT. Choose an NFT you own.',
+  JEFF_OPENCLAW_OWNER_REVOKED: 'NFT ownership changed. Sign in again to access your current workspace.',
+  JEFF_SESSION_REVOKED: 'NFT ownership changed. Sign in again to access your current workspace.',
+  JEFF_SESSION_REQUIRED: 'Your session expired or the service restarted. Sign in again; saved results remain on the server.',
+  JEFF_CHALLENGE_EXPIRED: 'The login message expired. Sign in again for a fresh message.',
+  JEFF_SIGNATURE_INVALID: 'The wallet signature could not be verified. Sign in again.',
+  JEFF_OPENCLAW_RESULT_NOT_FOUND: 'That result was not found in this holder workspace.',
+  JEFF_OPENCLAW_BUSY: 'JEFF already has a task running in this workspace. Wait for it to finish.',
+  JEFF_RESULT_INVALID: 'This result did not match the current workspace or pass the integrity check. It was withheld.',
+  JEFF_OPENCLAW_RESULT_INVALID: 'The saved result failed its integrity check. It was withheld.',
+  JEFF_WALLET_UNAVAILABLE: 'Open this page in a browser with an Ethereum wallet extension, then sign in.',
+  JEFF_SERVICE_UNAVAILABLE: 'The service is unavailable. Check the connection before trying again.',
+  JEFF_NETWORK_FAILURE: 'The request was interrupted. A task may still be running; do not submit it again automatically.',
+  JEFF_STORAGE_UNAVAILABLE: 'Browser storage is unavailable. Keep the job ID or download the result so you can retrieve it later.',
+};
+export function errorLabel(error) {
+  return Number(error?.code) === 4001 ? 'The wallet request was declined. You can try again when ready.'
+    : labels[error?.message] || 'JEFF could not finish this request. No new task was submitted automatically.';
+}
