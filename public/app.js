@@ -193,7 +193,7 @@ function renderHosting() {
   $('pay-invoice').disabled = busy || waiting || Boolean(hash) || expired || !Number.isInteger(tokenDecimals);
   $('pay-invoice').textContent = hash ? 'Payment reference saved' : expired ? 'Invoice expired' : Number.isInteger(tokenDecimals) ? `Pay ${formatTokenAmount(invoice.amount, tokenDecimals)} $CLOCKERS` : 'Wallet payment unavailable';
   $('activate').disabled = busy || waiting; $('transaction-hash').disabled = busy || waiting;
-  $('payment-copy').textContent = hash ? 'Keep this transaction reference. Verify it to activate hosting; do not send another payment.' : expired ? 'This invoice expired. Create a fresh invoice only if no payment was sent.' : 'Pay this exact invoice once. Network fees are shown by your wallet.';
+  $('payment-copy').textContent = hash ? 'Keep this transaction reference. Verify it to activate hosting; do not send another payment.' : expired ? 'This invoice expired. Create a fresh invoice only if no payment was sent.' : 'Pay this invoice to the treasury once. Network fees are shown by your wallet.';
 }
 async function loadHosting() {
   if (!session) return;

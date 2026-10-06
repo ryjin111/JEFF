@@ -16,6 +16,8 @@ Completed-but-unsaved output is displayed with Not saved yet and Retry save. The
 
 ## Hosting and checkout
 
+Clint confirmed on 2026-10-06 that payments go to the treasury. The invoice labels the configured recipient Treasury and shows its full address. The Builder must bind that address to the confirmed Clockers treasury before enabling checkout.
+
 Stage and hosting availability come from /api/config. Hosted mode replaces the LOCAL PILOT label when continuousHosting is true. After login, /api/hosting supplies the NFT's pilot or paid access and its exact expiry. Inactive access disables new tasks while preserving result history, retrieval and save retries. No hosted-mode flag alone grants holder access.
 
 Invoice creation and activation controls are gated by both public billingEnabled and authenticated checkoutEnabled. When either is false, the screen does not offer payment. POST /api/hosting/invoice binds the quote to the exact holder scope. The UI displays its token contract, recipient, chain, expiry and exact amount. It reads token decimals from the wallet's invoice network and formats amounts without floating-point conversion. If token details or the wallet/network binding are unavailable, wallet payment stays disabled.
