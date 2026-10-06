@@ -7,7 +7,8 @@ Live pilot: https://simple-jeff-production.up.railway.app
 The service uses a persistent Railway volume, current NFT ownership and transfer
 epoch checks, signed holder sessions, asynchronous jobs and saved result history.
 Room 35 has a pilot entitlement through 2026-11-05T15:30:00Z. Paid checkout is
-implemented but disabled until the 30-day $CLOCKERS amount and recipient are set.
+implemented but disabled until the 30-day $CLOCKERS amount is set. Payments go
+to the Clockers treasury, `0x2a9Bc20B7e7638808019A9A1B5Ee5EB6132DBff2`.
 A real provider job has completed and survived reopening the storage bridge.
 Holder login acceptance and actual paid activation remain separate checks.
 
@@ -74,9 +75,10 @@ health check at `/health`. Keep provider secrets in service variables. Project
 archives exclude `.env`, credentials, local data, evidence and development tools.
 Set `JEFF_PUBLIC_ORIGIN` to the deployed HTTPS origin and bind `0.0.0.0`.
 
-Paid activation requires `CLOCKERS_MONTHLY_AMOUNT` in smallest token units,
-`CLOCKERS_PAYMENT_RECIPIENT`, and explicit `JEFF_PAID_CHECKOUT_ENABLED=true`.
-Do not enable checkout until these business values are confirmed.
+Paid activation requires `CLOCKERS_MONTHLY_AMOUNT` in smallest token units and
+explicit `JEFF_PAID_CHECKOUT_ENABLED=true`. `CLOCKERS_PAYMENT_RECIPIENT` is the
+Clockers treasury, verified against the live Flywheel and Progression contracts
+on chain 4663 at block 81741824. Do not enable checkout until the price is confirmed.
 
 `JEFF_VERIFY_RUNTIME=true` performs one operator model check in an isolated volume
 workspace and logs its result ID and hash. A saved proof prevents reruns on restart.
