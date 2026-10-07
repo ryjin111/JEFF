@@ -115,8 +115,8 @@ function renderAccess() {
   $('wallet-label').textContent = standalone ? 'Account wallet' : 'Holder wallet';
   $('objective').placeholder = 'Describe an idea, share some notes, or ask for a plan.';
   $('workspace-type').textContent = standalone ? 'Simple JEFF' : 'Agent NFT';
-  $('product-eyebrow').textContent = standalone ? 'SIMPLE JEFF / PRIVATE WORKSPACE' : 'CLOCKERS / AGENT NFT';
-  $('product-heading').innerHTML = standalone ? 'Good work starts here<span>.</span>' : 'Your NFT. Your workspace<span>.</span>';
+  $('product-eyebrow').textContent = standalone ? 'SIMPLE JEFF / PRIVATE WORKSPACE' : 'JEFF BY CLOCKERS';
+  $('product-heading').innerHTML = standalone ? 'Good work starts here<span>.</span>' : 'OpenClaw for Agent NFTs<span>.</span>';
   $('product-lede').textContent = standalone ? 'Give JEFF a task. Come back to a useful result. No NFT needed.' : 'A private workspace, opened by the wallet that holds your Agent NFT.';
   $('login-boundary').textContent = standalone ? 'Login proves control of your wallet. It does not approve spending.' : 'Login proves NFT ownership. It does not approve spending.';
   $('signup-copy').textContent = standalone ? 'Standalone wallet accounts do not require an NFT.' : 'Use Simple JEFF for standalone access without an NFT.';
