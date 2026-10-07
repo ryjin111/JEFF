@@ -48,13 +48,25 @@ function handleError(error) {
 }
 function renderHistory() {
   const list = $('history-list'); list.replaceChildren();
+  $('history-count').textContent = '0';
   if (!session) { $('history-copy').textContent = 'Sign in to retrieve results. This browser remembers job IDs, never result text.'; return; }
   const known = jobIndex([...serverJobs.map(record => record.id), ...ids()]);
+  $('history-count').textContent = String(known.length);
   $('history-copy').textContent = known.length ? `${known.length} job${known.length === 1 ? '' : 's'} in this workspace. Server history includes running tasks and results that need a save retry.` : 'No jobs in this workspace yet. You can also retrieve a result using its job ID.';
-  for (const id of known) { const record = serverJobs.find(job => job.id === id); const button = document.createElement('button'); button.className = 'history-item'; button.textContent = record ? `${record.status.replaceAll('_', ' ')} | ${record.objective.slice(0, 100)} | ${id}` : id; button.disabled = busy || waiting; button.addEventListener('click', () => retrieve(id, { focusResult: true })); list.append(button); }
+  for (const id of known) {
+    const record = serverJobs.find(job => job.id === id);
+    const button = document.createElement('button'); button.className = 'history-item';
+    const title = document.createElement('span'); title.className = 'history-objective'; title.textContent = record?.objective.slice(0, 120) || 'Open saved result';
+    const state = document.createElement('span'); state.className = 'history-state'; state.dataset.status = record?.status || 'unknown';
+    state.textContent = ({ completed: 'Saved', completed_unsaved: 'Needs save', running: 'Running', failed: 'Failed', interrupted: 'Interrupted' })[record?.status] || 'Saved ID';
+    const reference = document.createElement('span'); reference.className = 'history-id'; reference.textContent = id;
+    button.append(title, state, reference); button.disabled = busy || waiting;
+    button.addEventListener('click', () => retrieve(id, { focusResult: true })); list.append(button);
+  }
 }
 function render() {
   const standalone = session ? standaloneSession() : accessMode === 'standalone';
+  document.body.classList.toggle('signed-in', Boolean(session));
   renderAccess();
   $('logout').hidden = !session; $('logout').disabled = false;
   $('login-form').hidden = Boolean(session); $('scope-details').hidden = !session;
@@ -66,6 +78,7 @@ function render() {
   $('owner-epoch').textContent = session ? String(session.scope.ownerEpoch) : '';
   $('session-expiry').textContent = session ? formatDate(session.expiresAt) : '';
   $('objective').disabled = !session || busy || waiting || !config?.modelConfigured || !hostingActive();
+  document.querySelectorAll('[data-prompt]').forEach(button => { button.disabled = $('objective').disabled; });
   $('run').disabled = !session || busy || waiting || !config?.modelConfigured || !hostingActive();
   $('run').textContent = (busy || waiting) && session ? 'Working…' : 'Run JEFF';
   $('job-id').disabled = !session || busy || waiting; $('retrieve').disabled = !session || busy || waiting;
@@ -83,10 +96,11 @@ function renderAccess() {
   $('token-field').hidden = standalone; $('token-id').required = !standalone;
   $('epoch-field').hidden = standalone;
   $('wallet-label').textContent = standalone ? 'Account wallet' : 'Holder wallet';
-  $('objective').placeholder = standalone ? 'Turn this idea into a practical launch checklist: a hosted assistant that prepares a daily briefing.' : 'Turn this idea into a practical launch checklist: a hosted assistant controlled by its Agent NFT.';
-  $('product-eyebrow').textContent = standalone ? 'SIMPLE JEFF / MANAGED AGENT' : 'JEFF / OPENCLAW / AGENT NFT';
-  $('product-heading').innerHTML = standalone ? 'Your agent.<br>A place to work.' : 'Your NFT.<br>Your agent.';
-  $('product-lede').textContent = standalone ? 'Use JEFF without an NFT. Sign in with your wallet and manage your own hosted workspace.' : 'Give your Agent NFT a task. Get a useful result. Come back to it when you need it.';
+  $('objective').placeholder = 'Describe an idea, share some notes, or ask for a plan.';
+  $('workspace-type').textContent = standalone ? 'Simple JEFF' : 'Agent NFT';
+  $('product-eyebrow').textContent = standalone ? 'SIMPLE JEFF / PRIVATE WORKSPACE' : 'CLOCKERS / AGENT NFT';
+  $('product-heading').innerHTML = standalone ? 'Good work starts here<span>.</span>' : 'Your NFT. Your workspace<span>.</span>';
+  $('product-lede').textContent = standalone ? 'Give JEFF a task. Come back to a useful result. No NFT needed.' : 'A private workspace, opened by the wallet that holds your Agent NFT.';
   $('login-boundary').textContent = standalone ? 'Login proves control of your wallet. It does not approve spending.' : 'Login proves NFT ownership. It does not approve spending.';
   $('signup-copy').textContent = standalone ? 'Standalone wallet accounts do not require an NFT.' : 'Use Simple JEFF for standalone access without an NFT.';
 }
@@ -98,6 +112,20 @@ function switchAccess(mode) {
 }
 $('holder-mode').addEventListener('click', () => switchAccess('holder'));
 $('standalone-mode').addEventListener('click', () => switchAccess('standalone'));
+document.querySelectorAll('[data-prompt]').forEach(button => button.addEventListener('click', () => {
+  if ($('objective').disabled) return;
+  $('objective').value = button.dataset.prompt; $('objective').focus();
+}));
+function syncNavigation() {
+  const destination = ['#saved-results', '#hosting'].includes(location.hash) ? location.hash : '#workspace';
+  document.querySelectorAll('.side-nav a').forEach(link => {
+    const selected = link.getAttribute('href') === destination;
+    link.classList.toggle('selected', selected);
+    if (selected) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
+  });
+}
+window.addEventListener('hashchange', syncNavigation);
+syncNavigation();
 function scheduleExpiry() { clearTimeout(expiryTimer); if(session) expiryTimer = setTimeout(() => { invalidate(); showNotice('Your session expired. Sign in again to retrieve saved results.'); }, Math.max(0, Date.parse(session.expiresAt) - Date.now())); }
 function bindProvider(next) {
   if (provider === next) return;
@@ -324,6 +352,7 @@ async function initialize() {
     if (!Number.isSafeInteger(config.chainId) || !/^0x[a-f0-9]{40}$/i.test(config.collection)) throw new Error('JEFF_SERVICE_UNAVAILABLE');
     if (!new URLSearchParams(location.search).has('mode') && config.standaloneAccounts === true) accessMode = 'standalone';
     $('model-status').textContent = config.modelConfigured ? 'Model connection configured' : 'Model connection needed';
+    document.body.classList.toggle('service-ready', config.modelConfigured);
     $('model-copy').textContent = config.modelConfigured ? 'Tasks are available with active hosting. External actions are disabled.' : 'New tasks are unavailable until the operator configures the model connection. Saved results can still be retrieved.';
     const cached = readStorage(sessionStorage, SESSION_KEY);
     if (validSession(cached, config)) { session = cached; scheduleExpiry(); } else saveSession();

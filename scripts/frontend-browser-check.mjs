@@ -22,6 +22,11 @@ try {
   assert.equal(await page.locator('#login').isEnabled(), true);
   await page.screenshot({ path: resolve(output, 'live-desktop.png'), fullPage: true });
   checks.push('Live service readiness is displayed; signed-out tasks are disabled and login is available');
+  assert.equal(await page.locator('[data-prompt]').first().isDisabled(), true);
+  await page.locator('.side-nav a[href="#saved-results"]').click();
+  assert.equal(await page.locator('.side-nav a[href="#saved-results"]').getAttribute('aria-current'), 'location');
+  await page.locator('.side-nav a[href="#workspace"]').click();
+  checks.push('Section navigation updates its active state; signed-out task ideas remain disabled');
   await page.locator('#standalone-mode').click();
   assert.equal(await page.locator('#token-field').isHidden(),true);
   const liveConfig = await page.evaluate(async () => (await fetch('/api/config')).json());
@@ -34,6 +39,11 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: resolve(output, 'live-mobile.png'), fullPage: true });
   checks.push('390px page has no horizontal overflow');
+  for (const width of [320, 768, 1024, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  checks.push('Console navigation and panels fit 320px, tablet, compact desktop and wide desktop widths');
   await page.setViewportSize({ width: 1440, height: 1000 });
 
   const scope = { chainId: 4663, collection: '0x' + '33'.repeat(20), tokenId: '35', owner: '0x' + '11'.repeat(20), ownerEpoch: 0 };
@@ -95,6 +105,11 @@ try {
   assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
   assert.equal(await page.locator('#create-invoice').isHidden(),true);
   checks.push('Hosted flags replace local labels; pilot entitlement is visible and unconfigured checkout stays hidden');
+  await page.locator('[data-prompt]').first().click();
+  assert.match(await page.locator('#objective').inputValue(), /five-step launch checklist/);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'objective');
+  assert.equal(jobRequests, 0);
+  checks.push('Task ideas fill and focus the composer without submitting a model job');
   await page.locator('#objective').fill('Fixture task'); await page.locator('#run').click();
   await page.getByText('Saved to workspace', { exact: true }).waitFor();
   assert.equal(await page.locator('#result-text script').count(), 0);
