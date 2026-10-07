@@ -105,6 +105,11 @@ try {
   assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
   assert.equal(await page.locator('#create-invoice').isHidden(),true);
   checks.push('Hosted flags replace local labels; pilot entitlement is visible and unconfigured checkout stays hidden');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#logout').focus(); await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'objective');
+  checks.push('Mobile keyboard focus follows access, task, saved results and hosting in visual order');
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('[data-prompt]').first().click();
   assert.match(await page.locator('#objective').inputValue(), /five-step launch checklist/);
   assert.equal(await page.evaluate(() => document.activeElement.id), 'objective');

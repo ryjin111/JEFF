@@ -303,11 +303,9 @@ main{padding:24px 14px 18px}
 }
 
 
-.console-grid{grid-template-areas:none}
-.right-column,.work-column{display:flex;flex-direction:column;gap:22px;min-width:0}
-.right-column{grid-column:2;grid-row:1}
-.work-column{grid-column:1;grid-row:1}
-.right-column>.panel,.work-column>.panel{grid-area:auto}
+.console-grid{grid-template-areas:"work access" "work hosting";grid-template-rows:auto 1fr}
+.work-column{grid-area:work;display:flex;flex-direction:column;gap:22px;min-width:0}
+.work-column>.panel{grid-area:auto}
 .orbit-icon svg{width:34px;height:34px;stroke-width:1.25}
 .runtime-mark svg{width:16px;height:16px}
 .sidebar-bottom>a>svg{width:12px;height:12px}
@@ -318,8 +316,8 @@ main{padding:24px 14px 18px}
 .prompt-suggestions svg{width:12px;height:12px;color:#bbaa7d}
 .empty-orbit svg{width:32px;height:32px;stroke-width:1.15}
 .secondary svg{width:12px;height:12px}
-@media(max-width:760px){.console-grid{grid-template-areas:"access" "task" "history" "hosting"}
-.right-column,.work-column{display:contents}
+@media(max-width:760px){.console-grid{grid-template-areas:"access" "task" "history" "hosting";grid-template-rows:none}
+.work-column{display:contents}
 .identity{grid-area:access!important}
 .task-panel{grid-area:task!important}
 .history{grid-area:history!important}
