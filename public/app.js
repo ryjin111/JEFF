@@ -90,7 +90,7 @@ function render() {
   $('refresh').disabled = !session || busy || waiting;
   $('retry-save').disabled = !session || busy || waiting;
   $('job-status').textContent = !session ? 'Sign in first' : busy ? 'Working' : waiting ? 'Running' : currentResult?.status === 'completed_unsaved' ? 'Needs save' : currentResult?.status === 'completed' ? 'Complete' : currentResult?.status === 'failed' ? 'Failed' : currentResult?.status === 'interrupted' ? 'Interrupted' : !hostingActive() ? 'Hosting inactive' : !allowanceAvailable() ? 'Usage limit' : config?.modelConfigured ? 'Ready' : 'Model unavailable';
-  $('task-hint').textContent = !session ? 'Sign in to run a task or retrieve a saved result.' : !hosting ? 'Checking hosting access. Saved results remain accessible.' : !hostingActive() ? 'Hosting is inactive. Activate or renew to run new tasks; saved results remain accessible.' : !config?.modelConfigured ? 'The model connection is not configured. You can still retrieve saved results.' : waiting ? `Task ${currentResult?.id || ''} is running. You can return later; it appears in server history.` : !allowanceAvailable() ? !hosting.usage ? 'Monthly allowance could not be verified. Refresh hosting; saved results remain accessible.' : Date.parse(hosting.usage.resetsAt) <= Date.now() ? 'Checking the new allowance period. Refresh hosting; saved results remain accessible.' : hosting.usage.remaining === 0 ? hosting.source === 'pilot' ? 'Your pilot task allowance is used up. Saved results remain accessible.' : 'Your included tasks are used up. Check the reset date in hosting. Saved results remain accessible.' : 'The hourly task limit was reached. Check hosting for the next available task time. Saved results remain accessible.' : 'A task can take up to 150 seconds. Its job ID is available immediately.';
+  $('task-hint').textContent = !session ? 'Sign in to run a task or retrieve a saved result.' : !hosting ? 'Checking hosting access. Saved results remain accessible.' : !hostingActive() ? 'Hosting is inactive. Activate or renew to run new tasks; saved results remain accessible.' : !config?.modelConfigured ? 'The model connection is not configured. You can still retrieve saved results.' : waiting ? `Task ${currentResult?.id || ''} is running. You can return later; it appears in server history.` : !allowanceAvailable() ? !hosting.usage ? 'Monthly allowance could not be verified. Refresh hosting; saved results remain accessible.' : Date.parse(hosting.usage.resetsAt) <= Date.now() ? 'Checking the new allowance period. Refresh hosting; saved results remain accessible.' : hosting.usage.remaining === 0 ? hosting.source === 'pilot' ? 'Your pilot task allowance is used up. Saved results remain accessible.' : hosting.source === 'free-pass' ? "Your free month's task allowance is used up. Saved results remain accessible." : 'Your included tasks are used up. Check the reset date in hosting. Saved results remain accessible.' : 'The hourly task limit was reached. Check hosting for the next available task time. Saved results remain accessible.' : 'A task can take up to 150 seconds. Its job ID is available immediately.';
   renderHistory(); renderHosting();
 }
 function renderAccess() {
@@ -280,6 +280,11 @@ function renderHosting() {
 function renderFreePass() {
   const pass = session && !standaloneSession() && hosting?.freePass;
   const available = pass?.state === 'available';
+  const consumedTerm = pass?.state === 'consumed' && Date.parse(pass.expiresAt) > Date.now();
+  $('free-pass-schedule').hidden = !consumedTerm;
+  $('free-pass-schedule').textContent = consumedTerm ? Date.parse(pass.startsAt) > Date.now()
+    ? `Free month scheduled: ${formatDate(pass.startsAt)} to ${formatDate(pass.expiresAt)}. Current allowance is unchanged.`
+    : `Free month active: ${formatDate(pass.startsAt)} to ${formatDate(pass.expiresAt)}. This NFT's pass has been used.` : '';
   $('free-pass-card').hidden = !available;
   if (!available) {
     for (const id of ['free-pass-start', 'free-pass-end', 'free-pass-recovery']) $(id).textContent = '';
@@ -338,7 +343,7 @@ function renderAllowance() {
   $('allowance-progress').max = usage.limit; $('allowance-progress').value = usage.used;
   $('allowance-remaining').textContent = !active ? 'No active allowance' : !currentPeriod ? 'Refresh hosting to check' : `${usage.remaining.toLocaleString('en-US')} tasks`;
   $('allowance-reset').textContent = active ? formatDate(usage.resetsAt) : 'No active period';
-  $('allowance-reset-label').textContent = hosting.source === 'pilot' ? 'Pilot ends' : 'Resets';
+  $('allowance-reset-label').textContent = hosting.source === 'pilot' ? 'Pilot ends' : hosting.source === 'free-pass' ? 'Free pass ends' : 'Resets';
   $('allowance-hourly').textContent = !active ? `${usage.hourlyLimit} tasks per rolling hour when active` : usage.hourlyRemaining === 0 ? `Hourly limit reached. Next task available ${formatDate(usage.hourlyResetsAt, true)}.` : `${usage.hourlyRemaining} of ${usage.hourlyLimit} tasks available now. Rolling-hour limit.`;
   $('allowance-policy').textContent = 'Accepted runs count, including failed or timed out runs. Unused tasks expire at the period end. Save retries do not count. Early renewal adds the next period; it does not reset current usage.';
 }

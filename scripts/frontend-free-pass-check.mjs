@@ -86,6 +86,7 @@ try{
   assert.equal(postCount,1);
   releasePost();await page.getByText(/Free month applied:/).waitFor();
   assert.equal(await page.locator('#free-pass-card').isHidden(),true);
+  assert.match(await page.locator('#free-pass-schedule').textContent(),/Free month scheduled: .*Current allowance is unchanged/);
   assert.equal(await page.locator('#allowance-remaining').textContent(),'65 tasks');
   assert.equal(await page.locator('#result-text').textContent(),text);
   assert.equal(await page.evaluate(key=>localStorage.getItem(key),invoiceKey),invoiceReference);
@@ -95,6 +96,13 @@ try{
   checks.push('One activation consumes the pass and extends hosting without resetting usage, clearing saved output or changing the paid invoice');
   checks.push('Double click is blocked and a pre-redemption status response cannot restore the consumed card');
   await page.reload();await page.getByText('Saved to workspace',{exact:true}).waitFor();assert.equal(await page.locator('#free-pass-card').isHidden(),true);assert.equal(postCount,1);
+  assert.equal(await page.locator('#free-pass-schedule').isVisible(),true);
+  assert.match(await page.locator('#free-pass-schedule').textContent(),/Free month scheduled:/);
+  await page.setViewportSize({width:320,height:900});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.locator('#hosting').screenshot({path:resolve(output,'wired-queued-mobile.png')});
+  await page.setViewportSize({width:1440,height:1000});
+  checks.push('Consumed queued term retains its dates and unchanged-current-allowance explanation after reload at 320px');
   scope={...scope,owner:'0x'+'22'.repeat(20),ownerEpoch:1};await signIn();assert.equal(await page.locator('#free-pass-card').isHidden(),true);
   checks.push('Reload and a new holder session use server-consumed state without repeating redemption');
   scope={kind:'account',chainId:4663,owner:scope.owner};await signIn();assert.equal(await page.locator('#free-pass-card').isHidden(),true);
@@ -105,7 +113,13 @@ try{
   await signIn();await page.locator('#use-free-pass').click();await page.getByText(/Free month applied:/).waitFor();
   assert.equal(await page.locator('#hosting-plan').textContent(),'Free 30-day pass');assert.equal(await page.locator('#allowance-remaining').textContent(),'100 tasks');
   assert.equal(await page.locator('#run').isEnabled(),true);
+  assert.equal(await page.locator('#allowance-reset-label').textContent(),'Free pass ends');
   checks.push('Inactive holder redemption activates a free-pass period and accepts its authoritative 100-task allowance');
+  used=100;await page.locator('#refresh-hosting').click();await page.locator('#allowance-state').filter({hasText:'Used up'}).waitFor();
+  assert.equal(await page.locator('#run').isDisabled(),true);
+  assert.doesNotMatch(await page.locator('#task-hint').textContent(),/reset|refill/i);
+  assert.match(await page.locator('#task-hint').textContent(),/free month's task allowance is used up/);
+  checks.push('Free-pass exhaustion and period-end label do not promise another free refill');
   scope={...scope,tokenId:'37'};active=false;source=null;used=0;pass={...pass,state:'available',consumedAt:null};postMode='abort';await signIn();
   const beforeRetry=postCount;await page.locator('#use-free-pass').click();await page.getByText('The NFT pass is still available. No free month was confirmed; you can try again.',{exact:true}).waitFor();
   assert.equal(await page.locator('#use-free-pass').isEnabled(),true);assert.equal(postCount,beforeRetry+1);
