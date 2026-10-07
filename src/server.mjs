@@ -8,6 +8,7 @@ import { createAccountSessions } from './account-auth.mjs';
 import { createOpenClawRunner } from './openclaw-runner.mjs';
 import { createHostingLedger } from './hosting.mjs';
 import { createClockersPaymentVerifier } from './payment.mjs';
+import { createClockersUsdQuote } from './clockers-price.mjs';
 import { createMaintenanceGate, createDurableJobReader, waitForDurableJob } from './maintenance.mjs';
 
 const maintenance = createMaintenanceGate({
@@ -34,7 +35,9 @@ const sessions = createHolderSessions({ origin, chainId, collection, resolveOwne
 const accountSessions = createAccountSessions({ origin, chainId, dataRoot });
 const bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent: createOpenClawRunner() });
 const accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent: createOpenClawRunner() });
-const hosting = createHostingLedger({ dataRoot, verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
+const hosting = createHostingLedger({ dataRoot,
+  quotePayment: createClockersUsdQuote({ rpcUrl, chainId, token: process.env.CLOCKERS_TOKEN_ADDRESS }),
+  verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
 const trackJob = (scope, id) => maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id }) }), `job:${id}`);
 const usage = new Map();
 const publicRoot = resolve('public');
@@ -57,7 +60,7 @@ const server = createServer(async (request, response) => {
     if (method === 'GET' && url.pathname === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw' });
     if (method === 'GET' && url.pathname === '/api/config') return send(response, 200, { product: 'Simple JEFF', stage: process.env.JEFF_CONTINUOUS_HOSTING === 'true' ? 'hosted-pilot' : 'local-runtime-pilot',
       chainId, collection, releaseSha: process.env.JEFF_RELEASE_SHA || null, modelConfigured: Boolean(process.env.BANKR_LLM_API_KEY), billingEnabled: hosting.enabled,
-      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true, toolsEnabled: false });
+      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true, toolsEnabled: false, plan: hosting.plan });
     if (method === 'POST' && url.pathname === '/api/account/auth/challenge') return send(response, 200, await accountSessions.challenge(await body(request)));
     if (method === 'POST' && url.pathname === '/api/account/auth/verify') return send(response, 200, await accountSessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/challenge') return send(response, 200, await sessions.challenge(await body(request)));

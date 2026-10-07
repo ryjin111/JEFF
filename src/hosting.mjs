@@ -2,10 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isAddress } from 'viem';
+import { usdCentsToTokenAmount } from './usd-amount.mjs';
 
 const monthMs = 30 * 86400000;
+export const CLOCKERS_PLAN = Object.freeze({ usdCents: 1000, currency: 'USD', periodDays: 30 });
 const nftKey = scope => createHash('sha256').update(scope.kind === 'account' ? `account:${scope.chainId}:${scope.owner}` : `${scope.chainId}:${scope.collection}:${scope.tokenId}`).digest('hex');
-export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, now = () => Date.now() }) {
+export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, quotePayment, now = () => Date.now() }) {
   const directory = resolve(dataRoot, 'hosting');
   const file = resolve(directory, 'ledger.json');
   let queue = Promise.resolve();
@@ -13,9 +15,8 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
   const pilotExpiry = Date.parse(env.JEFF_PILOT_EXPIRES_AT || '');
   const token = env.CLOCKERS_TOKEN_ADDRESS || '0xefc067e5d19b847da7863f3f997c2a4639686ba3';
   const recipient = env.CLOCKERS_PAYMENT_RECIPIENT;
-  const amount = env.CLOCKERS_MONTHLY_AMOUNT;
   const enabled = env.JEFF_PAID_CHECKOUT_ENABLED === 'true' && isAddress(token) && isAddress(recipient || '')
-    && recipient.toLowerCase() !== '0x' + '0'.repeat(40) && /^[1-9]\d*$/.test(amount || '') && BigInt(amount) < 2n ** 256n;
+    && recipient.toLowerCase() !== '0x' + '0'.repeat(40) && typeof quotePayment === 'function';
   async function read() {
     try { return JSON.parse(await readFile(file, 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return { invoices: {}, consumed: {}, entitlements: {} }; throw error; }
@@ -35,19 +36,26 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
     const expiry = Math.max(Number.isFinite(paidExpiry) ? paidExpiry : 0, pilot ? pilotExpiry : 0);
     return { active: expiry > now(), source: paidExpiry > now() ? 'paid' : pilot ? 'pilot' : null,
       expiresAt: expiry ? new Date(expiry).toISOString() : null, periodDays: 30,
-      checkoutEnabled: Boolean(enabled), token, amount: enabled ? amount : null,
+      checkoutEnabled: Boolean(enabled), token, amount: null, plan: CLOCKERS_PLAN,
       recipient: enabled ? recipient.toLowerCase() : null, chainId: scope.chainId,
       modelBilling: 'pilot-funded-with-usage-limits', automaticRenewal: false };
   }
   return Object.freeze({
-    enabled: Boolean(enabled), status,
+    enabled: Boolean(enabled), plan: CLOCKERS_PLAN, status,
     async requireActive(scope) { if (!(await status(scope)).active) throw new Error('JEFF_HOSTING_INACTIVE'); },
     invoice(scope) {
       if (!enabled) throw new Error('JEFF_CHECKOUT_UNAVAILABLE');
       return serialize(async () => {
+        const quote = await quotePayment({ usdCents: CLOCKERS_PLAN.usdCents });
+        const pricing = quote?.pricing;
+        const fetchedAt = Date.parse(pricing?.retrievedAt || '');
+        if (pricing?.usdCents !== CLOCKERS_PLAN.usdCents || pricing?.currency !== 'USD'
+          || !Number.isFinite(fetchedAt) || now() - fetchedAt > 60000 || fetchedAt > now() + 15000
+          || quote.amount !== usdCentsToTokenAmount({ usdCents: pricing.usdCents, tokenDecimals: pricing.tokenDecimals, priceUsd: pricing.tokenPriceUsd })) throw new Error('JEFF_PRICE_UNAVAILABLE');
         const ledger = await read();
-        const invoice = { id: randomUUID(), scope, token, recipient: recipient.toLowerCase(), amount,
-          chainId: scope.chainId, periodDays: 30, issuedAt: new Date(now()).toISOString(), expiresAt: new Date(now() + 15 * 60000).toISOString() };
+        const issuedAt = now();
+        const invoice = { id: randomUUID(), scope, token, recipient: recipient.toLowerCase(), amount: quote.amount, pricing,
+          chainId: scope.chainId, periodDays: 30, issuedAt: new Date(issuedAt).toISOString(), expiresAt: new Date(issuedAt + 15 * 60000).toISOString() };
         ledger.invoices[invoice.id] = invoice; await write(ledger); return invoice;
       });
     },

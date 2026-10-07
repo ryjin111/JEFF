@@ -55,7 +55,8 @@ test('standalone job history is wallet scoped; NFT pilot time cannot fund an acc
 test('a paid standalone term stays bound to its account and cannot activate an NFT or another wallet', async t => {
   const dataRoot = await mkdtemp(resolve('test', '.account-bill-'));
   t.after(() => rm(dataRoot, { recursive: true, force: true }));
-  const ledger = createHostingLedger({ dataRoot, env: { JEFF_PAID_CHECKOUT_ENABLED: 'true', CLOCKERS_MONTHLY_AMOUNT: '100', CLOCKERS_PAYMENT_RECIPIENT: other.address }, verifyPayment: async () => {} });
+  const ledger = createHostingLedger({ dataRoot, env: { JEFF_PAID_CHECKOUT_ENABLED: 'true', CLOCKERS_PAYMENT_RECIPIENT: other.address },
+    quotePayment: async () => ({ amount: '100', pricing: { usdCents: 1000, currency: 'USD', tokenDecimals: 0, tokenPriceUsd: '0.1', retrievedAt: new Date().toISOString() } }), verifyPayment: async () => {} });
   const scope = { kind: 'account', chainId, owner: wallet.address.toLowerCase() };
   const invoice = await ledger.invoice(scope);
   await ledger.activate(scope, { invoiceId: invoice.id, transactionHash: '0x' + 'aa'.repeat(32) });

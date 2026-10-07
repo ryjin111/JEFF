@@ -85,10 +85,22 @@ health check at `/health`. Keep provider secrets in service variables. Project
 archives exclude `.env`, credentials, local data, evidence and development tools.
 Set `JEFF_PUBLIC_ORIGIN` to the deployed HTTPS origin and bind `0.0.0.0`.
 
-Paid activation requires `CLOCKERS_MONTHLY_AMOUNT` in smallest token units and
-explicit `JEFF_PAID_CHECKOUT_ENABLED=true`. `CLOCKERS_PAYMENT_RECIPIENT` is the
+The plan is $10 USD worth of CLOCKERS for 30 days. The server converts the USD
+reference into exact smallest token units, rounds up, and stores a 15-minute
+quote. It uses the pinned Robinhood CLOCKERS/WETH Uniswap v4 pool from
+[DEX Screener](https://docs.dexscreener.com/api/reference), verifies chain and
+token decimals over RPC, rejects incorrect pool identities, low liquidity,
+failed requests and HTTP responses older than 60 seconds. The source does not
+publish a per-price update timestamp. `retrievedAt` describes retrieval time;
+`priceUpdatedAt` remains null. HTTP freshness does not establish market freshness.
+Activation verifies the stored token amount without fetching or changing its price.
+
+Paid activation requires explicit `JEFF_PAID_CHECKOUT_ENABLED=true`.
+`CLOCKERS_PAYMENT_RECIPIENT` is the
 Clockers treasury, verified against the live Flywheel and Progression contracts
-on chain 4663 at block 81741824. Do not enable checkout until the price is confirmed.
+on chain 4663 at block 81741824. Checkout remains disabled until price-source review,
+included model allowance, and holder/payment acceptance are complete. The pilot's
+10-task hourly safety limit is not a monthly paid model allowance.
 
 `JEFF_VERIFY_RUNTIME=true` performs one operator model check in an isolated volume
 workspace and logs its result ID and hash. A saved proof prevents reruns on restart.

@@ -5,12 +5,13 @@ import { resolve } from 'node:path';
 import { createHostingLedger } from '../src/hosting.mjs';
 const scope = { chainId: 4663, collection: '0x' + '11'.repeat(20), tokenId: '35', owner: '0x' + '22'.repeat(20), ownerEpoch: 0 };
 const hash = '0x' + 'aa'.repeat(32);
-const env = { JEFF_PAID_CHECKOUT_ENABLED: 'true', CLOCKERS_MONTHLY_AMOUNT: '1000000000000000000', CLOCKERS_PAYMENT_RECIPIENT: '0x' + '33'.repeat(20) };
+const env = { JEFF_PAID_CHECKOUT_ENABLED: 'true', CLOCKERS_PAYMENT_RECIPIENT: '0x' + '33'.repeat(20) };
+const fixtureQuote = retrievedAt => ({ amount: '1000000000000000000', pricing: { usdCents: 1000, currency: 'USD', tokenDecimals: 18, tokenPriceUsd: '10', retrievedAt } });
 async function setup(t, extra = {}) {
   const dataRoot = await mkdtemp(resolve('test', '.hosting-'));
   t.after(() => rm(dataRoot, { recursive: true, force: true }));
   let time = Date.parse('2026-10-06T00:00:00Z'); let verifications = 0;
-  const options = { dataRoot, env, now: () => time, verifyPayment: async () => { verifications++; }, ...extra };
+  const options = { dataRoot, env, now: () => time, quotePayment: async () => fixtureQuote(new Date(time).toISOString()), verifyPayment: async () => { verifications++; }, ...extra };
   return { options, ledger: createHostingLedger(options), advance(ms) { time += ms; }, verifications: () => verifications };
 }
 test('confirmed payment activates exactly 30 days, retries are idempotent and survives restart', async t => {
@@ -57,4 +58,45 @@ test('an expired quote remains redeemable after confirmation delay and another i
   assert.equal(active.active, true);
   assert.equal(active.expiresAt, '2026-11-05T00:20:00.000Z');
   assert.equal(f.verifications(), 1);
+});
+
+test('the $10 plan issues an exact quote and activation uses its stored amount after a rate change', async t => {
+  let price = '10'; let quoteCalls = 0; let verifiedInvoice;
+  const f = await setup(t);
+  const options = { ...f.options, quotePayment: async ({ usdCents }) => {
+    quoteCalls++;
+    assert.equal(usdCents, 1000);
+    return { ...fixtureQuote(new Date(f.options.now()).toISOString()), amount: price === '10' ? '1000000000000000000' : '2000000000000000000',
+      pricing: { ...fixtureQuote(new Date(f.options.now()).toISOString()).pricing, tokenPriceUsd: price } };
+  }, verifyPayment: async invoice => { verifiedInvoice = invoice; } };
+  const ledger = createHostingLedger(options);
+  const status = await ledger.status(scope);
+  assert.deepEqual(status.plan, { usdCents: 1000, currency: 'USD', periodDays: 30 });
+  assert.equal(status.amount, null);
+  const original = await ledger.invoice(scope);
+  assert.equal(Date.parse(original.expiresAt) - Date.parse(original.issuedAt), 15 * 60000);
+  price = '5';
+  const newQuote = await ledger.invoice(scope);
+  assert.equal(newQuote.amount, '2000000000000000000');
+  await createHostingLedger(options).activate(scope, { invoiceId: original.id, transactionHash: hash });
+  assert.equal(verifiedInvoice.amount, '1000000000000000000');
+  assert.equal(verifiedInvoice.pricing.tokenPriceUsd, '10');
+  assert.equal(quoteCalls, 2);
+});
+
+test('unavailable, stale, wrong-plan and inconsistent quotes never create payable invoices', async t => {
+  const f = await setup(t);
+  const valid = fixtureQuote(new Date(f.options.now()).toISOString());
+  for (const quote of [
+    { ...valid, amount: '1' },
+    { ...valid, pricing: { ...valid.pricing, usdCents: 900 } },
+    { ...valid, pricing: { ...valid.pricing, currency: 'EUR' } },
+    { ...valid, pricing: { ...valid.pricing, retrievedAt: new Date(f.options.now() - 60001).toISOString() } },
+    { ...valid, pricing: { ...valid.pricing, retrievedAt: new Date(f.options.now() + 15001).toISOString() } },
+  ]) {
+    await assert.rejects(createHostingLedger({ ...f.options, quotePayment: async () => quote }).invoice(scope), /PRICE_UNAVAILABLE/);
+  }
+  await assert.rejects(createHostingLedger({ ...f.options, quotePayment: async () => { throw Error('JEFF_PRICE_UNAVAILABLE'); } }).invoice(scope), /PRICE_UNAVAILABLE/);
+  assert.equal((await f.ledger.status(scope)).active, false);
+  assert.throws(() => createHostingLedger({ ...f.options, quotePayment: undefined }).invoice(scope), /CHECKOUT_UNAVAILABLE/);
 });
