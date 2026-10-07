@@ -8,6 +8,20 @@ import { createAccountSessions } from './account-auth.mjs';
 import { createOpenClawRunner } from './openclaw-runner.mjs';
 import { createHostingLedger } from './hosting.mjs';
 import { createClockersPaymentVerifier } from './payment.mjs';
+import { createMaintenanceGate, createDurableJobReader, waitForDurableJob } from './maintenance.mjs';
+
+const maintenance = createMaintenanceGate({
+  markerPath: process.env.JEFF_MAINTENANCE_MARKER || (process.platform === 'win32' ? resolve('.private/simple-jeff-maintenance.json') : '/tmp/simple-jeff-maintenance.json'),
+  releaseSha: process.env.JEFF_RELEASE_SHA || null,
+});
+process.on('SIGUSR2', () => {
+  maintenance.pause().then(marker => {
+    if (marker) console.log(JSON.stringify({ event: 'JEFF_MAINTENANCE_READY', ...marker }));
+  }).catch(() => console.error('JEFF_MAINTENANCE_DRAIN_FAILED'));
+});
+process.on('SIGCONT', () => {
+  maintenance.resume().catch(() => console.error('JEFF_MAINTENANCE_RESUME_FAILED'));
+});
 
 const port = Number(process.env.PORT || 8788);
 const origin = process.env.JEFF_PUBLIC_ORIGIN || `http://127.0.0.1:${port}`;
@@ -15,11 +29,13 @@ const chainId = Number(process.env.JEFF_CHAIN_ID || 4663);
 const collection = (process.env.JEFF_COLLECTION || '0xf4127ac7e73a807060cbdd08fc2c776b2e78ce67').toLowerCase();
 const rpcUrl = process.env.JEFF_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
 const resolveOwner = createOwnershipResolver({ chainId, collection, rpcUrl });
+const dataRoot = resolve(process.env.JEFF_DATA_ROOT || 'data');
 const sessions = createHolderSessions({ origin, chainId, collection, resolveOwner });
-const accountSessions = createAccountSessions({ origin, chainId, dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data') });
-const bridge = createJeffOpenClawNftBridge({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), resolveOwner, runAgent: createOpenClawRunner() });
-const accountBridge = createJeffOpenClawAccountBridge({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), resolveAccount: accountSessions.registered, runAgent: createOpenClawRunner() });
-const hosting = createHostingLedger({ dataRoot: resolve(process.env.JEFF_DATA_ROOT || 'data'), verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
+const accountSessions = createAccountSessions({ origin, chainId, dataRoot });
+const bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent: createOpenClawRunner() });
+const accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent: createOpenClawRunner() });
+const hosting = createHostingLedger({ dataRoot, verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
+const trackJob = (scope, id) => maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id }) }), `job:${id}`);
 const usage = new Map();
 const publicRoot = resolve('public');
 const token = request => request.headers.authorization?.replace(/^Bearer /, '');
@@ -32,6 +48,8 @@ const send = (response, status, value) => { response.writeHead(status, { 'Conten
 const server = createServer(async (request, response) => {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('Referrer-Policy', 'no-referrer');
+  const finishRequest = maintenance.beginRequest();
+  if (!finishRequest) return send(response, 503, { error: 'JEFF_SERVICE_MAINTENANCE' });
   try {
     if (request.headers.origin && request.headers.origin !== origin) return send(response, 403, { error: 'JEFF_ORIGIN_DENIED' });
     const url = new URL(request.url, origin);
@@ -60,10 +78,17 @@ const server = createServer(async (request, response) => {
         for (const key of usage.keys()) if (!key.endsWith(`:${hour}`)) usage.delete(key);
         if ((usage.get(meterKey) || 0) >= 10) throw new Error('JEFF_USAGE_LIMIT_REACHED');
         usage.set(meterKey, (usage.get(meterKey) || 0) + 1);
-        return send(response, 202, await activeBridge.start(scope, input.objective));
+        const record = await activeBridge.start(scope, input.objective);
+        trackJob(scope, record.id);
+        return send(response, 202, record);
       }
       if (method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, { jobs: await activeBridge.list(scope) });
-      if (method === 'POST' && /^\/api\/jobs\/[a-f0-9-]{36}\/retry-save$/.test(url.pathname)) return send(response, 200, await activeBridge.retrySave(scope, url.pathname.split('/')[3]));
+      if (method === 'POST' && /^\/api\/jobs\/[a-f0-9-]{36}\/retry-save$/.test(url.pathname)) {
+        const id = url.pathname.split('/')[3];
+        const record = await activeBridge.retrySave(scope, id);
+        trackJob(scope, id);
+        return send(response, 200, record);
+      }
       if (method === 'GET' && /^\/api\/jobs\/[a-f0-9-]{36}$/.test(url.pathname)) return send(response, 200, await activeBridge.retrieve(scope, url.pathname.split('/').at(-1)));
       return send(response, 404, { error: 'JEFF_ROUTE_NOT_FOUND' });
     }
@@ -71,20 +96,22 @@ const server = createServer(async (request, response) => {
     const path = resolve(publicRoot, `.${decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)}`);
     if (!path.startsWith(publicRoot + sep)) return send(response, 403, { error: 'JEFF_PATH_DENIED' });
     const content = await readFile(path);
-    const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
+    const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.woff': 'font/woff' };
     response.writeHead(200, { 'Content-Type': mime[extname(path)] || 'application/octet-stream' });
     response.end(method === 'HEAD' ? undefined : content);
   } catch (error) {
     const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_SERVICE_UNAVAILABLE';
     const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400 : /BUSY/.test(message) ? 409 : 503;
     send(response, status, { error: message });
-  }
+  } finally { finishRequest(); }
 });
+if (process.env.JEFF_VERIFY_RUNTIME === 'true') {
+  const verification = import('./operator-smoke.mjs').then(module => module.verifyHostedRuntime());
+  maintenance.track(verification, 'operator-verification')
+    .then(proof => console.log(JSON.stringify({ event: 'JEFF_HOSTED_RUNTIME_VERIFIED', ...proof })))
+    .catch(() => console.error('JEFF_HOSTED_RUNTIME_VERIFICATION_FAILED'));
+}
+await maintenance.resume();
 server.listen(port, process.env.JEFF_BIND || '127.0.0.1', () => {
   console.log(`Simple JEFF: ${origin}`);
-  if (process.env.JEFF_VERIFY_RUNTIME === 'true') {
-    import('./operator-smoke.mjs').then(module => module.verifyHostedRuntime())
-      .then(proof => console.log(JSON.stringify({ event: 'JEFF_HOSTED_RUNTIME_VERIFIED', ...proof })))
-      .catch(() => console.error('JEFF_HOSTED_RUNTIME_VERIFICATION_FAILED'));
-  }
 });

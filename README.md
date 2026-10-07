@@ -94,6 +94,34 @@ on chain 4663 at block 81741824. Do not enable checkout until the price is confi
 workspace and logs its result ID and hash. A saved proof prevents reruns on restart.
 It does not exercise holder login or payment, and has no public trigger endpoint.
 
+## Backup and isolated restore
+
+`scripts/backup-production.mjs SSH_TARGET SSH_KEY KNOWN_HOSTS` captures the running
+Linux service over SSH. It first enters internal maintenance with `SIGUSR2`, blocks
+new requests and waits for existing requests and jobs to finish saving. A readiness
+marker in `/tmp` confirms draining. The capture compares two complete manifests
+while writers are paused. `SIGCONT` resumes the service in `finally`; a separate
+30-second watchdog also releases maintenance if the capture process stops.
+
+The AES-256-GCM encrypted archive is saved off-host in `.private/backups/`. Its
+32-byte key stays separately at `.private/backup-key.bin`. Preserve that key in
+secure operator storage to recover an archive. Do not publish archives, keys or
+restored workspaces. All canonical SQLite databases and WAL files, saved jobs,
+accounts and the whole hosting ledger are included. Regenerable compile caches,
+temporary files, SQLite generation/reindex locks and generated `plugin-skills`
+links are excluded and recorded. Other symlinks fail capture.
+
+`scripts/backup-restore.mjs ARCHIVE KEY_FILE EXISTING_ISOLATED_PARENT` always creates
+a new restore directory and refuses the source tree. It verifies every file hash,
+SQLite integrity, account registration and saved result retrieval with model
+execution disabled. Restored OpenClaw config contains original absolute workspace
+paths, so this storage drill never starts the runtime. Runtime recovery requires
+rewriting those paths and restoring service variables separately.
+
+This is an operator-triggered backup, with no recurring schedule configured.
+After paid launch, reconcile on-chain payments and consumed transaction records
+after any checkpoint before reopening checkout following a disaster restore.
+
 ## Competitors checked before implementation
 
 - [SimpleOpenClaw](https://www.simpleopenclaw.com/): managed persistent hosting and BYOK.
