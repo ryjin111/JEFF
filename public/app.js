@@ -51,7 +51,7 @@ function renderHistory() {
   if (!session) { $('history-copy').textContent = 'Sign in to retrieve results. This browser remembers job IDs, never result text.'; return; }
   const known = jobIndex([...serverJobs.map(record => record.id), ...ids()]);
   $('history-copy').textContent = known.length ? `${known.length} job${known.length === 1 ? '' : 's'} in this workspace. Server history includes running tasks and results that need a save retry.` : 'No jobs in this workspace yet. You can also retrieve a result using its job ID.';
-  for (const id of known) { const record = serverJobs.find(job => job.id === id); const button = document.createElement('button'); button.className = 'history-item'; button.textContent = record ? `${record.status.replaceAll('_', ' ')} | ${record.objective.slice(0, 100)} | ${id}` : id; button.disabled = busy || waiting; button.addEventListener('click', () => retrieve(id)); list.append(button); }
+  for (const id of known) { const record = serverJobs.find(job => job.id === id); const button = document.createElement('button'); button.className = 'history-item'; button.textContent = record ? `${record.status.replaceAll('_', ' ')} | ${record.objective.slice(0, 100)} | ${id}` : id; button.disabled = busy || waiting; button.addEventListener('click', () => retrieve(id, { focusResult: true })); list.append(button); }
 }
 function render() {
   const standalone = session ? standaloneSession() : accessMode === 'standalone';
@@ -140,13 +140,13 @@ function displayRecord(record) {
 function acceptRecord(record) {
   clearTimeout(pollTimer); waiting = record.status === 'running';
   clearResult(); currentResult = record;
-  if (waiting) { showNotice(`JEFF is working. Job ID: ${record.id}. You can return to this task from server history.`); pollTimer = setTimeout(() => retrieve(record.id, true), 2000); }
+  if (waiting) { showNotice(`JEFF is working. Job ID: ${record.id}. You can return to this task from server history.`); pollTimer = setTimeout(() => retrieve(record.id, { poll: true }), 2000); }
   else if (['completed', 'completed_unsaved'].includes(record.status)) { displayRecord(record); showNotice(record.saved ? 'Task complete. Your result is saved and can be retrieved later.' : 'The result is ready, but saving failed. Retry save without running the model again. Pending output is retained only while this service process stays running.', !record.saved); }
   else showNotice(record.status === 'interrupted' ? 'This task was interrupted by a service restart. No completed output is available. Review the task before starting a new one.' : 'This task failed. No completed result was saved.', true);
   serverJobs = [record, ...serverJobs.filter(job => job.id !== record.id)];
   rememberJob(record.id);
 }
-async function retrieve(id, poll = false) {
+async function retrieve(id, { poll = false, focusResult = false } = {}) {
   if (!session || busy || (waiting && !poll)) return;
   if (!JOB_ID.test(id)) { showNotice('Enter a valid saved job ID.', true); return; }
   const operation = version, scope = session.scope; busy = true; if (!poll) clearResult(); showNotice(standaloneSession() ? 'Checking account access and retrieving your saved result.' : 'Checking ownership and retrieving your saved result.'); render();
@@ -155,7 +155,12 @@ async function retrieve(id, poll = false) {
     await validateRecord(record, scope, id); if (operation !== version) return;
     acceptRecord(record);
   } catch (error) { if (operation === version) { waiting = false; clearTimeout(pollTimer); handleError(error); } }
-  finally { if (operation === version) { busy = false; render(); } }
+  finally {
+    if (operation === version) {
+      busy = false; render();
+      if (focusResult && currentResult?.id === id && !$('result').hidden) $('result-heading').focus();
+    }
+  }
 }
 $('task-form').addEventListener('submit', async event => {
   event.preventDefault(); if (!session || busy || waiting || !config?.modelConfigured || !hostingActive()) return;
@@ -181,7 +186,7 @@ async function refreshHistory() {
   } catch (error) { if (operation === version) handleError(error); }
   finally { if (operation === version) { busy = false; render(); if (latest) retrieve(latest); } }
 }
-$('retrieve-form').addEventListener('submit', event => { event.preventDefault(); retrieve($('job-id').value.trim().toLowerCase()); });
+$('retrieve-form').addEventListener('submit', event => { event.preventDefault(); retrieve($('job-id').value.trim().toLowerCase(), { focusResult: true }); });
 $('refresh').addEventListener('click', refreshHistory);
 $('retry-save').addEventListener('click', async () => {
   if (!session || busy || currentResult?.status !== 'completed_unsaved') return;
