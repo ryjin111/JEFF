@@ -34,6 +34,7 @@ JSON API responses use `Cache-Control: no-store`.
 | --- | --- | --- |
 | GET | `/api/config` | runtime and availability flags |
 | POST | `/api/auth/challenge` | challenge for `{wallet, tokenId}` |
+| POST | `/api/auth/nfts` | discover current wallet-owned Rooms with `{wallet}` |
 | POST | `/api/auth/verify` | verify `{nonce, signature}`, issue session |
 | POST | `/api/auth/logout` | revoke bearer session |
 | POST | `/api/account/auth/challenge` | standalone wallet challenge, no NFT required |
@@ -52,6 +53,18 @@ on logout or process restart. Every authenticated request rechecks the holder an
 transfer epoch. An ID alone grants no private data access. Job execution can take
 150 seconds; clients poll rather than resubmitting. Unsaved output can be lost
 if the process restarts before Retry save succeeds.
+
+NFT sign-in discovers the connected wallet's Rooms automatically. A single Room
+continues directly to the holder signature; multiple Rooms use a selector. The
+public discovery endpoint returns `{chainId, collection, wallet, tokenIds,
+balance, blockNumber, complete: true}`. It reads `balanceOf` and every `ownerOf`
+from ID 1 through the lifetime `saleMinted` count at one block. Burned IDs are
+skipped only for the contract's exact nonexistent-owner error; incomplete reads
+fail instead of reporting an empty wallet. Scans are limited to 4,444 minted IDs,
+350 calls per batch, four simultaneous wallets and ten seconds per request.
+Multicall3 code must exist at the configured canonical address. Repeated in-flight
+requests for one wallet share work; completed results are not cached. Discovery
+does not authorize access. Signed login still checks fresh ownership and epoch.
 
 ## Storage and limits
 

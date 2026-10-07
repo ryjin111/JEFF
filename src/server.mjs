@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { createJeffOpenClawNftBridge, createJeffOpenClawAccountBridge } from 'jeff-agent-nft/openclaw';
 import { createOwnershipResolver } from './chain.mjs';
+import { createNftDiscovery } from './nft-discovery.mjs';
 import { createHolderSessions } from './auth.mjs';
 import { createAccountSessions } from './account-auth.mjs';
 import { createOpenClawRunner } from './openclaw-runner.mjs';
@@ -30,6 +31,7 @@ const chainId = Number(process.env.JEFF_CHAIN_ID || 4663);
 const collection = (process.env.JEFF_COLLECTION || '0xf4127ac7e73a807060cbdd08fc2c776b2e78ce67').toLowerCase();
 const rpcUrl = process.env.JEFF_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
 const resolveOwner = createOwnershipResolver({ chainId, collection, rpcUrl });
+const discoverNfts = createNftDiscovery({ chainId, collection, rpcUrl });
 const dataRoot = resolve(process.env.JEFF_DATA_ROOT || 'data');
 const sessions = createHolderSessions({ origin, chainId, collection, resolveOwner });
 const accountSessions = createAccountSessions({ origin, chainId, dataRoot });
@@ -63,6 +65,7 @@ const server = createServer(async (request, response) => {
     if (method === 'POST' && url.pathname === '/api/account/auth/challenge') return send(response, 200, await accountSessions.challenge(await body(request)));
     if (method === 'POST' && url.pathname === '/api/account/auth/verify') return send(response, 200, await accountSessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/challenge') return send(response, 200, await sessions.challenge(await body(request)));
+    if (method === 'POST' && url.pathname === '/api/auth/nfts') return send(response, 200, await discoverNfts(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/verify') return send(response, 200, await sessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/logout') { sessions.logout(token(request)); accountSessions.logout(token(request)); return send(response, 200, { loggedOut: true }); }
     if (url.pathname.startsWith('/api/')) {

@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeFunctionData, encodeAbiParameters, parseAbi, toHex } from 'viem';
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionResult, multicall3Abi, parseAbi, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 const testRoot = dirname(fileURLToPath(import.meta.url));
@@ -14,10 +14,16 @@ const repoRoot = dirname(testRoot);
 const chainId = 4663;
 const collection = '0x' + '11'.repeat(20);
 const tokenId = '35';
+const multicallAddress = '0xca11bde05977b3631167028862be2a173976ca11';
 // Explicit disposable signing fixtures. These keys are never used with a live RPC.
 const firstHolder = privateKeyToAccount('0x' + '12'.repeat(32));
 const nextHolder = privateKeyToAccount('0x' + '34'.repeat(32));
-const ownershipAbi = parseAbi(['function ownerOf(uint256) view returns (address)', 'function transferNonceOf(uint256) view returns (uint64)']);
+const ownershipAbi = parseAbi([
+  'function ownerOf(uint256) view returns (address)',
+  'function transferNonceOf(uint256) view returns (uint64)',
+  'function balanceOf(address) view returns (uint256)',
+  'function saleMinted() view returns (uint256)',
+]);
 
 async function listen(server) {
   await new Promise((resolveReady, reject) => {
@@ -78,7 +84,7 @@ async function startApplication({ port, dataRoot, rpcUrl }) {
   return { child, origin, ready };
 }
 
-test('HTTP free-pass redemption uses the signed holder scope and stays consumed after transfer', { timeout: 30000 }, async t => {
+test('HTTP wallet discovery and signed free-pass redemption follow current ownership after transfer', { timeout: 30000 }, async t => {
   const dataRoot = await mkdtemp(resolve(testRoot, '.free-pass-http-'));
   let rpc;
   let child;
@@ -96,12 +102,48 @@ test('HTTP free-pass redemption uses the signed holder scope and stays consumed 
     rpcRequests.push(input);
     if (input.method === 'eth_chainId') return { jsonrpc: '2.0', id: input.id, result: toHex(chainId) };
     if (input.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: input.id, result: toHex(state.blockNumber) };
+    if (input.method === 'eth_getCode') {
+      try {
+        const [address, block] = input.params;
+        assert.equal(address.toLowerCase(), multicallAddress);
+        assert.equal(block, toHex(state.blockNumber));
+        return { jsonrpc: '2.0', id: input.id, result: '0x6000' };
+      } catch (error) {
+        unexpectedRpc.push(error.message);
+        return { jsonrpc: '2.0', id: input.id, error: { code: -32602, message: 'Invalid fixture code query' } };
+      }
+    }
     if (input.method === 'eth_call') {
       try {
         const [call, block] = input.params;
-        assert.equal(call.to.toLowerCase(), collection);
         assert.equal(block, toHex(state.blockNumber));
+        if (call.to.toLowerCase() === multicallAddress) {
+          const decoded = decodeFunctionData({ abi: multicall3Abi, data: call.data });
+          assert.equal(decoded.functionName, 'aggregate3');
+          assert.equal(decoded.args[0].length, 35);
+          const results = decoded.args[0].map((item, index) => {
+            assert.equal(item.target.toLowerCase(), collection);
+            assert.equal(item.allowFailure, true);
+            const ownerCall = decodeFunctionData({ abi: ownershipAbi, data: item.callData });
+            assert.equal(ownerCall.functionName, 'ownerOf');
+            assert.equal(ownerCall.args[0], BigInt(index + 1));
+            return ownerCall.args[0] === BigInt(tokenId)
+              ? { success: true, returnData: encodeAbiParameters([{ type: 'address' }], [state.owner]) }
+              : { success: false, returnData: '0xdf2d9b42' };
+          });
+          return { jsonrpc: '2.0', id: input.id,
+            result: encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: results }) };
+        }
+        assert.equal(call.to.toLowerCase(), collection);
         const decoded = decodeFunctionData({ abi: ownershipAbi, data: call.data });
+        if (decoded.functionName === 'balanceOf') {
+          const balance = decoded.args[0].toLowerCase() === state.owner ? 1n : 0n;
+          return { jsonrpc: '2.0', id: input.id, result: encodeAbiParameters([{ type: 'uint256' }], [balance]) };
+        }
+        if (decoded.functionName === 'saleMinted') {
+          return { jsonrpc: '2.0', id: input.id, result: encodeAbiParameters([{ type: 'uint256' }], [35n]) };
+        }
+        assert.ok(['ownerOf', 'transferNonceOf'].includes(decoded.functionName));
         assert.equal(decoded.args[0], BigInt(tokenId));
         const result = decoded.functionName === 'ownerOf'
           ? encodeAbiParameters([{ type: 'address' }], [state.owner])
@@ -163,6 +205,20 @@ test('HTTP free-pass redemption uses the signed holder scope and stays consumed 
   assert.equal(config.body.freePassEnabled, true);
   assert.equal(config.body.modelConfigured, false);
   assert.equal(config.body.billingEnabled, false);
+  const discovered = await request('/api/auth/nfts', { method: 'POST', body: { wallet: firstHolder.address } });
+  assert.equal(discovered.status, 200);
+  assert.deepEqual(discovered.body, { chainId, collection, wallet: firstHolder.address.toLowerCase(),
+    tokenIds: [tokenId], balance: 1, blockNumber: '100', complete: true });
+  for (const body of [{}, [], null, 'not-an-object', { wallet: 'not-an-address' }, { wallet: 35 },
+    { wallet: firstHolder.address, tokenId }, { wallet: firstHolder.address, chainId: 1 },
+    { wallet: firstHolder.address, collection: '0x' + '55'.repeat(20) },
+    { wallet: firstHolder.address, owner: nextHolder.address }]) {
+    const before = rpcRequests.length;
+    const invalid = await request('/api/auth/nfts', { method: 'POST', body });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, 'JEFF_DISCOVERY_INVALID');
+    assert.equal(rpcRequests.length, before);
+  }
   for (const options of [{}, { method: 'POST', body: {} }]) {
     const denied = await request(options.method ? '/api/hosting/free-pass' : '/api/hosting', options);
     assert.equal(denied.status, 401);
@@ -210,6 +266,14 @@ test('HTTP free-pass redemption uses the signed holder scope and stays consumed 
   assert.equal(accountDenied.body.error, 'JEFF_FREE_PASS_DENIED');
 
   state = { owner: nextHolder.address.toLowerCase(), ownerEpoch: 1, blockNumber: 101n };
+  const formerOwnerDiscovery = await request('/api/auth/nfts', { method: 'POST', body: { wallet: firstHolder.address } });
+  assert.equal(formerOwnerDiscovery.status, 200);
+  assert.deepEqual(formerOwnerDiscovery.body, { chainId, collection, wallet: firstHolder.address.toLowerCase(),
+    tokenIds: [], balance: 0, blockNumber: '101', complete: true });
+  const newOwnerDiscovery = await request('/api/auth/nfts', { method: 'POST', body: { wallet: nextHolder.address } });
+  assert.equal(newOwnerDiscovery.status, 200);
+  assert.deepEqual(newOwnerDiscovery.body, { chainId, collection, wallet: nextHolder.address.toLowerCase(),
+    tokenIds: [tokenId], balance: 1, blockNumber: '101', complete: true });
   const revoked = await request('/api/hosting', { session: holderSession.token });
   assert.equal(revoked.status, 401);
   assert.equal(revoked.body.error, 'JEFF_SESSION_REVOKED');
@@ -232,5 +296,5 @@ test('HTTP free-pass redemption uses the signed holder scope and stays consumed 
   assert.equal(grant[0].id, Object.values(stored.freePasses)[0].periodId);
   assert.equal(grant[0].source, 'free-pass');
   assert.deepEqual(unexpectedRpc, []);
-  assert.deepEqual(new Set(rpcRequests.map(input => input.method)), new Set(['eth_chainId', 'eth_blockNumber', 'eth_call']));
+  assert.deepEqual(new Set(rpcRequests.map(input => input.method)), new Set(['eth_chainId', 'eth_blockNumber', 'eth_call', 'eth_getCode']));
 });
