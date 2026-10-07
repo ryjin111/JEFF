@@ -296,7 +296,7 @@ function renderAllowance() {
   $('allowance-reset').textContent = active ? formatDate(usage.resetsAt) : 'No active period';
   $('allowance-reset-label').textContent = hosting.source === 'pilot' ? 'Pilot ends' : 'Resets';
   $('allowance-hourly').textContent = !active ? `${usage.hourlyLimit} tasks per rolling hour when active` : usage.hourlyRemaining === 0 ? `Hourly limit reached. Next task available ${formatDate(usage.hourlyResetsAt, true)}.` : `${usage.hourlyRemaining} of ${usage.hourlyLimit} tasks available now. Rolling-hour limit.`;
-  $('allowance-policy').textContent = 'Accepted runs count, including failed or timed out runs. Save retries do not count. Early renewal adds the next period; it does not reset current usage.';
+  $('allowance-policy').textContent = 'Accepted runs count, including failed or timed out runs. Unused tasks expire at the period end. Save retries do not count. Early renewal adds the next period; it does not reset current usage.';
 }
 function scheduleHostingRefresh(operation) {
   clearTimeout(hostingTimer);

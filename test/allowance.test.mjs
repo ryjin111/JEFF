@@ -298,3 +298,50 @@ test('corrupt task counters and hourly timestamps deny admission without startin
   }
   assert.equal(starts, 0);
 });
+
+test('invalid usage containers and per-wallet hourly maps fail closed without callbacks or ledger writes', async t => {
+  const f = await setup(t);
+  await f.purchase();
+  await f.ledger.startJob(scope, async () => ({ id: 'valid-container', status: 'queued' }));
+  const valid = await f.stored();
+  const wallet = Object.keys(valid.hourlyUsage)[0];
+  const file = resolve(f.dataRoot, 'hosting', 'ledger.json');
+  let starts = 0;
+  for (const field of ['taskUsage', 'hourlyUsage', 'walletHourlyUsage']) {
+    for (const value of [null, [], '', 'invalid', 0, 1, false, true]) {
+      const corrupted = structuredClone(valid);
+      if (field === 'walletHourlyUsage') corrupted.hourlyUsage[wallet] = value;
+      else corrupted[field] = value;
+      // Distinct formatting also detects a write that preserves the same values.
+      const contents = JSON.stringify(corrupted, null, 2) + '\n';
+      await writeFile(file, contents);
+      const restarted = f.restart();
+      const label = `${field}=${JSON.stringify(value)}`;
+      await assert.rejects(restarted.status(scope), /JEFF_USAGE_STORAGE_UNAVAILABLE/, label);
+      await assert.rejects(restarted.startJob(scope, () => { starts++; }), /JEFF_USAGE_STORAGE_UNAVAILABLE/, label);
+      assert.equal(await readFile(file, 'utf8'), contents, label);
+    }
+  }
+  assert.equal(starts, 0);
+});
+
+test('absent usage containers remain compatible with legacy ledgers and initialize durably on admission', async t => {
+  const f = await setup(t);
+  await f.purchase();
+  await f.ledger.startJob(scope, async () => ({ id: 'existing-usage', status: 'queued' }));
+  const valid = await f.stored();
+  for (const field of ['taskUsage', 'hourlyUsage']) {
+    const legacy = structuredClone(valid);
+    delete legacy[field];
+    await writeFile(resolve(f.dataRoot, 'hosting', 'ledger.json'), JSON.stringify(legacy));
+    const restarted = f.restart();
+    const before = await restarted.status(scope);
+    assert.equal(before.active, true);
+    assert.equal(before.usage.used, field === 'taskUsage' ? 0 : 1);
+    assert.equal(before.usage.hourlyRemaining, field === 'hourlyUsage' ? 10 : 9);
+    await restarted.startJob(scope, async () => ({ id: `initialized-${field}`, status: 'queued' }));
+    const durable = await f.restart().status(scope);
+    assert.equal(durable.usage.used, before.usage.used + 1);
+    assert.equal(durable.usage.hourlyRemaining, before.usage.hourlyRemaining - 1);
+  }
+});

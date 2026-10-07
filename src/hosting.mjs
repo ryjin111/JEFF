@@ -9,6 +9,15 @@ export const CLOCKERS_PLAN = Object.freeze({ usdCents: 1000, currency: 'USD', pe
 const nftKey = scope => createHash('sha256').update(scope.kind === 'account' ? `account:${scope.chainId}:${scope.owner}` : `${scope.chainId}:${scope.collection}:${scope.tokenId}`).digest('hex');
 const walletKey = scope => createHash('sha256').update(`${scope.chainId}:${scope.owner?.toLowerCase()}`).digest('hex');
 const periodKey = (scope, period) => `${nftKey(scope)}:${period.id}`;
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function validateUsageContainers(ledger) {
+  if (!record(ledger)
+    || (Object.hasOwn(ledger, 'taskUsage') && !record(ledger.taskUsage))
+    || (Object.hasOwn(ledger, 'hourlyUsage') && (!record(ledger.hourlyUsage)
+      || Object.values(ledger.hourlyUsage).some(value => !record(value))))) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
+  return ledger;
+}
 
 function paidPeriods(entitlement, time) {
   if (!entitlement) return [];
@@ -44,7 +53,7 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
   const enabled = env.JEFF_PAID_CHECKOUT_ENABLED === 'true' && isAddress(token) && isAddress(recipient || '')
     && recipient.toLowerCase() !== '0x' + '0'.repeat(40) && typeof quotePayment === 'function';
   async function read() {
-    try { return JSON.parse(await readFile(file, 'utf8')); }
+    try { return validateUsageContainers(JSON.parse(await readFile(file, 'utf8'))); }
     catch (error) { if (error.code === 'ENOENT') return { invoices: {}, consumed: {}, entitlements: {} }; throw error; }
   }
   async function write(value) {
