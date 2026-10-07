@@ -7,8 +7,9 @@ Live pilot: https://simple-jeff-production.up.railway.app
 
 The service uses a persistent Railway volume, current NFT ownership and transfer
 epoch checks, signed holder sessions, asynchronous jobs and saved result history.
-Room 35 has a pilot entitlement through 2026-11-05T15:30:00Z. Paid checkout is
-implemented but disabled until the 30-day $CLOCKERS amount is set. Payments go
+Room 35 has a pilot entitlement through 2026-11-05T15:30:00Z. The plan is $10 worth
+of CLOCKERS for 30 days with 100 JEFF tasks. Paid checkout remains disabled while
+real holder login and payment acceptance are pending. Payments go
 to the Clockers treasury, `0x2a9Bc20B7e7638808019A9A1B5Ee5EB6132DBff2`.
 A real provider job has completed and survived reopening the storage bridge.
 Holder login acceptance and actual paid activation remain separate checks.
@@ -66,9 +67,18 @@ New accounts start inactive while checkout is unavailable. Account login require
 no on-chain transaction. Contract-wallet signature validation is not implemented.
 
 This pilot runs one server process with a persistent `/data` volume. Holder sessions
-and usage counters are in memory. Usage is capped at ten submitted tasks per wallet
-per hour and model output at 4096 tokens. Restart resets that counter. Model use is
-operator funded in this pilot. External tools, shell actions and messaging are off.
+are in memory. The hosting ledger durably counts 100 tasks per paid 30-day period
+and ten tasks per wallet in a rolling hour. A task is reserved before starting the
+bridge. Rejected starts are refunded; accepted failures, timeouts and interrupted
+runs stay counted. An uncertain admission after a crash also stays counted. Saved
+result retrieval and Retry save use no tasks. Both counters survive restart.
+Early renewal queues another period and does not refill today's allowance. Unused
+tasks expire at their period boundary. NFT allowance follows the NFT across owners;
+private job history still follows its ownership epoch. Pilot access has a separate
+100-task allowance through its configured expiry. This is a task allowance, not a
+USD credit balance or a dollar cap on provider billing. The model runtime has a
+16,384-token context budget and 4,096-token output limit; providers may retry calls.
+Model use is operator funded. External tools, shell actions and messaging are off.
 The hosted service is continuously available; OpenClaw turns run on demand. Autonomous
 schedules and persistent per-NFT gateways are not implemented.
 
@@ -98,9 +108,10 @@ Activation verifies the stored token amount without fetching or changing its pri
 Paid activation requires explicit `JEFF_PAID_CHECKOUT_ENABLED=true`.
 `CLOCKERS_PAYMENT_RECIPIENT` is the
 Clockers treasury, verified against the live Flywheel and Progression contracts
-on chain 4663 at block 81741824. Checkout remains disabled until price-source review,
-included model allowance, and holder/payment acceptance are complete. The pilot's
-10-task hourly safety limit is not a monthly paid model allowance.
+on chain 4663 at block 81741824. Checkout remains disabled until holder/payment
+acceptance is complete. Price-source review approved the checkout-disabled slice;
+market update time remains unknown. Monthly and rolling-hour counters use the
+same serialized ledger writer as payments. Run only one server writer per volume.
 
 `JEFF_VERIFY_RUNTIME=true` performs one operator model check in an isolated volume
 workspace and logs its result ID and hash. A saved proof prevents reruns on restart.

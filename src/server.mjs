@@ -39,7 +39,6 @@ const hosting = createHostingLedger({ dataRoot,
   quotePayment: createClockersUsdQuote({ rpcUrl, chainId, token: process.env.CLOCKERS_TOKEN_ADDRESS }),
   verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
 const trackJob = (scope, id) => maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id }) }), `job:${id}`);
-const usage = new Map();
 const publicRoot = resolve('public');
 const token = request => request.headers.authorization?.replace(/^Bearer /, '');
 async function body(request) {
@@ -77,11 +76,7 @@ const server = createServer(async (request, response) => {
         if (!process.env.BANKR_LLM_API_KEY) return send(response, 503, { error: 'JEFF_MODEL_NOT_CONFIGURED' });
         const input = await body(request);
         if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) return send(response, 400, { error: 'JEFF_OBJECTIVE_INVALID' });
-        const hour = Math.floor(Date.now()/3600000); const meterKey = `${scope.owner}:${hour}`;
-        for (const key of usage.keys()) if (!key.endsWith(`:${hour}`)) usage.delete(key);
-        if ((usage.get(meterKey) || 0) >= 10) throw new Error('JEFF_USAGE_LIMIT_REACHED');
-        usage.set(meterKey, (usage.get(meterKey) || 0) + 1);
-        const record = await activeBridge.start(scope, input.objective);
+        const record = await hosting.startJob(scope, () => activeBridge.start(scope, input.objective));
         trackJob(scope, record.id);
         return send(response, 202, record);
       }
@@ -104,7 +99,7 @@ const server = createServer(async (request, response) => {
     response.end(method === 'HEAD' ? undefined : content);
   } catch (error) {
     const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_SERVICE_UNAVAILABLE';
-    const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400 : /BUSY/.test(message) ? 409 : 503;
+    const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /ALLOWANCE_EXHAUSTED|USAGE_LIMIT_REACHED/.test(message) ? 429 : /INVALID|TOO_LARGE/.test(message) ? 400 : /BUSY/.test(message) ? 409 : 503;
     send(response, status, { error: message });
   } finally { finishRequest(); }
 });

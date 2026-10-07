@@ -71,7 +71,7 @@ test('the $10 plan issues an exact quote and activation uses its stored amount a
   }, verifyPayment: async invoice => { verifiedInvoice = invoice; } };
   const ledger = createHostingLedger(options);
   const status = await ledger.status(scope);
-  assert.deepEqual(status.plan, { usdCents: 1000, currency: 'USD', periodDays: 30 });
+  assert.deepEqual(status.plan, { usdCents: 1000, currency: 'USD', periodDays: 30, tasksIncluded: 100 });
   assert.equal(status.amount, null);
   const original = await ledger.invoice(scope);
   assert.equal(Date.parse(original.expiresAt) - Date.parse(original.issuedAt), 15 * 60000);

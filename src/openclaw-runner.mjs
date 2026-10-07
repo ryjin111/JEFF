@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadAndVerifyJeffSoulBundle } from 'jeff-agent-nft/soul';
 
+export const OPENCLAW_RUNTIME_POLICY = Object.freeze({ contextTokens: 16384, maxOutputTokens: 4096 });
+
 export function createOpenClawRunner({ node = process.execPath, cli = resolve('node_modules/openclaw/openclaw.mjs'),
   model = process.env.JEFF_MODEL || 'bankr/gpt-5.4-mini',
   providerUrl = process.env.BANKR_LLM_URL || 'https://llm.bankr.bot/v1', env = process.env, onDiagnostics = () => {} } = {}) {
@@ -23,7 +25,8 @@ export function createOpenClawRunner({ node = process.execPath, cli = resolve('n
       agents: { defaults: { workspace, model: { primary: model }, skipBootstrap: true } },
       tools: { profile: 'minimal', deny: ['*'] },
       models: { providers: { bankr: { baseUrl: providerUrl, apiKey: '${BANKR_LLM_API_KEY}', api: 'openai-completions',
-        models: [{ id: modelId, name: modelId, contextWindow: 128000, maxTokens: 4096, input: ['text'] }] } } },
+        models: [{ id: modelId, name: modelId, contextWindow: 128000,
+          contextTokens: OPENCLAW_RUNTIME_POLICY.contextTokens, maxTokens: OPENCLAW_RUNTIME_POLICY.maxOutputTokens, input: ['text'] }] } } },
       gateway: { mode: 'local', bind: 'loopback' },
     };
     await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
