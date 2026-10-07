@@ -14,11 +14,21 @@ function validUsage(value, hosting) {
     && value.hourlyRemaining >= 0 && value.hourlyRemaining <= value.hourlyLimit
     && (value.hourlyResetsAt === null || date(value.hourlyResetsAt))
     && (value.hourlyRemaining === value.hourlyLimit || date(value.hourlyResetsAt))
-    && (hosting.active ? ['paid', 'pilot'].includes(value.source) && value.source === hosting.source
+    && (hosting.active ? ['paid', 'pilot', 'free-pass'].includes(value.source) && value.source === hosting.source
       && date(value.resetsAt) && (value.source === 'pilot' ? value.periodStartsAt === null
         : date(value.periodStartsAt) && Date.parse(value.periodStartsAt) < Date.parse(value.resetsAt))
       && value.remaining === value.limit - value.used
       : value.remaining === 0 && value.periodStartsAt === null && value.resetsAt === null && value.source === null));
+}
+function validFreePass(value, scope) {
+  if (scope.kind === 'account') return value === null;
+  if (!value || !['available', 'consumed', 'unavailable'].includes(value.state)
+    || value.periodDays !== 30 || !positiveCount(value.tasksIncluded)) return false;
+  const period = date(value.startsAt) && date(value.expiresAt)
+    && Date.parse(value.expiresAt) - Date.parse(value.startsAt) === 30 * 86400000;
+  if (value.state === 'consumed') return period && date(value.consumedAt);
+  return value.consumedAt === null && (value.state === 'available' ? period
+    : (value.startsAt === null && value.expiresAt === null) || period);
 }
 function validUsdPricing(value) {
   return Boolean(value?.currency === 'USD' && Number.isSafeInteger(value.usdCents) && value.usdCents > 0
@@ -33,6 +43,7 @@ export function validateHosting(value, scope) {
     || (value.plan !== undefined && !validUsdPlan(value.plan))
     || (value.usage !== undefined && !validUsage(value.usage, value))
     || (value.plan?.tasksIncluded !== undefined && !value.usage)
+    || (value.freePass !== undefined && !validFreePass(value.freePass, scope))
     || (value.expiresAt !== null && !Number.isFinite(Date.parse(value.expiresAt)))
     || (value.active && !value.expiresAt) || (value.checkoutEnabled && (!address.test(value.recipient)
       || (value.plan ? value.amount !== null : !amount(value.amount))))) throw new Error('JEFF_HOSTING_INVALID');

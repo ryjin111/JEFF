@@ -61,6 +61,25 @@ test('token quote formatting preserves exact amounts without floating point', ()
   assert.throws(() => formatUsdCents('1000'), /INVOICE_INVALID/);
   assert.throws(() => formatUsdCents(0), /INVOICE_INVALID/);
 });
+test('NFT free pass status needs a coherent period and cannot appear in standalone accounts', () => {
+  const status = { active: false, checkoutEnabled: false, token: invoice.token, chainId: 4663, periodDays: 30, expiresAt: null };
+  const pass = { state: 'available', periodDays: 30, tasksIncluded: 100, startsAt: '2026-10-06T14:00:00Z',
+    expiresAt: '2026-11-05T14:00:00Z', consumedAt: null };
+  assert.equal(validateHosting({ ...status, freePass: pass }, scope).freePass.state, 'available');
+  assert.equal(validateHosting({ ...status, freePass: { ...pass, state: 'consumed', consumedAt: pass.startsAt } }, scope).freePass.state, 'consumed');
+  assert.equal(validateHosting({ ...status, freePass: { ...pass, state: 'unavailable', startsAt: null, expiresAt: null } }, scope).freePass.state, 'unavailable');
+  for (const invalid of [{ state: 'ready' }, { periodDays: 31 }, { tasksIncluded: 0 }, { consumedAt: pass.startsAt },
+    { expiresAt: pass.startsAt }, { state: 'consumed' }]) {
+    assert.throws(() => validateHosting({ ...status, freePass: { ...pass, ...invalid } }, scope), /HOSTING_INVALID/);
+  }
+  const account = { kind: 'account', chainId: scope.chainId, owner: scope.owner };
+  assert.equal(validateHosting({ ...status, freePass: null }, account).freePass, null);
+  assert.throws(() => validateHosting({ ...status, freePass: pass }, account), /HOSTING_INVALID/);
+  const usage = { unit: 'tasks', limit: 100, used: 0, remaining: 100, hourlyLimit: 10, hourlyRemaining: 10,
+    hourlyResetsAt: null, source: 'free-pass', periodStartsAt: pass.startsAt, resetsAt: pass.expiresAt };
+  assert.equal(validateHosting({ ...status, active: true, source: 'free-pass', expiresAt: pass.expiresAt, usage,
+    freePass: { ...pass, state: 'consumed', consumedAt: pass.startsAt } }, scope).source, 'free-pass');
+});
 test('payment data sends the exact invoiced transfer without an allowance approval', () => {
   const data = transferData(invoice);
   assert.equal(data.slice(0, 10), '0xa9059cbb');

@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const SESSION_KEY = 'simple-jeff:session:v1';
 let config, session, provider, loginWallet, busy = false, waiting = false, version = 0, currentResult, expiryTimer, pollTimer;
 let serverJobs = [];
-let hosting, invoice, tokenDecimals, hostingTimer, hostingRequest = 0, hostingFailed = false;
+let hosting, invoice, tokenDecimals, hostingTimer, hostingRequest = 0, hostingFailed = false, passState;
 let accessMode = new URLSearchParams(location.search).get('mode') === 'standalone' ? 'standalone' : 'holder';
 const standaloneSession = () => session?.scope?.kind === 'account';
 const checkoutAvailable = () => Boolean(session && config?.billingEnabled && hosting?.checkoutEnabled);
@@ -40,6 +40,7 @@ function clearResult() { currentResult = undefined; $('result').hidden = true; $
 function invalidate() {
   const token = session?.token;
   hostingFailed = false;
+  passState = undefined;
   version++; session = undefined; loginWallet = undefined; busy = false; waiting = false; serverJobs = []; hosting = undefined; invoice = undefined; tokenDecimals = undefined; saveSession(); clearTimeout(expiryTimer); clearTimeout(pollTimer); clearTimeout(hostingTimer);
   requests.forEach(controller => controller.abort()); requests.clear(); clearResult();
   $('objective').value = ''; $('job-id').value = ''; $('transaction-hash').value = ''; render();
@@ -245,10 +246,10 @@ function renderHosting() {
   $('hosting-status').textContent = !session ? 'Sign in to view' : !hosting ? hostingFailed ? 'Unavailable' : 'Checking' : active ? 'Active' : 'Inactive';
   $('hosting-status').className = 'status ' + (hosting ? active ? 'active' : 'inactive' : '');
   $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and expiry.' : !hosting ? hostingFailed ? 'Hosting details could not be verified. Refresh hosting to check access and usage. Saved results remain accessible.' : 'Loading your hosting entitlement.' : active ? standaloneSession() ? 'Hosting access is active for your wallet account.' : 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
-  $('hosting-plan').textContent = !hosting ? 'Not loaded' : hosting.source === 'pilot' ? 'Pilot access' : hosting.source === 'paid' ? '30-day hosting' : 'Not active';
+  $('hosting-plan').textContent = !hosting ? 'Not loaded' : hosting.source === 'pilot' ? 'Pilot access' : hosting.source === 'free-pass' ? 'Free 30-day pass' : hosting.source === 'paid' ? '30-day hosting' : 'Not active';
   $('hosting-expiry').textContent = hosting?.expiresAt ? formatDate(hosting.expiresAt) : 'No active term';
   $('hosting-usage').textContent = hosting ? hosting.usage ? `${hosting.usage.limit.toLocaleString('en-US')} tasks / ${hosting.source === 'pilot' ? 'pilot term' : '30-day period'}` : validUsdPlan(plan) ? 'Monthly AI allowance pending' : 'Service-funded, with task limits' : 'Not loaded';
-  renderAllowance();
+  renderAllowance(); renderFreePass();
   $('refresh-hosting').disabled = !session || busy || waiting;
   $('create-invoice').hidden = !checkoutAvailable(); $('create-invoice').disabled = busy || waiting;
   $('create-invoice').textContent = active ? 'Renew for 30 days' : 'Create 30-day invoice';
@@ -276,6 +277,49 @@ function renderHosting() {
   $('activate').disabled = busy || waiting; $('transaction-hash').disabled = busy || waiting;
   $('payment-copy').textContent = hash ? 'Keep this transaction reference. Verify it to activate hosting; do not send another payment.' : expired ? 'This invoice expired. Create a fresh invoice only if no payment was sent.' : 'Pay this invoice to the treasury once. Network fees are shown by your wallet.';
 }
+function renderFreePass() {
+  const pass = session && !standaloneSession() && hosting?.freePass;
+  const available = pass?.state === 'available';
+  $('free-pass-card').hidden = !available;
+  if (!available) {
+    for (const id of ['free-pass-start', 'free-pass-end', 'free-pass-recovery']) $(id).textContent = '';
+    $('use-free-pass').disabled = true;
+    return;
+  }
+  $('free-pass-detail').textContent = `${pass.tasksIncluded.toLocaleString('en-US')} tasks. One use per NFT. Unused tasks expire.`;
+  $('free-pass-period').hidden = false;
+  $('free-pass-start').textContent = formatDate(pass.startsAt);
+  $('free-pass-end').textContent = formatDate(pass.expiresAt);
+  $('use-free-pass').disabled = busy || waiting || Boolean(passState);
+  $('use-free-pass').textContent = passState === 'activating' ? 'Applying free month' : passState ? 'Checking pass status' : 'Use free month';
+  $('free-pass-recovery').hidden = !passState;
+  $('free-pass-recovery').textContent = passState === 'activating' ? 'Applying this NFT benefit. Keep this page open for confirmation.' : passState ? 'Activation is not confirmed. Refresh hosting to check the pass before another attempt.' : '';
+}
+function showPassConsumed(pass) {
+  showNotice(`Free month applied: ${formatDate(pass.startsAt)} to ${formatDate(pass.expiresAt)}. This NFT's pass is permanently consumed.`);
+}
+$('use-free-pass').addEventListener('click', async () => {
+  if (!session || standaloneSession() || busy || waiting || passState || hosting?.freePass?.state !== 'available') return;
+  const operation = version, scope = session.scope;
+  hostingRequest++; clearTimeout(hostingTimer);
+  passState = 'activating'; busy = true; showNotice('Applying this NFT\'s free month. Its pass is consumed permanently when confirmed.'); render();
+  try {
+    const response = validateHosting(await api('/api/hosting/free-pass', { method: 'POST', body: {}, authenticated: true }), scope);
+    if (operation !== version) return;
+    if (response.freePass?.state !== 'consumed') throw new Error('JEFF_FREE_PASS_UNCONFIRMED');
+    hostingRequest++; hosting = response; hostingFailed = false; passState = undefined;
+    scheduleHostingRefresh(operation); showPassConsumed(response.freePass);
+  } catch (error) {
+    if (operation !== version) return;
+    if (error.message === 'JEFF_OWNER_REQUIRED') { invalidate(); showNotice(errorLabel(error), true); }
+    else if (/^JEFF_(SESSION_|OPENCLAW_OWNER_REVOKED|OPENCLAW_ACCOUNT_DENIED)/.test(error.message)) handleError(error);
+    else {
+      passState = 'checking'; showNotice('Free month activation is not confirmed. Checking the NFT pass before another attempt.', true); render();
+      await loadHosting({ quiet: true });
+      if (operation === version && passState) { passState = 'unknown'; showNotice('Free month activation is not confirmed. Refresh hosting before trying again.', true); }
+    }
+  } finally { if (operation === version) { busy = false; render(); } }
+});
 function renderAllowance() {
   const usage = session && hosting?.usage;
   $('monthly-allowance').hidden = !usage;
@@ -316,6 +360,12 @@ async function loadHosting({ quiet = false } = {}) {
     const response = validateHosting(await api('/api/hosting', { authenticated: true }), scope);
     if (operation !== version || request !== hostingRequest) return;
     hosting = response; hostingFailed = false; scheduleHostingRefresh(operation);
+    if (passState === 'checking' || passState === 'unknown') {
+      passState = undefined;
+      if (response.freePass?.state === 'consumed') showPassConsumed(response.freePass);
+      else if (response.freePass?.state === 'available') showNotice('The NFT pass is still available. No free month was confirmed; you can try again.');
+      else showNotice('The NFT pass is unavailable. No additional free month was confirmed.', true);
+    }
     render();
   } catch (error) { if (operation === version && request === hostingRequest) { hosting = undefined; hostingFailed = true; clearTimeout(hostingTimer); if (!quiet || /^JEFF_(SESSION_|OPENCLAW_OWNER_REVOKED|OPENCLAW_ACCOUNT_DENIED)/.test(error.message)) handleError(error); render(); } }
 }
