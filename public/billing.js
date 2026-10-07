@@ -1,8 +1,25 @@
 import { JOB_ID, scopeKey, validScope } from './client.js';
 const address = /^0x[a-f0-9]{40}$/i;
 const amount = value => typeof value === 'string' && /^[1-9]\d*$/.test(value) && BigInt(value) < 2n ** 256n;
+const positiveCount = value => Number.isSafeInteger(value) && value > 0;
+const date = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
 export const validUsdPlan = value => Boolean(value?.currency === 'USD' && value.periodDays === 30
-  && Number.isSafeInteger(value.usdCents) && value.usdCents > 0);
+  && Number.isSafeInteger(value.usdCents) && value.usdCents > 0
+  && (value.tasksIncluded === undefined || positiveCount(value.tasksIncluded)));
+function validUsage(value, hosting) {
+  return Boolean(value?.unit === 'tasks' && positiveCount(value.limit)
+    && Number.isSafeInteger(value.used) && value.used >= 0 && value.used <= value.limit
+    && Number.isSafeInteger(value.remaining) && value.remaining >= 0 && value.remaining <= value.limit
+    && positiveCount(value.hourlyLimit) && Number.isSafeInteger(value.hourlyRemaining)
+    && value.hourlyRemaining >= 0 && value.hourlyRemaining <= value.hourlyLimit
+    && (value.hourlyResetsAt === null || date(value.hourlyResetsAt))
+    && (value.hourlyRemaining === value.hourlyLimit || date(value.hourlyResetsAt))
+    && (hosting.active ? ['paid', 'pilot'].includes(value.source) && value.source === hosting.source
+      && date(value.resetsAt) && (value.source === 'pilot' ? value.periodStartsAt === null
+        : date(value.periodStartsAt) && Date.parse(value.periodStartsAt) < Date.parse(value.resetsAt))
+      && value.remaining === value.limit - value.used
+      : value.remaining === 0 && value.periodStartsAt === null && value.resetsAt === null && value.source === null));
+}
 function validUsdPricing(value) {
   return Boolean(value?.currency === 'USD' && Number.isSafeInteger(value.usdCents) && value.usdCents > 0
     && typeof value.tokenPriceUsd === 'string' && /^\d{1,78}(?:\.\d{1,18})?$/.test(value.tokenPriceUsd)
@@ -14,6 +31,8 @@ export function validateHosting(value, scope) {
   if (!value || typeof value.active !== 'boolean' || typeof value.checkoutEnabled !== 'boolean'
     || value.chainId !== scope.chainId || value.periodDays !== 30 || !address.test(value.token)
     || (value.plan !== undefined && !validUsdPlan(value.plan))
+    || (value.usage !== undefined && !validUsage(value.usage, value))
+    || (value.plan?.tasksIncluded !== undefined && !value.usage)
     || (value.expiresAt !== null && !Number.isFinite(Date.parse(value.expiresAt)))
     || (value.active && !value.expiresAt) || (value.checkoutEnabled && (!address.test(value.recipient)
       || (value.plan ? value.amount !== null : !amount(value.amount))))) throw new Error('JEFF_HOSTING_INVALID');
@@ -24,6 +43,7 @@ export function validateInvoice(value, scope, now = Date.now()) {
     || value.chainId !== scope.chainId || value.periodDays !== 30 || !address.test(value.token)
     || !address.test(value.recipient) || /^0x0{40}$/i.test(value.recipient) || !amount(value.amount)
     || (value.pricing !== undefined && !validUsdPricing(value.pricing))
+    || (value.tasksIncluded !== undefined && !positiveCount(value.tasksIncluded))
     || !Number.isFinite(Date.parse(value.issuedAt)) || Date.parse(value.expiresAt) <= now
     || !Number.isFinite(Date.parse(value.expiresAt))) throw new Error('JEFF_INVOICE_INVALID');
   return value;

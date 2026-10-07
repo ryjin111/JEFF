@@ -31,6 +31,26 @@ test('invoice must bind the holder epoch and remain unexpired', () => {
     assert.throws(() => validateInvoice({ ...quoted, pricing: { ...pricing, ...invalid } }, scope, 0), /INVOICE_INVALID/);
   }
 });
+test('monthly task balances are authoritative and distinct from the hourly limit', () => {
+  const plan = { usdCents: 1000, currency: 'USD', periodDays: 30, tasksIncluded: 100 };
+  const usage = { unit: 'tasks', limit: 100, used: 99, remaining: 1, hourlyLimit: 10, hourlyRemaining: 0,
+    periodStartsAt: '2026-10-06T14:00:00Z', resetsAt: '2026-11-05T14:00:00Z', source: 'paid', hourlyResetsAt: '2026-10-06T14:30:00Z' };
+  const status = { active: true, source: 'paid', checkoutEnabled: false, token: invoice.token, chainId: 4663,
+    periodDays: 30, expiresAt: usage.resetsAt, plan, usage };
+  assert.equal(validateHosting(status, scope), status);
+  assert.equal(validateHosting({ ...status, usage: { ...usage, used: 100, remaining: 0 } }, scope).active, true);
+  for (const invalid of [{ unit: 'USD' }, { used: -1 }, { used: 101 }, { remaining: 10 }, { remaining: '1' },
+    { hourlyRemaining: 11 }, { hourlyLimit: 0 }, { hourlyResetsAt: null }, { source: 'pilot' }, { resetsAt: usage.periodStartsAt }]) {
+    assert.throws(() => validateHosting({ ...status, usage: { ...usage, ...invalid } }, scope), /HOSTING_INVALID/);
+  }
+  assert.throws(() => validateHosting({ ...status, usage: undefined }, scope), /HOSTING_INVALID/);
+  assert.equal(validateHosting({ ...status, source: 'pilot', usage: { ...usage, source: 'pilot', periodStartsAt: null } }, scope).usage.source, 'pilot');
+  assert.equal(validateHosting({ ...status, active: false, source: null, expiresAt: null,
+    usage: { ...usage, used: 0, remaining: 0, periodStartsAt: null, resetsAt: null, source: null } }, scope).active, false);
+  assert.equal(validUsdPlan({ ...plan, tasksIncluded: '100' }), false);
+  assert.equal(validateInvoice({ ...invoice, tasksIncluded: 100 }, scope, 0).tasksIncluded, 100);
+  assert.throws(() => validateInvoice({ ...invoice, tasksIncluded: 0 }, scope, 0), /INVOICE_INVALID/);
+});
 test('token quote formatting preserves exact amounts without floating point', () => {
   assert.equal(formatTokenAmount(invoice.amount, 18), '1.000000000000000001');
   assert.equal(formatTokenAmount('1', 18), '0.000000000000000001');

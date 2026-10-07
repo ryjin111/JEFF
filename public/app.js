@@ -4,11 +4,14 @@ const $ = id => document.getElementById(id);
 const SESSION_KEY = 'simple-jeff:session:v1';
 let config, session, provider, loginWallet, busy = false, waiting = false, version = 0, currentResult, expiryTimer, pollTimer;
 let serverJobs = [];
-let hosting, invoice, tokenDecimals, hostingTimer;
+let hosting, invoice, tokenDecimals, hostingTimer, hostingRequest = 0, hostingFailed = false;
 let accessMode = new URLSearchParams(location.search).get('mode') === 'standalone' ? 'standalone' : 'holder';
 const standaloneSession = () => session?.scope?.kind === 'account';
 const checkoutAvailable = () => Boolean(session && config?.billingEnabled && hosting?.checkoutEnabled);
 const hostingActive = () => Boolean(hosting?.active && Date.parse(hosting.expiresAt) > Date.now());
+const allowanceAvailable = () => hosting?.usage
+  ? hosting.usage.remaining > 0 && hosting.usage.hourlyRemaining > 0 && Date.parse(hosting.usage.resetsAt) > Date.now()
+  : !Number.isSafeInteger((hosting?.plan || config?.plan)?.tasksIncluded);
 const invoiceKey = () => `simple-jeff:invoice:v1:${scopeKey(session.scope)}`;
 const requests = new Set();
 const historyKey = () => `simple-jeff:jobs:v1:${scopeKey(session.scope)}`;
@@ -36,6 +39,7 @@ async function api(path, { method = 'GET', body, authenticated = false } = {}) {
 function clearResult() { currentResult = undefined; $('result').hidden = true; $('saved-state').hidden = true; $('empty-result').hidden = false; for (const id of ['result-text', 'result-objective', 'result-id', 'result-date', 'result-model']) $(id).textContent = ''; }
 function invalidate() {
   const token = session?.token;
+  hostingFailed = false;
   version++; session = undefined; loginWallet = undefined; busy = false; waiting = false; serverJobs = []; hosting = undefined; invoice = undefined; tokenDecimals = undefined; saveSession(); clearTimeout(expiryTimer); clearTimeout(pollTimer); clearTimeout(hostingTimer);
   requests.forEach(controller => controller.abort()); requests.clear(); clearResult();
   $('objective').value = ''; $('job-id').value = ''; $('transaction-hash').value = ''; render();
@@ -77,15 +81,15 @@ function render() {
   $('holder-wallet').textContent = session?.scope.owner || '';
   $('owner-epoch').textContent = session ? String(session.scope.ownerEpoch) : '';
   $('session-expiry').textContent = session ? formatDate(session.expiresAt) : '';
-  $('objective').disabled = !session || busy || waiting || !config?.modelConfigured || !hostingActive();
+  $('objective').disabled = !session || busy || waiting || !config?.modelConfigured || !hostingActive() || !allowanceAvailable();
   document.querySelectorAll('[data-prompt]').forEach(button => { button.disabled = $('objective').disabled; });
-  $('run').disabled = !session || busy || waiting || !config?.modelConfigured || !hostingActive();
+  $('run').disabled = $('objective').disabled;
   $('run').textContent = (busy || waiting) && session ? 'Working…' : 'Run JEFF';
   $('job-id').disabled = !session || busy || waiting; $('retrieve').disabled = !session || busy || waiting;
   $('refresh').disabled = !session || busy || waiting;
   $('retry-save').disabled = !session || busy || waiting;
-  $('job-status').textContent = !session ? 'Sign in first' : busy ? 'Working' : waiting ? 'Running' : currentResult?.status === 'completed_unsaved' ? 'Needs save' : currentResult?.status === 'completed' ? 'Complete' : currentResult?.status === 'failed' ? 'Failed' : currentResult?.status === 'interrupted' ? 'Interrupted' : !hostingActive() ? 'Hosting inactive' : config?.modelConfigured ? 'Ready' : 'Model unavailable';
-  $('task-hint').textContent = !session ? 'Sign in to run a task or retrieve a saved result.' : !hosting ? 'Checking hosting access. Saved results remain accessible.' : !hostingActive() ? 'Hosting is inactive. Activate or renew to run new tasks; saved results remain accessible.' : !config?.modelConfigured ? 'The model connection is not configured. You can still retrieve saved results.' : waiting ? `Task ${currentResult?.id || ''} is running. You can return later; it appears in server history.` : 'A task can take up to 150 seconds. Its job ID is available immediately.';
+  $('job-status').textContent = !session ? 'Sign in first' : busy ? 'Working' : waiting ? 'Running' : currentResult?.status === 'completed_unsaved' ? 'Needs save' : currentResult?.status === 'completed' ? 'Complete' : currentResult?.status === 'failed' ? 'Failed' : currentResult?.status === 'interrupted' ? 'Interrupted' : !hostingActive() ? 'Hosting inactive' : !allowanceAvailable() ? 'Usage limit' : config?.modelConfigured ? 'Ready' : 'Model unavailable';
+  $('task-hint').textContent = !session ? 'Sign in to run a task or retrieve a saved result.' : !hosting ? 'Checking hosting access. Saved results remain accessible.' : !hostingActive() ? 'Hosting is inactive. Activate or renew to run new tasks; saved results remain accessible.' : !config?.modelConfigured ? 'The model connection is not configured. You can still retrieve saved results.' : waiting ? `Task ${currentResult?.id || ''} is running. You can return later; it appears in server history.` : !allowanceAvailable() ? !hosting.usage ? 'Monthly allowance could not be verified. Refresh hosting; saved results remain accessible.' : Date.parse(hosting.usage.resetsAt) <= Date.now() ? 'Checking the new allowance period. Refresh hosting; saved results remain accessible.' : hosting.usage.remaining === 0 ? hosting.source === 'pilot' ? 'Your pilot task allowance is used up. Saved results remain accessible.' : 'Your included tasks are used up. Check the reset date in hosting. Saved results remain accessible.' : 'The hourly task limit was reached. Check hosting for the next available task time. Saved results remain accessible.' : 'A task can take up to 150 seconds. Its job ID is available immediately.';
   renderHistory(); renderHosting();
 }
 function renderAccess() {
@@ -186,12 +190,13 @@ async function retrieve(id, { poll = false, focusResult = false } = {}) {
   finally {
     if (operation === version) {
       busy = false; render();
+      if (poll && !waiting) loadHosting({ quiet: true });
       if (focusResult && currentResult?.id === id && !$('result').hidden) $('result-heading').focus();
     }
   }
 }
 $('task-form').addEventListener('submit', async event => {
-  event.preventDefault(); if (!session || busy || waiting || !config?.modelConfigured || !hostingActive()) return;
+  event.preventDefault(); if (!session || busy || waiting || !config?.modelConfigured || !hostingActive() || !allowanceAvailable()) return;
   const objective = $('objective').value.trim(); if (!objective || objective.length > 4000) return;
   const operation = version, scope = session.scope; busy = true; clearResult(); showNotice('Submitting your task. JEFF will return its job ID immediately.'); render();
   try {
@@ -199,7 +204,7 @@ $('task-form').addEventListener('submit', async event => {
     await validateRecord(record, scope); if (operation !== version) return;
     acceptRecord(record);
   } catch (error) { if (operation === version) handleError(error); }
-  finally { if (operation === version) { busy = false; render(); } }
+  finally { if (operation === version) { busy = false; render(); loadHosting({ quiet: true }); } }
 });
 async function refreshHistory() {
   if (!session || busy || waiting) return;
@@ -236,25 +241,28 @@ function renderHosting() {
   const plan = hosting?.plan || config?.plan;
   $('plan-price-summary').hidden = !validUsdPlan(plan);
   $('plan-price').textContent = validUsdPlan(plan) ? formatUsdCents(plan.usdCents) : '';
-  $('plan-price-copy').textContent = config?.billingEnabled ? 'Paid in $CLOCKERS. Your invoice fixes the exact token amount before payment.' : 'Paid in $CLOCKERS. Monthly AI allowance will be confirmed before checkout opens.';
-  $('hosting-status').textContent = !session ? 'Sign in to view' : !hosting ? 'Checking' : active ? 'Active' : 'Inactive';
+  $('plan-price-copy').textContent = Number.isSafeInteger(plan?.tasksIncluded) ? `Paid in $CLOCKERS. Includes ${plan.tasksIncluded.toLocaleString('en-US')} tasks per 30-day period.` : config?.billingEnabled ? 'Paid in $CLOCKERS. Your invoice fixes the exact token amount before payment.' : 'Paid in $CLOCKERS. Monthly AI allowance will be confirmed before checkout opens.';
+  $('hosting-status').textContent = !session ? 'Sign in to view' : !hosting ? hostingFailed ? 'Unavailable' : 'Checking' : active ? 'Active' : 'Inactive';
   $('hosting-status').className = 'status ' + (hosting ? active ? 'active' : 'inactive' : '');
-  $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and expiry.' : !hosting ? 'Loading your hosting entitlement.' : active ? standaloneSession() ? 'Hosting access is active for your wallet account.' : 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
+  $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and expiry.' : !hosting ? hostingFailed ? 'Hosting details could not be verified. Refresh hosting to check access and usage. Saved results remain accessible.' : 'Loading your hosting entitlement.' : active ? standaloneSession() ? 'Hosting access is active for your wallet account.' : 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
   $('hosting-plan').textContent = !hosting ? 'Not loaded' : hosting.source === 'pilot' ? 'Pilot access' : hosting.source === 'paid' ? '30-day hosting' : 'Not active';
   $('hosting-expiry').textContent = hosting?.expiresAt ? formatDate(hosting.expiresAt) : 'No active term';
-  $('hosting-usage').textContent = hosting ? validUsdPlan(plan) ? 'Monthly AI allowance pending' : 'Service-funded, with task limits' : 'Not loaded';
+  $('hosting-usage').textContent = hosting ? hosting.usage ? `${hosting.usage.limit.toLocaleString('en-US')} tasks / ${hosting.source === 'pilot' ? 'pilot term' : '30-day period'}` : validUsdPlan(plan) ? 'Monthly AI allowance pending' : 'Service-funded, with task limits' : 'Not loaded';
+  renderAllowance();
   $('refresh-hosting').disabled = !session || busy || waiting;
   $('create-invoice').hidden = !checkoutAvailable(); $('create-invoice').disabled = busy || waiting;
   $('create-invoice').textContent = active ? 'Renew for 30 days' : 'Create 30-day invoice';
   $('checkout-copy').textContent = checkoutAvailable() ? 'Payment activates 30 days. No automatic renewal.' : 'Monthly checkout is not open yet.';
   $('invoice').hidden = !session || !invoice || !checkoutAvailable();
   if (!invoice || !session) {
-    for (const id of ['invoice-usd', 'invoice-source-copy', 'invoice-amount', 'invoice-network', 'invoice-token', 'invoice-recipient', 'invoice-expiry']) $(id).textContent = '';
-    $('invoice-usd-row').hidden = true; $('invoice-source-copy').hidden = true;
+    for (const id of ['invoice-usd', 'invoice-tasks', 'invoice-source-copy', 'invoice-amount', 'invoice-network', 'invoice-token', 'invoice-recipient', 'invoice-expiry']) $(id).textContent = '';
+    $('invoice-usd-row').hidden = true; $('invoice-tasks-row').hidden = true; $('invoice-source-copy').hidden = true;
     return;
   }
   $('invoice-usd-row').hidden = !invoice.pricing;
   $('invoice-usd').textContent = invoice.pricing ? formatUsdCents(invoice.pricing.usdCents) : '';
+  $('invoice-tasks-row').hidden = !invoice.tasksIncluded;
+  $('invoice-tasks').textContent = invoice.tasksIncluded ? `${invoice.tasksIncluded.toLocaleString('en-US')} tasks for this 30-day period` : '';
   $('invoice-source-copy').hidden = !invoice.pricing;
   $('invoice-source-copy').textContent = invoice.pricing ? `DEX Screener price fetched ${formatDate(invoice.pricing.retrievedAt, true)}. Market update time unavailable. The token amount is fixed for this invoice.` : '';
   $('invoice-amount').textContent = Number.isInteger(tokenDecimals) ? `${formatTokenAmount(invoice.amount, tokenDecimals)} $CLOCKERS` : 'Loading exact token amount';
@@ -268,17 +276,50 @@ function renderHosting() {
   $('activate').disabled = busy || waiting; $('transaction-hash').disabled = busy || waiting;
   $('payment-copy').textContent = hash ? 'Keep this transaction reference. Verify it to activate hosting; do not send another payment.' : expired ? 'This invoice expired. Create a fresh invoice only if no payment was sent.' : 'Pay this invoice to the treasury once. Network fees are shown by your wallet.';
 }
-async function loadHosting() {
+function renderAllowance() {
+  const usage = session && hosting?.usage;
+  $('monthly-allowance').hidden = !usage;
+  if (!usage) {
+    for (const id of ['allowance-summary', 'allowance-remaining', 'allowance-reset', 'allowance-hourly', 'allowance-policy', 'allowance-state']) $(id).textContent = '';
+    $('allowance-progress').value = 0;
+    return;
+  }
+  const active = hostingActive(), currentPeriod = active && Date.parse(usage.resetsAt) > Date.now(), exhausted = currentPeriod && usage.remaining === 0;
+  $('monthly-allowance').dataset.exhausted = String(exhausted);
+  $('allowance-heading').textContent = hosting.source === 'pilot' ? 'Pilot AI usage' : 'Included AI usage';
+  $('allowance-state').textContent = !active ? 'Inactive' : !currentPeriod ? 'Refresh needed' : exhausted ? 'Used up' : 'Available';
+  $('allowance-state').className = 'status ' + (currentPeriod && !exhausted ? 'active' : 'inactive');
+  $('allowance-summary').textContent = !active ? 'Activate hosting to start an allowance period.' : !currentPeriod ? 'Checking the new allowance period.' : `${usage.used.toLocaleString('en-US')} of ${usage.limit.toLocaleString('en-US')} tasks used`;
+  $('allowance-progress').hidden = !currentPeriod;
+  $('allowance-progress').max = usage.limit; $('allowance-progress').value = usage.used;
+  $('allowance-remaining').textContent = !active ? 'No active allowance' : !currentPeriod ? 'Refresh hosting to check' : `${usage.remaining.toLocaleString('en-US')} tasks`;
+  $('allowance-reset').textContent = active ? formatDate(usage.resetsAt) : 'No active period';
+  $('allowance-reset-label').textContent = hosting.source === 'pilot' ? 'Pilot ends' : 'Resets';
+  $('allowance-hourly').textContent = !active ? `${usage.hourlyLimit} tasks per rolling hour when active` : usage.hourlyRemaining === 0 ? `Hourly limit reached. Next task available ${formatDate(usage.hourlyResetsAt, true)}.` : `${usage.hourlyRemaining} of ${usage.hourlyLimit} tasks available now. Rolling-hour limit.`;
+  $('allowance-policy').textContent = 'Accepted runs count, including failed or timed out runs. Save retries do not count. Early renewal adds the next period; it does not reset current usage.';
+}
+function scheduleHostingRefresh(operation) {
+  clearTimeout(hostingTimer);
+  if (!hostingActive()) return;
+  const now = Date.now(), deadlines = [Date.parse(hosting.expiresAt)];
+  if (hosting.usage) deadlines.push(Date.parse(hosting.usage.resetsAt), Date.parse(hosting.usage.hourlyResetsAt));
+  const deadline = Math.min(...deadlines.filter(value => value > now));
+  if (Number.isFinite(deadline)) hostingTimer = setTimeout(() => {
+    if (operation !== version) return;
+    render(); loadHosting({ quiet: true });
+  }, Math.min(2147483647, Math.max(100, deadline - now + 25)));
+}
+async function loadHosting({ quiet = false } = {}) {
   if (!session) return;
-  const operation = version, scope = session.scope;
+  const operation = version, scope = session.scope, request = ++hostingRequest;
   try {
     const response = validateHosting(await api('/api/hosting', { authenticated: true }), scope);
-    if (operation !== version) return;
-    hosting = response; clearTimeout(hostingTimer);
-    if (hostingActive()) hostingTimer = setTimeout(() => { if (operation === version) { if (Date.parse(hosting.expiresAt) <= Date.now()) { hosting = { ...hosting, active: false }; render(); } else loadHosting(); } }, Math.min(2147483647, Math.max(0, Date.parse(hosting.expiresAt) - Date.now())));
+    if (operation !== version || request !== hostingRequest) return;
+    hosting = response; hostingFailed = false; scheduleHostingRefresh(operation);
     render();
-  } catch (error) { if (operation === version) { hosting = undefined; handleError(error); render(); } }
+  } catch (error) { if (operation === version && request === hostingRequest) { hosting = undefined; hostingFailed = true; clearTimeout(hostingTimer); if (!quiet || /^JEFF_(SESSION_|OPENCLAW_OWNER_REVOKED|OPENCLAW_ACCOUNT_DENIED)/.test(error.message)) handleError(error); render(); } }
 }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && session) loadHosting({ quiet: true }); });
 async function walletForInvoice(selected) {
   if (!provider?.request) throw new Error('JEFF_WALLET_UNAVAILABLE');
   const chain = await provider.request({ method: 'eth_chainId' });

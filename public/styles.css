@@ -353,3 +353,18 @@ main{padding:24px 14px 18px}
 .product-switch button[aria-pressed=true]:disabled{opacity:1}
 
 .plan-price-summary{padding:17px 16px;margin:0 0 22px;border:1px solid #4d4532;border-radius:8px;background:#24221c}.plan-price-summary .eyebrow{font-size:8px;color:#c6b17b}.plan-price-summary p{display:flex;align-items:baseline;gap:5px;margin:9px 0 10px}.plan-price-summary strong{font-size:28px;font-weight:500;color:#f0d99e;letter-spacing:-1px}.plan-price-summary p>span{font-size:11px;color:#b2a98f}.plan-price-summary small{display:block;font-size:10px;color:#b1a78d;line-height:1.7}.invoice .hosting-details{grid-template-columns:1fr}.invoice #invoice-amount{color:#f0d99e;font-size:13px;font-family:var(--mono)}
+.monthly-allowance{padding:18px 0;margin-bottom:20px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.allowance-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.allowance-heading h3{font-size:13px}
+#allowance-summary{font-size:12px;line-height:1.7;color:#d3d5dc;margin:14px 0 10px}
+#allowance-progress{display:block;appearance:none;width:100%;height:6px;border:0;border-radius:4px;overflow:hidden;background:#30333c;color:#8ac9a4}
+#allowance-progress::-webkit-progress-bar{background:#30333c;border-radius:4px}
+#allowance-progress::-webkit-progress-value{background:#8ac9a4;border-radius:4px}
+#allowance-progress::-moz-progress-bar{background:#8ac9a4;border-radius:4px}
+.monthly-allowance[data-exhausted=true] #allowance-progress{color:var(--accent)}
+.monthly-allowance[data-exhausted=true] #allowance-progress::-webkit-progress-value{background:var(--accent)}
+.monthly-allowance[data-exhausted=true] #allowance-progress::-moz-progress-bar{background:var(--accent)}
+.monthly-allowance .hosting-details{margin:18px 0 0;grid-template-columns:1fr;gap:13px}
+#allowance-remaining{font-family:var(--mono);color:#e2e4ea}
+#allowance-policy{margin:15px 0 0;line-height:1.7;color:var(--muted)}
+#allowance-hourly{margin:16px 0 0;color:#d3d5dc;line-height:1.7}

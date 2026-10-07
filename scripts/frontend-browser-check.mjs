@@ -53,10 +53,17 @@ try {
     textSha256: createHash('sha256').update(text).digest('hex'), saved: true, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), model: 'frontend-test-fixture', externalActionsAuthorized: false };
   const running = { schema: record.schema, id, scope, objective: record.objective, status: 'running', saved: true, startedAt: record.startedAt, externalActionsAuthorized: false };
   let jobRequests = 0, retrievals = 0, logoutRequests = 0, revoked = false, pendingJob, pollEntered, jobCreated = false, unsaved = false, retrySaves = 0, failSave = false, hostingActive = true, checkoutEnabled = false, payments = 0, invoices = 0, activations = 0, confirming = false;
-  let plan = { usdCents: 1000, currency: 'USD', periodDays: 30 };
-  const quote = { id, scope, chainId: 4663, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20), amount: '1000000000000000001', periodDays: 30, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString(),
+  let plan = { usdCents: 1000, currency: 'USD', periodDays: 30, tasksIncluded: 100 };
+  let usedTasks = 35, hourlyRemaining = 8, delayHostingOnce = 0, badUsage = false, hostingSource = 'pilot', submissionError;
+  let releaseHosting, hostingEntered, pendingHosting;
+  const periodStart = new Date(Date.now() - 86400000).toISOString();
+  let resetsAt = new Date(Date.now() + 86400000).toISOString(), hourlyResetsAt = new Date(Date.now() + 1800000).toISOString(), rolloverAt;
+  const quote = { id, scope, chainId: 4663, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20), amount: '1000000000000000001', periodDays: 30, tasksIncluded: 100, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString(),
     pricing: { usdCents: 1000, currency: 'USD', tokenPriceUsd: '9.999999999999999999', tokenDecimals: 18, source: 'dexscreener', sourceUrl: 'https://dexscreener.com/robinhood/fixture', poolId: 'fixture', retrievedAt: new Date().toISOString(), priceUpdatedAt: null } };
-  const hostStatus = () => ({ active: hostingActive, source: hostingActive ? 'pilot' : null, expiresAt: hostingActive ? new Date(Date.now() + 86400000).toISOString() : null, periodDays: 30, checkoutEnabled, token: quote.token, amount: null, plan, recipient: checkoutEnabled ? quote.recipient : null, chainId: 4663, automaticRenewal: false });
+  const hostStatus = () => ({ active: hostingActive, source: hostingActive ? hostingSource : null, expiresAt: hostingActive ? new Date(Date.now() + 86400000).toISOString() : null, periodDays: 30, checkoutEnabled, token: quote.token, amount: null, plan, recipient: checkoutEnabled ? quote.recipient : null, chainId: 4663, automaticRenewal: false,
+    usage: { unit: 'tasks', limit: 100, used: usedTasks, remaining: badUsage ? 999 : hostingActive ? 100 - usedTasks : 0,
+      periodStartsAt: hostingActive && hostingSource === 'paid' ? periodStart : null, resetsAt: hostingActive ? resetsAt : null, source: hostingActive ? hostingSource : null,
+      hourlyLimit: 10, hourlyRemaining, hourlyResetsAt } });
   const challenge = 'Fixture holder login\nNo transaction authorization.';
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -68,10 +75,18 @@ try {
     else {
       assert.equal(request.headers().authorization, 'Bearer ' + 'aa'.repeat(32));
       if (revoked) return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'JEFF_SESSION_REVOKED' }) });
-      if (path === '/api/hosting') value = hostStatus();
+      if (path === '/api/hosting') {
+        if (rolloverAt && Date.now() >= rolloverAt) { usedTasks = 0; resetsAt = new Date(Date.now() + 86400000).toISOString(); rolloverAt = undefined; }
+        value = hostStatus();
+        if (pendingHosting) { const gate = pendingHosting; pendingHosting = undefined; hostingEntered?.(); await gate; }
+        if (delayHostingOnce) { const delay = delayHostingOnce; delayHostingOnce = 0; await new Promise(resolveDelay => setTimeout(resolveDelay, delay)); }
+      }
       else if (path === '/api/hosting/invoice') { invoices++; assert.equal(checkoutEnabled,true); value=quote; }
       else if (path === '/api/hosting/activate') { activations++; assert.deepEqual(request.postDataJSON(),{invoiceId:id,transactionHash:'0x'+'bb'.repeat(32)}); if(confirming) return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'JEFF_PAYMENT_CONFIRMING'})});hostingActive=true;value=hostStatus(); }
-      else if (path === '/api/jobs' && request.method() === 'POST') { jobRequests++; jobCreated = true; assert.equal(request.postDataJSON().objective, 'Fixture task'); return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(running) }); }
+      else if (path === '/api/jobs' && request.method() === 'POST') { jobRequests++; assert.equal(request.postDataJSON().objective, 'Fixture task');
+        if (submissionError) { if (submissionError === 'JEFF_TASK_ALLOWANCE_EXHAUSTED') usedTasks = 100; else hourlyRemaining = 0;
+          return route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ error: submissionError }) }); }
+        jobCreated = true; usedTasks++; hourlyRemaining--; return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(running) }); }
       else if (path === '/api/jobs') value = { jobs: jobCreated ? [unsaved ? { ...record, status: 'completed_unsaved', saved: false } : record] : [] };
       else if (path === `/api/jobs/${id}`) { retrievals++; if (pendingJob) { pollEntered?.(); await pendingJob; } value = unsaved ? { ...record, status: 'completed_unsaved', saved: false } : record; }
       else if (path === `/api/jobs/${id}/retry-save`) { retrySaves++; if (failSave) return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'JEFF_SERVICE_UNAVAILABLE'})}); unsaved = false; value = record; }
@@ -107,10 +122,14 @@ try {
   assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
   assert.equal(await page.locator('#create-invoice').isHidden(),true);
   assert.equal(await page.locator('#plan-price').textContent(), '$10.00');
-  assert.equal(await page.locator('#hosting-usage').textContent(), 'Monthly AI allowance pending');
-  assert.equal(await page.locator('#plan-price-copy').textContent(), 'Paid in $CLOCKERS. Monthly AI allowance will be confirmed before checkout opens.');
+  assert.equal(await page.locator('#hosting-usage').textContent(), '100 tasks / pilot term');
+  assert.equal(await page.locator('#plan-price-copy').textContent(), 'Paid in $CLOCKERS. Includes 100 tasks per 30-day period.');
+  assert.equal(await page.locator('#allowance-summary').textContent(), '35 of 100 tasks used');
+  assert.equal(await page.locator('#allowance-remaining').textContent(), '65 tasks');
+  assert.equal(await page.locator('#allowance-reset-label').textContent(), 'Pilot ends');
+  assert.match(await page.locator('#allowance-hourly').textContent(), /8 of 10 tasks available now/);
   assert.equal(await page.locator('#checkout-copy').textContent(), 'Monthly checkout is not open yet.');
-  checks.push('USD plan displays $10.00 for 30 days without implying configured model usage or available checkout');
+  checks.push('USD plan shows 100 tasks per 30 days; pilot balance and expiry are distinct from the rolling-hour limit and checkout availability');
   checks.push('Hosted flags replace local labels; pilot entitlement is visible and unconfigured checkout stays hidden');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#logout').focus(); await page.keyboard.press('Tab');
@@ -122,8 +141,13 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement.id), 'objective');
   assert.equal(jobRequests, 0);
   checks.push('Task ideas fill and focus the composer without submitting a model job');
+  delayHostingOnce = 5000;
+  const submissionAt = Date.now();
   await page.locator('#objective').fill('Fixture task'); await page.locator('#run').click();
   await page.getByText('Saved to workspace', { exact: true }).waitFor();
+  assert.ok(Date.now() - submissionAt < 4500, 'A slow usage refresh must not stall the job poll');
+  await page.waitForFunction(() => document.getElementById('allowance-remaining').textContent === '64 tasks');
+  checks.push('A five-second allowance refresh cannot stall the accepted job poll; terminal state refreshes the authoritative balance');
   assert.equal(await page.locator('#result-text script').count(), 0);
   assert.equal(await page.evaluate(() => window.injected), undefined);
   assert.equal(await page.evaluate(() => Object.values(localStorage).some(value => value.includes('Fixture checklist'))), false);
@@ -158,12 +182,53 @@ try {
   await page.locator('#retry-save').click(); await page.getByText('Saved to workspace', { exact: true }).waitFor();
   assert.equal(jobRequests, 1); assert.equal(retrySaves, 2);
   checks.push('Failed save retry preserves output; a successful retry persists it without another model request');
+  usedTasks = 100; await page.locator('#refresh-hosting').click();
+  await page.locator('#allowance-state').filter({ hasText: 'Used up' }).waitFor();
+  assert.equal(await page.locator('#run').isDisabled(), true);
+  assert.equal(await page.locator('[data-prompt]').first().isDisabled(), true);
+  assert.equal(await page.locator('#retrieve').isEnabled(), true);
+  await page.locator('#task-form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  assert.equal(jobRequests, 1);
+  unsaved = true; await page.locator('#refresh').click();
+  await page.getByText('Not saved yet', { exact: true }).waitFor();
+  await page.locator('#retry-save').click(); await page.getByText('Saved to workspace', { exact: true }).waitFor();
+  assert.equal(usedTasks, 100); assert.equal(jobRequests, 1);
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.locator('#monthly-allowance').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'allowance-exhausted-mobile.png'), fullPage: false });
+  checks.push('Exhausted monthly allowance blocks prompts and submissions while saved retrieval and free save retry remain available at 320px');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  usedTasks = 36; hourlyRemaining = 0; hourlyResetsAt = new Date(Date.now() + 1600).toISOString();
+  await page.locator('#refresh-hosting').click();
+  await page.locator('#allowance-hourly').filter({ hasText: 'Hourly limit reached' }).waitFor();
+  assert.equal(await page.locator('#run').isDisabled(), true);
+  assert.match(await page.locator('#allowance-hourly').textContent(), /Next task available .* UTC/);
+  hourlyRemaining = 1;
+  await page.waitForFunction(() => !document.getElementById('run').disabled);
+  checks.push('Rolling-hour exhaustion shows the authoritative next-slot date and refreshes at that release without resetting monthly usage');
+  hostingSource = 'paid'; usedTasks = 100; hourlyRemaining = 8; rolloverAt = Date.now() + 1600; resetsAt = new Date(rolloverAt).toISOString();
+  await page.locator('#refresh-hosting').click();
+  await page.locator('#allowance-state').filter({ hasText: 'Used up' }).waitFor();
+  assert.equal(await page.locator('#allowance-reset-label').textContent(), 'Resets');
+  await page.waitForFunction(() => document.getElementById('allowance-remaining').textContent === '100 tasks');
+  assert.equal(usedTasks, 0);
+  checks.push('Period boundary fetches a new server balance; the browser does not manufacture a refill');
+  badUsage = true; await page.locator('#refresh-hosting').click();
+  await page.locator('#hosting-status').filter({ hasText: 'Unavailable' }).waitFor();
+  assert.equal(await page.locator('#run').isDisabled(), true);
+  assert.equal(await page.locator('#monthly-allowance').isHidden(), true);
+  assert.equal(await page.locator('#retrieve').isEnabled(), true);
+  badUsage = false; await page.locator('#refresh-hosting').click();
+  await page.locator('#hosting-status').filter({ hasText: 'Active' }).waitFor();
+  checks.push('Malformed allowance data is withheld and fails closed for new tasks while retrieval stays available');
   hostingActive=false;await page.locator('#refresh-hosting').click();await page.locator('#hosting-status').filter({hasText:'Inactive'}).waitFor();
   assert.equal(await page.locator('#run').isDisabled(),true);assert.equal(await page.locator('#retrieve').isEnabled(),true);
   checks.push('Inactive hosting blocks new tasks while saved result retrieval remains available');
   checkoutEnabled=true;await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
   await page.locator('#create-invoice').click();await page.locator('#pay-invoice').filter({hasText:'Pay 1.000000000000000001 $CLOCKERS'}).waitFor();
   assert.equal(await page.locator('#invoice-usd').textContent(), '$10.00');
+  assert.equal(await page.locator('#invoice-tasks').textContent(), '100 tasks for this 30-day period');
   assert.equal(await page.locator('#invoice-amount').textContent(), '1.000000000000000001 $CLOCKERS');
   assert.match(await page.locator('#invoice-source-copy').textContent(), /price fetched .*Market update time unavailable/);
   await page.setViewportSize({ width: 320, height: 844 });
@@ -176,16 +241,44 @@ try {
   confirming=true;await page.locator('#pay-invoice').click();await page.getByText('The payment is waiting for chain confirmations. Keep the same transaction reference; do not pay again.',{exact:true}).waitFor();
   assert.equal(await page.locator('#pay-invoice').isDisabled(),true);assert.equal(await page.locator('#hosting-status').textContent(),'Inactive');
   assert.equal(await page.evaluate(()=>window.__payments),1);
-  plan = { ...plan, usdCents: 1200 };
+  plan = { ...plan, usdCents: 1200, tasksIncluded: 120 };
   await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
   assert.equal(await page.locator('#plan-price').textContent(), '$12.00');
   assert.equal(await page.locator('#invoice-usd').textContent(), '$10.00');
+  assert.match(await page.locator('#plan-price-copy').textContent(), /Includes 120 tasks/);
+  assert.equal(await page.locator('#invoice-tasks').textContent(), '100 tasks for this 30-day period');
   assert.equal(await page.locator('#invoice-amount').textContent(), '1.000000000000000001 $CLOCKERS');
   checks.push('Restored invoice retains its original USD reference and exact amount after the plan price changes');
   assert.equal(await page.locator('#transaction-hash').inputValue(),'0x'+'bb'.repeat(32));
   confirming=false;await page.locator('#activate').click();await page.getByText('Payment verified. Hosting is active; the expiry above includes your new term.',{exact:true}).waitFor();
   assert.equal(activations,2);assert.equal(await page.locator('#hosting-status').textContent(),'Active');
   checks.push('Fixture invoice displays exact amount; one wallet transfer stays inactive until verified and its reference survives reload');
+  usedTasks = 10;
+  pendingHosting = new Promise(resolveGate => { releaseHosting = resolveGate; });
+  const staleEntered = new Promise(resolveEntered => { hostingEntered = resolveEntered; });
+  await page.locator('#refresh-hosting').click(); await staleEntered;
+  usedTasks = 11;
+  await page.locator('#refresh-hosting').click();
+  await page.waitForFunction(() => document.getElementById('allowance-remaining').textContent === '89 tasks');
+  releaseHosting(); await page.waitForTimeout(100);
+  assert.equal(await page.locator('#allowance-remaining').textContent(), '89 tasks');
+  checks.push('An older hosting response cannot restore already spent allowance');
+  submissionError = 'JEFF_TASK_ALLOWANCE_EXHAUSTED';
+  await page.locator('#objective').fill('Fixture task'); await page.locator('#run').click();
+  await page.getByText('Your included task allowance is used up. Check hosting for period details. Saved results are still available.', { exact: true }).waitFor();
+  await page.locator('#allowance-state').filter({ hasText: 'Used up' }).waitFor();
+  assert.equal(await page.locator('#retrieve').isEnabled(), true);
+  checks.push('A monthly 429 preserves its specific error and refreshes the authoritative exhausted balance');
+  usedTasks = 11; submissionError = undefined;
+  await page.locator('#refresh-hosting').click(); await page.waitForFunction(() => !document.getElementById('run').disabled);
+  submissionError = 'JEFF_USAGE_LIMIT_REACHED';
+  await page.locator('#objective').fill('Fixture task'); await page.locator('#run').click();
+  await page.getByText('The hourly task limit was reached. Check hosting for the next available task time. Saved results are still available.', { exact: true }).waitFor();
+  await page.locator('#allowance-hourly').filter({ hasText: 'Hourly limit reached' }).waitFor();
+  assert.equal(usedTasks, 11);
+  checks.push('An hourly 429 stays separate from monthly exhaustion and does not consume another monthly task');
+  submissionError = undefined; hourlyRemaining = 8;
+  await page.locator('#refresh-hosting').click();
   revoked = true; await page.locator('#refresh').click();
   await page.getByText('NFT ownership changed. Sign in again to access your current workspace.', { exact: true }).waitFor();
   assert.equal(await page.locator('#result').isHidden(), true);
@@ -223,7 +316,8 @@ try {
     else if(path==='/api/auth/logout')value={loggedOut:true};
     else{
       assert.equal(request.headers().authorization,'Bearer '+'cc'.repeat(32));
-      if(path==='/api/hosting')value={...hostStatus(),active:accountActive,source:accountActive?'paid':null,expiresAt:accountActive?new Date(Date.now()+86400000).toISOString():null,checkoutEnabled:false};
+      if(path==='/api/hosting')value={...hostStatus(),active:accountActive,source:accountActive?'paid':null,expiresAt:accountActive?new Date(Date.now()+86400000).toISOString():null,checkoutEnabled:false,
+        usage:{...hostStatus().usage,used:accountRuns,remaining:accountActive?100-accountRuns:0,source:accountActive?'paid':null,periodStartsAt:accountActive?periodStart:null,resetsAt:accountActive?resetsAt:null}};
       else if(path==='/api/jobs'&&request.method()==='GET')value={jobs:accountRuns?[accountRecord]:[]};
       else if(path==='/api/jobs'&&request.method()==='POST'){accountRuns++;assert.equal(request.postDataJSON().objective,'Account task');return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({...running,id:accountId,scope:accountScope,objective:'Account task'})});}
       else if(path===`/api/jobs/${accountId}`){accountRetrievals++;value=accountRecord;}
