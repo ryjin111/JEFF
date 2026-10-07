@@ -91,6 +91,7 @@ await writeFile(archivePath,archive,{flag:'wx',mode:0o600});
 const storedArchive=await readFile(archivePath);
 if(!storedArchive.equals(archive)) throw new Error('BACKUP_OFF_HOST_WRITE_FAILED');
 const restored=await verifyIsolatedRestore({archive:storedArchive,key:await readFile(keyPath),parent:backupDirectory});
+if(!restored.operatorJob || restored.jobsRetrieved<1) throw new Error('BACKUP_OPERATOR_RESULT_REQUIRED');
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const evidence={...restored,productionBackup:true,encryptedOffHostArchive:archivePath,archiveSha256:sha(archive),archiveBytes:archive.length,
   releaseSha:remote.releaseSha,sourceUnchangedDuringCapture:remote.sourceUnchanged,
