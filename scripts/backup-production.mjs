@@ -65,7 +65,7 @@ try {
   process.kill(server.pid,'SIGCONT');
   let resumed=false;
   for(let attempt=0;attempt<50;attempt++) {
-    try { resumed=(await fetch('http://127.0.0.1:'+process.env.PORT+'/health',{signal:AbortSignal.timeout(500)})).status===200; } catch {}
+    try { resumed=(await fetch('http://127.0.0.1:'+(process.env.PORT||8788)+'/health',{signal:AbortSignal.timeout(500)})).status===200; } catch {}
     if(resumed) break;
     await new Promise(resolve=>setTimeout(resolve,100));
   }
