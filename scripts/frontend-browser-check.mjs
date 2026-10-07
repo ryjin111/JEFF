@@ -33,7 +33,7 @@ try {
   assert.equal(await page.locator('#login').isDisabled(),liveConfig.standaloneAccounts !== true);
   await page.screenshot({path:resolve(output,'standalone-entry.png'),fullPage:true});
   await page.locator('#holder-mode').click();
-  assert.equal(await page.locator('#token-field').isVisible(),true);
+  assert.equal(await page.locator('#token-field').isHidden(),true);
   checks.push('Standalone entry hides the NFT field and reflects its backend availability flag');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
@@ -69,6 +69,7 @@ try {
     const request = route.request(), path = new URL(request.url()).pathname;
     let value;
     if (path === '/api/config') value = { chainId: scope.chainId, collection: scope.collection, modelConfigured: true, billingEnabled: checkoutEnabled, continuousHosting: true, toolsEnabled: false, plan };
+    else if (path === '/api/auth/nfts') { assert.deepEqual(request.postDataJSON(), { wallet: scope.owner }); value = { chainId: scope.chainId, collection: scope.collection, wallet: scope.owner, tokenIds: ['35'], balance: 1, blockNumber: '81741824', complete: true }; }
     else if (path === '/api/auth/challenge') { assert.deepEqual(request.postDataJSON(), { wallet: scope.owner, tokenId: '35' }); value = { nonce: 'test-only', message: challenge }; }
     else if (path === '/api/auth/verify') value = { token: 'aa'.repeat(32), scope, expiresAt: new Date(Date.now() + 3600000).toISOString() };
     else if (path === '/api/auth/logout') { logoutRequests++; value = { loggedOut: true }; }
@@ -116,7 +117,7 @@ try {
     };
   }, { wallet: scope.owner, challengeText: challenge });
   await page.reload();
-  await page.locator('#token-id').fill('35'); await page.locator('#login').click();
+  await page.locator('#login').click();
   await page.locator('#logout').waitFor();
   await page.locator('#hosting-status').filter({hasText:'Active'}).waitFor();
   assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
@@ -286,7 +287,7 @@ try {
   assert.equal(await page.evaluate(() => sessionStorage.getItem('simple-jeff:session:v1')), null);
   checks.push('Transfer revocation clears session and private output');
   revoked = false;
-  await page.locator('#token-id').fill('35'); await page.locator('#login').click();
+  await page.locator('#login').click();
   await page.getByText('Task complete. Your result is saved and can be retrieved later.', { exact: true }).waitFor();
   let release; pendingJob = new Promise(resolveJob => { release = resolveJob; });
   const entered = new Promise(resolveEntered => { pollEntered = resolveEntered; });
@@ -328,7 +329,8 @@ try {
   });
   await accountPage.addInitScript(({wallet,challenge})=>{
     window.ethereum={async request({method,params}){
-      if(method==='eth_requestAccounts')return[wallet];
+      if(method==='eth_requestAccounts'||method==='eth_accounts')return[wallet];
+      if(method==='eth_chainId')return '0x1237';
       if(method==='personal_sign'){
         const bytes=Uint8Array.from(params[0].slice(2).match(/.{2}/g),byte=>parseInt(byte,16));
         if(new TextDecoder().decode(bytes)!==challenge)throw Error('Wrong account signature');

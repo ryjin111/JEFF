@@ -1,13 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { scopeKey, validSession, jobIndex, validateRecord } from '../public/client.js';
+import { scopeKey, validSession, jobIndex, validateRecord, validateNftDiscovery } from '../public/client.js';
 
 const scope = { chainId: 4663, collection: '0x' + '33'.repeat(20), tokenId: '35', owner: '0x' + '11'.repeat(20), ownerEpoch: 0 };
 const id = '12345678-1234-1234-1234-123456789abc';
 const result = { schema: 'jeff-openclaw-job-v1', id, scope, status: 'completed', objective: 'Prepare a checklist',
   text: 'A useful result', textSha256: createHash('sha256').update('A useful result').digest('hex'), saved: true,
   finishedAt: '2026-10-06T14:00:00Z', externalActionsAuthorized: false };
+test('only complete NFT lists bound to this wallet, chain and collection can drive login', () => {
+  const config = { chainId: scope.chainId, collection: scope.collection };
+  const inventory = { ...config, wallet: scope.owner, tokenIds: ['35', '999999999999999999999'], balance: 2, blockNumber: '81741824', complete: true };
+  assert.equal(validateNftDiscovery(inventory, config, scope.owner), inventory);
+  assert.equal(validateNftDiscovery({ ...inventory, tokenIds: [], balance: 0 }, config, scope.owner).balance, 0);
+  for (const invalid of [{ chainId: 1 }, { collection: '0x' + '22'.repeat(20) }, { wallet: '0x' + '22'.repeat(20) },
+    { tokenIds: ['35', '35'] }, { balance: 1 }, { tokenIds: ['35', 36] }, { tokenIds: ['35', '01'] },
+    { tokenIds: ['35', String(2n ** 256n)] }, { blockNumber: 'unknown' }]) {
+    assert.throws(() => validateNftDiscovery({ ...inventory, ...invalid }, config, scope.owner), /DISCOVERY_INVALID/);
+  }
+  assert.throws(() => validateNftDiscovery({ ...inventory, complete: false }, config, scope.owner), /DISCOVERY_UNAVAILABLE/);
+});
 
 test('saved-job browser index is isolated by NFT, holder and transfer epoch', () => {
   for (const changed of [{ tokenId: '36' }, { owner: '0x' + '22'.repeat(20) }, { ownerEpoch: 2 }, { chainId: 1 }]) {

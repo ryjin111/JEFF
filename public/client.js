@@ -1,4 +1,13 @@
 export const JOB_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+export function validateNftDiscovery(value, config, wallet) {
+  if (value?.complete !== true) throw new Error('JEFF_DISCOVERY_UNAVAILABLE');
+  if (value.chainId !== config.chainId || value.collection !== config.collection.toLowerCase() || value.wallet !== wallet
+    || !Number.isSafeInteger(value.balance) || value.balance < 0 || !Array.isArray(value.tokenIds)
+    || value.tokenIds.length !== value.balance || new Set(value.tokenIds).size !== value.tokenIds.length
+    || value.tokenIds.some(id => typeof id !== 'string' || !/^(0|[1-9]\d{0,77})$/.test(id) || BigInt(id) >= 2n ** 256n)
+    || typeof value.blockNumber !== 'string' || !/^(0|[1-9]\d{0,77})$/.test(value.blockNumber)) throw new Error('JEFF_DISCOVERY_INVALID');
+  return value;
+}
 export function validScope(scope) {
   if (scope?.kind === 'account') return Boolean(Number.isSafeInteger(scope.chainId) && scope.chainId > 0
     && /^0x[a-f0-9]{40}$/.test(scope.owner) && scope.collection === undefined && scope.tokenId === undefined && scope.ownerEpoch === undefined);
@@ -40,6 +49,9 @@ export async function validateRecord(record, scope, expectedId) {
   return record;
 }
 export const labels = {
+  JEFF_DISCOVERY_UNAVAILABLE: 'Couldn\'t check this wallet\'s Rooms. Try again.',
+  JEFF_DISCOVERY_INVALID: 'The Room list could not be verified. Try again.',
+  JEFF_WALLET_CHANGED: 'Wallet or network changed. Connect again to load the current wallet\'s NFTs.',
   JEFF_OPENCLAW_ACCOUNT_DENIED: 'This account is unavailable. Sign in again to open your registered wallet workspace.',
   JEFF_ACCOUNT_INVALID: 'The wallet account could not be registered. Check the connected wallet and try again.',
   JEFF_HOSTING_INACTIVE: 'Hosting is inactive for this workspace. Activate or renew hosting to run new tasks. Saved results are still accessible.',

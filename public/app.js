@@ -1,9 +1,10 @@
-import { JOB_ID, scopeKey, validSession, jobIndex, validateRecord, errorLabel } from './client.js';
+import { JOB_ID, scopeKey, validSession, jobIndex, validateRecord, validateNftDiscovery, errorLabel } from './client.js';
 import { validateHosting, validateInvoice, validUsdPlan, formatUsdCents, formatTokenAmount, transferData } from './billing.js';
 const $ = id => document.getElementById(id);
 const SESSION_KEY = 'simple-jeff:session:v1';
 let config, session, provider, loginWallet, busy = false, waiting = false, version = 0, currentResult, expiryTimer, pollTimer;
 let serverJobs = [];
+let nftDiscovery, loginStage, observedConnectWallet, discoveryFailed = false;
 let hosting, invoice, tokenDecimals, hostingTimer, hostingRequest = 0, hostingFailed = false, passState;
 let accessMode = new URLSearchParams(location.search).get('mode') === 'standalone' ? 'standalone' : 'holder';
 const standaloneSession = () => session?.scope?.kind === 'account';
@@ -41,6 +42,7 @@ function invalidate() {
   const token = session?.token;
   hostingFailed = false;
   passState = undefined;
+  clearNftDiscovery(); loginStage = undefined; observedConnectWallet = undefined; discoveryFailed = false;
   version++; session = undefined; loginWallet = undefined; busy = false; waiting = false; serverJobs = []; hosting = undefined; invoice = undefined; tokenDecimals = undefined; saveSession(); clearTimeout(expiryTimer); clearTimeout(pollTimer); clearTimeout(hostingTimer);
   requests.forEach(controller => controller.abort()); requests.clear(); clearResult();
   $('objective').value = ''; $('job-id').value = ''; $('transaction-hash').value = ''; render();
@@ -75,8 +77,12 @@ function render() {
   renderAccess();
   $('logout').hidden = !session; $('logout').disabled = false;
   $('login-form').hidden = Boolean(session); $('scope-details').hidden = !session;
-  $('token-id').disabled = busy; $('login').disabled = !config || busy || (standalone && config?.standaloneAccounts !== true);
-  $('login').textContent = busy && !session ? 'Waiting for wallet' : standalone && config?.standaloneAccounts !== true ? 'Standalone signup coming soon' : 'Connect wallet & sign in';
+  $('token-id').disabled = busy || !nftDiscovery;
+  $('login').disabled = !config || busy || (standalone && config?.standaloneAccounts !== true)
+    || (!standalone && nftDiscovery?.tokenIds.length > 1 && !$('token-id').value);
+  $('login').textContent = busy && !session ? loginStage === 'discovering' ? 'Finding your Clockers Rooms...' : loginStage === 'signing' ? 'Waiting for signature' : 'Connecting wallet'
+    : standalone && config?.standaloneAccounts !== true ? 'Standalone signup coming soon' : !standalone && discoveryFailed ? 'Retry'
+    : !standalone && nftDiscovery?.tokenIds.length === 0 ? 'Check wallet again' : !standalone && nftDiscovery?.tokenIds.length > 1 ? 'Sign in to selected Room' : 'Connect wallet & sign in';
   $('agent-name').textContent = session ? standalone ? 'My JEFF' : `Room #${session.scope.tokenId}` : standalone ? 'Create your JEFF account' : 'Connect your NFT';
   $('identity-copy').textContent = session ? standalone ? 'A private agent workspace controlled by your wallet.' : 'Private workspace for this NFT, holder, and ownership epoch.' : standalone ? config?.standaloneAccounts === true ? 'Sign in with your wallet. No NFT or Room ID is required.' : 'Standalone wallet signup is being configured. NFT holder access is available now.' : 'Sign in with the wallet that holds your Clockers Agent NFT.';
   $('holder-wallet').textContent = session?.scope.owner || '';
@@ -97,8 +103,14 @@ function renderAccess() {
   const standalone = session ? standaloneSession() : accessMode === 'standalone';
   $('holder-mode').setAttribute('aria-pressed', String(!standalone));
   $('standalone-mode').setAttribute('aria-pressed', String(standalone));
-  $('holder-mode').disabled = Boolean(session) || busy; $('standalone-mode').disabled = Boolean(session) || busy;
-  $('token-field').hidden = standalone; $('token-id').required = !standalone;
+  $('holder-mode').disabled = Boolean(session); $('standalone-mode').disabled = Boolean(session);
+  $('token-field').hidden = standalone || !nftDiscovery || nftDiscovery.tokenIds.length < 2;
+  $('token-id').required = !standalone && nftDiscovery?.tokenIds.length > 1;
+  $('wallet-discovery-copy').hidden = standalone || !nftDiscovery;
+  $('wallet-discovery-copy').textContent = !nftDiscovery ? '' : nftDiscovery.tokenIds.length === 0
+    ? 'No Clockers Rooms found in this wallet. Switch accounts in your wallet or use Simple JEFF.'
+    : nftDiscovery.tokenIds.length === 1 ? `Room #${nftDiscovery.tokenIds[0]} selected`
+    : `${nftDiscovery.tokenIds.length} Rooms found. Choose the workspace you want to open.`;
   $('epoch-field').hidden = standalone;
   $('wallet-label').textContent = standalone ? 'Account wallet' : 'Holder wallet';
   $('objective').placeholder = 'Describe an idea, share some notes, or ask for a plan.';
@@ -110,11 +122,18 @@ function renderAccess() {
   $('signup-copy').textContent = standalone ? 'Standalone wallet accounts do not require an NFT.' : 'Use Simple JEFF for standalone access without an NFT.';
 }
 function switchAccess(mode) {
-  if (session || busy) return;
+  if (session || mode === accessMode) return;
+  invalidate();
   accessMode = mode; showNotice('');
   const url = new URL(location.href); url.searchParams.set('mode', mode === 'standalone' ? 'standalone' : 'nft'); history.replaceState(null, '', url);
   render();
 }
+function clearNftDiscovery() {
+  nftDiscovery = undefined;
+  const option = document.createElement('option'); option.value = ''; option.textContent = 'Choose a Room';
+  $('token-id').replaceChildren(option);
+}
+$('token-id').addEventListener('change', render);
 $('holder-mode').addEventListener('click', () => switchAccess('holder'));
 $('standalone-mode').addEventListener('click', () => switchAccess('standalone'));
 document.querySelectorAll('[data-prompt]').forEach(button => button.addEventListener('click', () => {
@@ -137,31 +156,84 @@ function bindProvider(next) {
   provider?.removeListener?.('accountsChanged', walletChanged); provider?.removeListener?.('chainChanged', walletChanged);
   provider = next; provider?.on?.('accountsChanged', walletChanged); provider?.on?.('chainChanged', walletChanged);
 }
-function walletChanged() { if (!session && !loginWallet) return; invalidate(); showNotice('Wallet or network changed. Sign in again for your current workspace.'); }
+function walletChanged(accounts) {
+  const bound = session?.scope.owner || loginWallet || nftDiscovery?.wallet;
+  if (Array.isArray(accounts)) {
+    const next = accounts[0]?.toLowerCase();
+    if (bound && next === bound) return;
+    if (!bound && loginStage === 'connecting' && next && next === observedConnectWallet) return;
+    if (!bound && loginStage === 'connecting' && /^0x[a-f0-9]{40}$/.test(next || '') && !observedConnectWallet) {
+      observedConnectWallet = next; return;
+    }
+  }
+  if (!bound && !busy && !loginStage) return;
+  invalidate(); showNotice('Wallet or network changed. Connect again for your current workspace.');
+}
+async function currentWalletBinding(wallet, operation, expectedChain) {
+  const accounts = await provider.request({ method: 'eth_accounts' });
+  if (operation !== version) return;
+  if (accounts?.[0]?.toLowerCase() !== wallet) throw new Error('JEFF_WALLET_CHANGED');
+  const chain = await provider.request({ method: 'eth_chainId' });
+  if (operation !== version) return;
+  if (typeof chain !== 'string' || !/^0x[0-9a-f]+$/i.test(chain) || (expectedChain && chain !== expectedChain)) throw new Error('JEFF_WALLET_CHANGED');
+  return chain;
+}
 $('login-form').addEventListener('submit', async event => {
-  event.preventDefault(); if (busy || !config) return;
+  event.preventDefault(); if (busy || !config || session) return;
   const accountLogin = accessMode === 'standalone';
   if (accountLogin && config.standaloneAccounts !== true) { showNotice('Standalone signup is not available on this deployment yet.'); return; }
-  const tokenId = $('token-id').value.trim();
-  if (!accountLogin && (!/^(0|[1-9]\d*)$/.test(tokenId) || BigInt(tokenId) >= 2n ** 256n)) { showNotice('Enter a valid Room / token ID.', true); return; }
   const authPath = accountLogin ? '/api/account/auth' : '/api/auth';
-  const operation = ++version; busy = true; clearResult(); showNotice(accountLogin ? 'Approve wallet access, then sign the standalone account login message.' : 'Approve wallet access, then sign the holder login message.'); render();
-  let candidate;
+  const operation = ++version; busy = true; loginStage = 'connecting'; observedConnectWallet = undefined; discoveryFailed = false;
+  clearResult(); showNotice('Connect your wallet to continue.'); render();
+  let candidate, focusPicker = false;
   try {
     bindProvider(window.ethereum); if (!provider?.request) throw new Error('JEFF_WALLET_UNAVAILABLE');
-    const accounts = await provider.request({ method: 'eth_requestAccounts' }); if (operation !== version) return;
-    const wallet = accounts?.[0]?.toLowerCase(); if (!/^0x[a-f0-9]{40}$/.test(wallet)) throw new Error('JEFF_WALLET_UNAVAILABLE');
+    let accounts = await provider.request({ method: 'eth_accounts' }); if (operation !== version) return;
+    const knownWallet = accounts?.[0]?.toLowerCase();
+    if (knownWallet && observedConnectWallet && knownWallet !== observedConnectWallet) throw new Error('JEFF_WALLET_CHANGED');
+    loginWallet = knownWallet;
+    if (!accounts?.length) { accounts = await provider.request({ method: 'eth_requestAccounts' }); if (operation !== version) return; }
+    const wallet = accounts?.[0]?.toLowerCase(); if (!/^0x[a-f0-9]{40}$/.test(wallet || '')) throw new Error('JEFF_WALLET_UNAVAILABLE');
+    if (observedConnectWallet && wallet !== observedConnectWallet) throw new Error('JEFF_WALLET_CHANGED');
     loginWallet = wallet;
-    const challenge = await api(`${authPath}/challenge`, { method: 'POST', body: accountLogin ? { wallet } : { wallet, tokenId } }); if (operation !== version) return;
+    const chain = await currentWalletBinding(wallet, operation); if (operation !== version) return;
+    let tokenId;
+    if (!accountLogin) {
+      if (!nftDiscovery || nftDiscovery.tokenIds.length === 0 || nftDiscovery.wallet !== wallet || nftDiscovery.providerChain !== chain) {
+        clearNftDiscovery(); loginStage = 'discovering'; showNotice('Finding your Clockers Rooms...'); render();
+        const found = validateNftDiscovery(await api('/api/auth/nfts', { method: 'POST', body: { wallet } }), config, wallet);
+        if (operation !== version) return;
+        await currentWalletBinding(wallet, operation, chain); if (operation !== version) return;
+        nftDiscovery = { ...found, providerChain: chain };
+        for (const id of found.tokenIds) { const option = document.createElement('option'); option.value = id; option.textContent = 'Room #' + id; $('token-id').append(option); }
+        if (found.tokenIds.length === 0) { showNotice('No Clockers Rooms found in this wallet. Switch accounts in your wallet or use Simple JEFF.'); return; }
+        if (found.tokenIds.length > 1) { focusPicker = true; showNotice('Choose the NFT workspace you want to open, then sign in.'); return; }
+        $('token-id').value = found.tokenIds[0];
+      }
+      tokenId = nftDiscovery.tokenIds.length === 1 ? nftDiscovery.tokenIds[0] : $('token-id').value;
+      if (!nftDiscovery.tokenIds.includes(tokenId)) throw new Error('JEFF_DISCOVERY_INVALID');
+    }
+    loginStage = 'signing'; showNotice(accountLogin ? 'Sign the standalone account login message.' : 'Sign the holder login message for Room #' + tokenId + '.'); render();
+    await currentWalletBinding(wallet, operation, chain); if (operation !== version) return;
+    const challenge = await api(authPath + '/challenge', { method: 'POST', body: accountLogin ? { wallet } : { wallet, tokenId } }); if (operation !== version) return;
+    await currentWalletBinding(wallet, operation, chain); if (operation !== version) return;
     const message = '0x' + Array.from(new TextEncoder().encode(challenge.message), byte => byte.toString(16).padStart(2, '0')).join('');
     const signature = await provider.request({ method: 'personal_sign', params: [message, wallet] }); if (operation !== version) return;
-    candidate = await api(`${authPath}/verify`, { method: 'POST', body: { nonce: challenge.nonce, signature } });
-    if (operation !== version) { fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${candidate.token}` } }).catch(() => {}); return; }
+    await currentWalletBinding(wallet, operation, chain); if (operation !== version) return;
+    candidate = await api(authPath + '/verify', { method: 'POST', body: { nonce: challenge.nonce, signature } });
+    if (operation !== version) { fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + candidate.token } }).catch(() => {}); return; }
     if (!validSession(candidate, config) || candidate.scope.owner !== wallet
       || (accountLogin ? candidate.scope.kind !== 'account' : candidate.scope.kind !== undefined || candidate.scope.tokenId !== tokenId)) throw new Error('JEFF_SCOPE_INVALID');
-    session = candidate; saveSession(); scheduleExpiry(); showNotice('Signed in. Your workspace is ready for saved result retrieval.');
-  } catch (error) { if (operation === version) handleError(error); }
-  finally { if (operation === version) { loginWallet = undefined; busy = false; render(); if (session) refreshWorkspace(); } }
+    session = candidate; clearNftDiscovery(); saveSession(); scheduleExpiry(); showNotice('Signed in. Your workspace is ready for saved result retrieval.');
+  } catch (error) {
+    if (operation === version) {
+      if (loginStage === 'discovering' && (error.message === 'JEFF_NETWORK_FAILURE' || error instanceof SyntaxError)) error = new Error('JEFF_DISCOVERY_UNAVAILABLE');
+      clearNftDiscovery();
+      discoveryFailed = /^JEFF_DISCOVERY_/.test(error.message);
+      if (error.message === 'JEFF_WALLET_CHANGED') invalidate();
+      handleError(error);
+    }
+  } finally { if (operation === version) { loginWallet = undefined; loginStage = undefined; observedConnectWallet = undefined; busy = false; render(); if (focusPicker) $('token-id').focus(); if (session) refreshWorkspace(); } }
 });
 function displayRecord(record) {
   currentResult = record; $('result-objective').textContent = record.objective; $('result-text').textContent = record.text;
