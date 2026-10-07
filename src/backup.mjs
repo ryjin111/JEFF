@@ -85,5 +85,13 @@ export async function restoreBackup({ archive, key, parent }) {
     await writeFile(path, Buffer.from(file.data, 'base64'), { flag: 'wx', mode: 0o600 });
     if (sha(await readFile(path)) !== file.sha256) throw new Error('JEFF_BACKUP_HASH_INVALID');
   }
+  // A snapshot cannot know about passes consumed after its capture. Keep fresh
+  // claims disabled in every restored tree until the operator reconciles them.
+  const guard = resolve(root, 'hosting', 'restore-guard.json');
+  await mkdir(dirname(guard), { recursive: true, mode: 0o700 });
+  try {
+    await writeFile(guard, JSON.stringify({ schema: 'simple-jeff-restore-guard-v1',
+      capturedAt: snapshot.capturedAt, restoredAt: new Date().toISOString(), freePassesBlocked: true }), { flag: 'wx', mode: 0o600 });
+  } catch (error) { if (error.code !== 'EEXIST') throw error; }
   return { root, snapshot, filesVerified: snapshot.files.length };
 }

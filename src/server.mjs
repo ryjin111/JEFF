@@ -35,7 +35,7 @@ const sessions = createHolderSessions({ origin, chainId, collection, resolveOwne
 const accountSessions = createAccountSessions({ origin, chainId, dataRoot });
 const bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent: createOpenClawRunner() });
 const accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent: createOpenClawRunner() });
-const hosting = createHostingLedger({ dataRoot,
+const hosting = createHostingLedger({ dataRoot, resolveOwner,
   quotePayment: createClockersUsdQuote({ rpcUrl, chainId, token: process.env.CLOCKERS_TOKEN_ADDRESS }),
   verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
 const trackJob = (scope, id) => maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id }) }), `job:${id}`);
@@ -59,7 +59,7 @@ const server = createServer(async (request, response) => {
     if (method === 'GET' && url.pathname === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw' });
     if (method === 'GET' && url.pathname === '/api/config') return send(response, 200, { product: 'Simple JEFF', stage: process.env.JEFF_CONTINUOUS_HOSTING === 'true' ? 'hosted-pilot' : 'local-runtime-pilot',
       chainId, collection, releaseSha: process.env.JEFF_RELEASE_SHA || null, modelConfigured: Boolean(process.env.BANKR_LLM_API_KEY), billingEnabled: hosting.enabled,
-      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true, toolsEnabled: false, plan: hosting.plan });
+      continuousHosting: process.env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true, toolsEnabled: false, plan: hosting.plan, freePassEnabled: hosting.freePassEnabled });
     if (method === 'POST' && url.pathname === '/api/account/auth/challenge') return send(response, 200, await accountSessions.challenge(await body(request)));
     if (method === 'POST' && url.pathname === '/api/account/auth/verify') return send(response, 200, await accountSessions.verify(await body(request)));
     if (method === 'POST' && url.pathname === '/api/auth/challenge') return send(response, 200, await sessions.challenge(await body(request)));
@@ -69,6 +69,11 @@ const server = createServer(async (request, response) => {
       const scope = await (accountSessions.has(token(request)) ? accountSessions : sessions).authenticate(token(request));
       const activeBridge = scope.kind === 'account' ? accountBridge : bridge;
       if (method === 'GET' && url.pathname === '/api/hosting') return send(response, 200, await hosting.status(scope));
+      if (method === 'POST' && url.pathname === '/api/hosting/free-pass') {
+        const input = await body(request);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw new Error('JEFF_FREE_PASS_INVALID');
+        return send(response, 200, await hosting.redeemFreePass(scope));
+      }
       if (method === 'POST' && url.pathname === '/api/hosting/invoice') return send(response, 200, await hosting.invoice(scope));
       if (method === 'POST' && url.pathname === '/api/hosting/activate') return send(response, 200, await hosting.activate(scope, await body(request)));
       if (method === 'POST' && url.pathname === '/api/jobs') {
@@ -99,7 +104,7 @@ const server = createServer(async (request, response) => {
     response.end(method === 'HEAD' ? undefined : content);
   } catch (error) {
     const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_SERVICE_UNAVAILABLE';
-    const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /ALLOWANCE_EXHAUSTED|USAGE_LIMIT_REACHED/.test(message) ? 429 : /INVALID|TOO_LARGE/.test(message) ? 400 : /BUSY/.test(message) ? 409 : 503;
+    const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /FREE_PASS_DENIED/.test(message) ? 403 : /NOT_FOUND/.test(message) ? 404 : /ALLOWANCE_EXHAUSTED|USAGE_LIMIT_REACHED/.test(message) ? 429 : /INVALID|TOO_LARGE/.test(message) ? 400 : /BUSY/.test(message) ? 409 : 503;
     send(response, status, { error: message });
   } finally { finishRequest(); }
 });

@@ -43,6 +43,7 @@ JSON API responses use `Cache-Control: no-store`.
 | GET | `/api/jobs/:id` | retrieve scoped job |
 | POST | `/api/jobs/:id/retry-save` | save retained output without a model rerun |
 | GET | `/api/hosting` | NFT entitlement and checkout availability |
+| POST | `/api/hosting/free-pass` | consume the NFT's single free month with `{}` |
 | POST | `/api/hosting/invoice` | fixed 15-minute payment quote when enabled |
 | POST | `/api/hosting/activate` | verify quoted ERC20 transfer, extend 30 days |
 
@@ -58,6 +59,23 @@ Chain 4663 Clockers uses `ownerOf` and `transferNonceOf` at the same block. Othe
 collections require an epoch adapter that observes every transfer. An A to B to A
 transfer creates a new workspace even if the original wallet receives the NFT back.
 Private context never follows a new owner. A hosting term stays attached to the NFT.
+
+With `JEFF_FREE_PASS_ENABLED=true`, each NFT has one free 30-day pass with 100 tasks.
+The signed current holder activates it explicitly. The server rechecks the holder
+and epoch inside the serialized redemption, then commits the spent record and
+hosting period together. Retries return the existing grant. Transfer, restart,
+expiry and exhausted tasks never restore the pass. An active pilot or hosting term
+keeps its allowance; the free period starts after all existing time. A free period
+uses `source: free-pass`; paid renewal remains separate. Standalone accounts have
+no NFT pass. This benefit is recorded by the hosting service. It does not mint or
+burn an on-chain item and cannot prove consumption independently of service storage.
+
+Authenticated hosting responses include `freePass: {state, periodDays,
+tasksIncluded, startsAt, expiresAt, consumedAt}`, or `null` for standalone accounts.
+State is `available`, `consumed`, or `unavailable`. Available dates are a current
+server proposal; consumed dates are fixed. Keep `hosting/ledger.json` intact,
+including expired free-pass periods and `freePasses` records. Missing or malformed
+links between a spent record and its grant fail closed.
 
 Standalone accounts use a separate `kind: account` scope bound to the wallet and
 payment chain. A signature creates the durable account; its private jobs and paid
@@ -140,6 +158,16 @@ SQLite integrity, account registration and saved result retrieval with model
 execution disabled. Restored OpenClaw config contains original absolute workspace
 paths, so this storage drill never starts the runtime. Runtime recovery requires
 rewriting those paths and restoring service variables separately.
+
+Every restore also creates `hosting/restore-guard.json`. Its presence blocks new
+free-pass claims even if the service flag is enabled, while preserving recorded
+consumption and existing hosting. An old snapshot cannot know which passes were
+spent after capture. Before promoting a restored tree, reconcile its ledger with
+the latest surviving spent records and grants under maintenance, preserving usage
+and payment replay guards. Remove the restore guard only after that reconciliation.
+If post-checkpoint spent records cannot be recovered, keep new free passes disabled.
+Deleting the ledger or bypassing the guard can reopen claims; this server-issued
+benefit depends on operator preservation of its durable records.
 
 This is an operator-triggered backup, with no recurring schedule configured.
 After paid launch, reconcile on-chain payments and consumed transaction records

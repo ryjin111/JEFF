@@ -1,21 +1,50 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, lstat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isAddress } from 'viem';
 import { usdCentsToTokenAmount } from './usd-amount.mjs';
 
 const monthMs = 30 * 86400000;
 export const CLOCKERS_PLAN = Object.freeze({ usdCents: 1000, currency: 'USD', periodDays: 30, tasksIncluded: 100 });
-const nftKey = scope => createHash('sha256').update(scope.kind === 'account' ? `account:${scope.chainId}:${scope.owner}` : `${scope.chainId}:${scope.collection}:${scope.tokenId}`).digest('hex');
+const nftKey = scope => createHash('sha256').update(scope.kind === 'account' ? `account:${scope.chainId}:${scope.owner}` : `${scope.chainId}:${scope.collection.toLowerCase()}:${scope.tokenId}`).digest('hex');
 const walletKey = scope => createHash('sha256').update(`${scope.chainId}:${scope.owner?.toLowerCase()}`).digest('hex');
 const periodKey = (scope, period) => `${nftKey(scope)}:${period.id}`;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function validateUsageContainers(ledger) {
   if (!record(ledger)
+    || ['invoices', 'consumed', 'entitlements'].some(field => !record(ledger[field]))
     || (Object.hasOwn(ledger, 'taskUsage') && !record(ledger.taskUsage))
     || (Object.hasOwn(ledger, 'hourlyUsage') && (!record(ledger.hourlyUsage)
       || Object.values(ledger.hourlyUsage).some(value => !record(value))))) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
+  return ledger;
+}
+
+function validateFreePasses(ledger) {
+  const denied = () => { throw new Error('JEFF_FREE_PASS_STORAGE_UNAVAILABLE'); };
+  if (Object.hasOwn(ledger, 'freePasses') && !record(ledger.freePasses)) denied();
+  for (const [key, entitlement] of Object.entries(ledger.entitlements || {})) {
+    const passes = Array.isArray(entitlement?.periods) ? entitlement.periods.filter(period => period?.source === 'free-pass') : [];
+    if (passes.length > 1) denied();
+    for (const period of passes) {
+      const spent = ledger.freePasses?.[key];
+      if (!spent || spent.periodId !== period.id || spent.startsAt !== period.startsAt
+        || spent.expiresAt !== period.expiresAt || period.limit !== 100) denied();
+    }
+  }
+  for (const [key, spent] of Object.entries(ledger.freePasses || {})) {
+    if (!/^[a-f0-9]{64}$/.test(key) || !record(spent)
+      || !/^free-pass:[a-f0-9-]{36}$/.test(spent.periodId || '')
+      || ['startsAt', 'expiresAt', 'consumedAt'].some(field => typeof spent[field] !== 'string')
+      || !Number.isFinite(Date.parse(spent.consumedAt))
+      || Date.parse(spent.consumedAt) > Date.parse(spent.startsAt)
+      || Date.parse(spent.expiresAt) - Date.parse(spent.startsAt) !== monthMs) denied();
+    const periods = ledger.entitlements[key]?.periods;
+    if (!Array.isArray(periods)) denied();
+    const period = periods.find(period => period?.id === spent.periodId);
+    if (!period || period.source !== 'free-pass' || period.startsAt !== spent.startsAt
+      || period.expiresAt !== spent.expiresAt || period.limit !== 100) denied();
+  }
   return ledger;
 }
 
@@ -26,7 +55,8 @@ function paidPeriods(entitlement, time) {
     for (const period of entitlement.periods) {
       const start = Date.parse(period.startsAt), end = Date.parse(period.expiresAt);
       if (typeof period.id !== 'string' || period.id.length > 100 || !Number.isFinite(start) || end - start !== monthMs
-        || start < previousEnd || !Number.isSafeInteger(period.limit) || period.limit <= 0) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
+        || start < previousEnd || !Number.isSafeInteger(period.limit) || period.limit <= 0
+        || (period.source !== undefined && !['paid', 'free-pass'].includes(period.source))) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
       previousEnd = end;
     }
     if (entitlement.periods.length && Date.parse(entitlement.expiresAt) !== previousEnd) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
@@ -42,7 +72,7 @@ function paidPeriods(entitlement, time) {
     return { id: `legacy:${end}`, startsAt: new Date(end - monthMs).toISOString(), expiresAt: new Date(end).toISOString(), limit: 100 };
   });
 }
-export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, quotePayment, now = () => Date.now() }) {
+export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, quotePayment, resolveOwner, now = () => Date.now() }) {
   const directory = resolve(dataRoot, 'hosting');
   const file = resolve(directory, 'ledger.json');
   let queue = Promise.resolve();
@@ -52,8 +82,14 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
   const recipient = env.CLOCKERS_PAYMENT_RECIPIENT;
   const enabled = env.JEFF_PAID_CHECKOUT_ENABLED === 'true' && isAddress(token) && isAddress(recipient || '')
     && recipient.toLowerCase() !== '0x' + '0'.repeat(40) && typeof quotePayment === 'function';
+  const freePassEnabled = env.JEFF_FREE_PASS_ENABLED === 'true' && typeof resolveOwner === 'function';
+  async function freePassAvailable() {
+    if (!freePassEnabled) return false;
+    try { await lstat(resolve(directory, 'restore-guard.json')); return false; }
+    catch (error) { return error.code === 'ENOENT'; }
+  }
   async function read() {
-    try { return validateUsageContainers(JSON.parse(await readFile(file, 'utf8'))); }
+    try { return validateFreePasses(validateUsageContainers(JSON.parse(await readFile(file, 'utf8')))); }
     catch (error) { if (error.code === 'ENOENT') return { invoices: {}, consumed: {}, entitlements: {} }; throw error; }
   }
   async function write(value) {
@@ -68,11 +104,11 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
     const entitlement = ledger.entitlements[nftKey(scope)];
     const paidExpiry = Date.parse(entitlement?.expiresAt || '');
     const paid = paidPeriods(entitlement, time).find(period => Date.parse(period.startsAt) <= time && Date.parse(period.expiresAt) > time);
-    if (paidExpiry > time && !paid) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
     const pilot = scope.kind !== 'account' && pilotIds.has(scope.tokenId) && pilotExpiry > time;
+    if (paidExpiry > time && !paid && !pilot) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
     const period = paid || (pilot ? { id: `pilot:${pilotExpiry}`, startsAt: null, expiresAt: new Date(pilotExpiry).toISOString(), limit: 100 } : null);
-    const source = paid ? 'paid' : pilot ? 'pilot' : null;
-    const expiry = paid ? paidExpiry : pilot ? pilotExpiry : Number.isFinite(paidExpiry) ? paidExpiry : 0;
+    const source = paid ? paid.source || 'paid' : pilot ? 'pilot' : null;
+    const expiry = Math.max(Number.isFinite(paidExpiry) ? paidExpiry : 0, pilot ? pilotExpiry : 0);
     const counter = period && periodKey(scope, period);
     const used = counter && Object.hasOwn(ledger.taskUsage || {}, counter) ? ledger.taskUsage[counter] : 0;
     if (!Number.isSafeInteger(used) || used < 0) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
@@ -85,16 +121,54 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
       hourlyResetsAt: hourly.length ? new Date(Math.min(...hourly) + 3600000).toISOString() : null };
     return { period, usage, active: Boolean(period), source, expiry };
   }
+  function describeFreePass(scope, ledger, time, available) {
+    if (scope.kind === 'account') return null;
+    const spent = ledger.freePasses?.[nftKey(scope)];
+    const state = spent ? 'consumed' : available ? 'available' : 'unavailable';
+    const startsAt = state === 'available' ? new Date(Math.max(time, describe(scope, ledger, time).expiry)).toISOString() : spent?.startsAt || null;
+    return { state, periodDays: 30, tasksIncluded: 100, startsAt,
+      expiresAt: state === 'available' ? new Date(Date.parse(startsAt) + monthMs).toISOString() : spent?.expiresAt || null,
+      consumedAt: spent?.consumedAt || null };
+  }
   async function status(scope) {
-    const { usage, active, source, expiry } = describe(scope, await read(), now());
+    const ledger = await read(); const time = now();
+    const { usage, active, source, expiry } = describe(scope, ledger, time);
     return { active, source,
       expiresAt: expiry ? new Date(expiry).toISOString() : null, periodDays: 30,
       checkoutEnabled: Boolean(enabled), token, amount: null, plan: CLOCKERS_PLAN,
       recipient: enabled ? recipient.toLowerCase() : null, chainId: scope.chainId,
-      modelBilling: 'included-task-allowance', automaticRenewal: false, usage };
+      modelBilling: 'included-task-allowance', automaticRenewal: false, usage, freePass: describeFreePass(scope, ledger, time, await freePassAvailable()) };
   }
   return Object.freeze({
-    enabled: Boolean(enabled), plan: CLOCKERS_PLAN, status,
+    enabled: Boolean(enabled), freePassEnabled, plan: CLOCKERS_PLAN, status,
+    redeemFreePass(scope) {
+      if (scope.kind === 'account') throw new Error('JEFF_FREE_PASS_DENIED');
+      if (!freePassEnabled) throw new Error('JEFF_FREE_PASS_UNAVAILABLE');
+      if (!isAddress(scope.owner || '') || !isAddress(scope.collection || '')
+        || !Number.isSafeInteger(scope.chainId) || scope.chainId <= 0
+        || !/^(0|[1-9][0-9]*)$/.test(scope.tokenId || '')
+        || !Number.isSafeInteger(scope.ownerEpoch) || scope.ownerEpoch < 0) throw new Error('JEFF_FREE_PASS_INVALID');
+      return serialize(async () => {
+        const ledger = await read();
+        if (!(await freePassAvailable())) throw new Error('JEFF_FREE_PASS_UNAVAILABLE');
+        // Recheck inside the same serialized operation that consumes and grants.
+        const owner = await resolveOwner(scope);
+        if (owner?.owner?.toLowerCase() !== scope.owner.toLowerCase() || owner.ownerEpoch !== scope.ownerEpoch) throw new Error('JEFF_OWNER_REQUIRED');
+        const key = nftKey(scope);
+        if (ledger.freePasses?.[key]) return status(scope);
+        const time = now();
+        const pass = describeFreePass(scope, ledger, time, true);
+        const periodId = `free-pass:${randomUUID()}`;
+        const periods = paidPeriods(ledger.entitlements[key], time);
+        periods.push({ id: periodId, source: 'free-pass', startsAt: pass.startsAt, expiresAt: pass.expiresAt, limit: 100 });
+        ledger.entitlements[key] = { expiresAt: pass.expiresAt, periods };
+        ledger.freePasses ||= {};
+        ledger.freePasses[key] = { periodId, startsAt: pass.startsAt, expiresAt: pass.expiresAt, consumedAt: new Date(time).toISOString() };
+        // The spent record and allowance period share one atomic ledger commit.
+        await write(ledger);
+        return status(scope);
+      });
+    },
     async requireActive(scope) { if (!(await status(scope)).active) throw new Error('JEFF_HOSTING_INACTIVE'); },
     startJob(scope, start) {
       if (typeof start !== 'function' || !isAddress(scope.owner || '')) throw new Error('JEFF_USAGE_SCOPE_INVALID');

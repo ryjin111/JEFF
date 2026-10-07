@@ -62,11 +62,14 @@ export async function verifyIsolatedRestore({ archive, key, parent }) {
   // The restored whole ledger is byte-identical, including replay guards.
   const hosting = createHostingLedger({ dataRoot: root, env: {}, verifyPayment: noPayment });
   assert.equal(hosting.enabled, false);
+  assert.equal(hosting.freePassEnabled, false);
+  const restoreGuard = await readFile(resolve(root, 'hosting', 'restore-guard.json'), 'utf8');
+  assert.ok(restoreGuard.length > 0);
   assert.equal(modelCalls, 0);
   return { schema: 'simple-jeff-isolated-restore-v1', observedAt: new Date().toISOString(), restoredRoot: root,
     sourceRoot: snapshot.sourceRoot, capturedAt: snapshot.capturedAt, manifestSha256: snapshot.manifestSha256,
     filesVerified: restored.filesVerified, databasesQuickChecked: databases, jobsRetrieved: jobs, accountsRestored: accountCount,
-    hostingLedgerPresent: Boolean(ledger), hostingLedgerBytePreserved: Boolean(ledger), operatorJob,
+    hostingLedgerPresent: Boolean(ledger), hostingLedgerBytePreserved: Boolean(ledger), freePassRedemptionBlocked: true, operatorJob,
     ownershipChecks: 'recorded-scope fixtures for storage verification; no live holder session impersonated',
     modelCalls, liveDataOverwritten: false, runtimeLaunched: false };
 }
