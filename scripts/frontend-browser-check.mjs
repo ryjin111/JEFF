@@ -53,13 +53,15 @@ try {
     textSha256: createHash('sha256').update(text).digest('hex'), saved: true, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), model: 'frontend-test-fixture', externalActionsAuthorized: false };
   const running = { schema: record.schema, id, scope, objective: record.objective, status: 'running', saved: true, startedAt: record.startedAt, externalActionsAuthorized: false };
   let jobRequests = 0, retrievals = 0, logoutRequests = 0, revoked = false, pendingJob, pollEntered, jobCreated = false, unsaved = false, retrySaves = 0, failSave = false, hostingActive = true, checkoutEnabled = false, payments = 0, invoices = 0, activations = 0, confirming = false;
-  const quote = { id, scope, chainId: 4663, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20), amount: '1000000000000000001', periodDays: 30, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() };
-  const hostStatus = () => ({ active: hostingActive, source: hostingActive ? 'pilot' : null, expiresAt: hostingActive ? new Date(Date.now() + 86400000).toISOString() : null, periodDays: 30, checkoutEnabled, token: quote.token, amount: checkoutEnabled ? quote.amount : null, recipient: checkoutEnabled ? quote.recipient : null, chainId: 4663, automaticRenewal: false });
+  let plan = { usdCents: 1000, currency: 'USD', periodDays: 30 };
+  const quote = { id, scope, chainId: 4663, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20), amount: '1000000000000000001', periodDays: 30, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString(),
+    pricing: { usdCents: 1000, currency: 'USD', tokenPriceUsd: '9.999999999999999999', tokenDecimals: 18, source: 'dexscreener', sourceUrl: 'https://dexscreener.com/robinhood/fixture', poolId: 'fixture', retrievedAt: new Date().toISOString(), priceUpdatedAt: null } };
+  const hostStatus = () => ({ active: hostingActive, source: hostingActive ? 'pilot' : null, expiresAt: hostingActive ? new Date(Date.now() + 86400000).toISOString() : null, periodDays: 30, checkoutEnabled, token: quote.token, amount: null, plan, recipient: checkoutEnabled ? quote.recipient : null, chainId: 4663, automaticRenewal: false });
   const challenge = 'Fixture holder login\nNo transaction authorization.';
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     let value;
-    if (path === '/api/config') value = { chainId: scope.chainId, collection: scope.collection, modelConfigured: true, billingEnabled: checkoutEnabled, continuousHosting: true, toolsEnabled: false };
+    if (path === '/api/config') value = { chainId: scope.chainId, collection: scope.collection, modelConfigured: true, billingEnabled: checkoutEnabled, continuousHosting: true, toolsEnabled: false, plan };
     else if (path === '/api/auth/challenge') { assert.deepEqual(request.postDataJSON(), { wallet: scope.owner, tokenId: '35' }); value = { nonce: 'test-only', message: challenge }; }
     else if (path === '/api/auth/verify') value = { token: 'aa'.repeat(32), scope, expiresAt: new Date(Date.now() + 3600000).toISOString() };
     else if (path === '/api/auth/logout') { logoutRequests++; value = { loggedOut: true }; }
@@ -104,6 +106,11 @@ try {
   await page.locator('#hosting-status').filter({hasText:'Active'}).waitFor();
   assert.equal(await page.locator('#stage').textContent(),'HOSTED PILOT');
   assert.equal(await page.locator('#create-invoice').isHidden(),true);
+  assert.equal(await page.locator('#plan-price').textContent(), '$10.00');
+  assert.equal(await page.locator('#hosting-usage').textContent(), 'Monthly AI allowance pending');
+  assert.equal(await page.locator('#plan-price-copy').textContent(), 'Paid in $CLOCKERS. Monthly AI allowance will be confirmed before checkout opens.');
+  assert.equal(await page.locator('#checkout-copy').textContent(), 'Monthly checkout is not open yet.');
+  checks.push('USD plan displays $10.00 for 30 days without implying configured model usage or available checkout');
   checks.push('Hosted flags replace local labels; pilot entitlement is visible and unconfigured checkout stays hidden');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#logout').focus(); await page.keyboard.press('Tab');
@@ -156,11 +163,25 @@ try {
   checks.push('Inactive hosting blocks new tasks while saved result retrieval remains available');
   checkoutEnabled=true;await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
   await page.locator('#create-invoice').click();await page.locator('#pay-invoice').filter({hasText:'Pay 1.000000000000000001 $CLOCKERS'}).waitFor();
+  assert.equal(await page.locator('#invoice-usd').textContent(), '$10.00');
+  assert.equal(await page.locator('#invoice-amount').textContent(), '1.000000000000000001 $CLOCKERS');
+  assert.match(await page.locator('#invoice-source-copy').textContent(), /price fetched .*Market update time unavailable/);
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.locator('#invoice').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'usd-invoice-mobile.png'), fullPage: false });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  checks.push('Quote displays USD reference, exact token amount, fetched time and expiry without mobile overflow');
   assert.equal(invoices,1);assert.equal(await page.evaluate(()=>window.__payments||0),0);
   confirming=true;await page.locator('#pay-invoice').click();await page.getByText('The payment is waiting for chain confirmations. Keep the same transaction reference; do not pay again.',{exact:true}).waitFor();
   assert.equal(await page.locator('#pay-invoice').isDisabled(),true);assert.equal(await page.locator('#hosting-status').textContent(),'Inactive');
   assert.equal(await page.evaluate(()=>window.__payments),1);
+  plan = { ...plan, usdCents: 1200 };
   await page.reload();await page.getByText('Task complete. Your result is saved and can be retrieved later.',{exact:true}).waitFor();
+  assert.equal(await page.locator('#plan-price').textContent(), '$12.00');
+  assert.equal(await page.locator('#invoice-usd').textContent(), '$10.00');
+  assert.equal(await page.locator('#invoice-amount').textContent(), '1.000000000000000001 $CLOCKERS');
+  checks.push('Restored invoice retains its original USD reference and exact amount after the plan price changes');
   assert.equal(await page.locator('#transaction-hash').inputValue(),'0x'+'bb'.repeat(32));
   confirming=false;await page.locator('#activate').click();await page.getByText('Payment verified. Hosting is active; the expiry above includes your new term.',{exact:true}).waitFor();
   assert.equal(activations,2);assert.equal(await page.locator('#hosting-status').textContent(),'Active');
@@ -196,7 +217,7 @@ try {
   await accountPage.route('**/api/**',async route=>{
     const request=route.request(),path=new URL(request.url()).pathname;
     let value;
-    if(path==='/api/config')value={chainId:4663,collection:scope.collection,modelConfigured:true,billingEnabled:false,continuousHosting:true,standaloneAccounts:true,toolsEnabled:false};
+    if(path==='/api/config')value={chainId:4663,collection:scope.collection,modelConfigured:true,billingEnabled:false,continuousHosting:true,standaloneAccounts:true,toolsEnabled:false,plan};
     else if(path==='/api/account/auth/challenge'){assert.deepEqual(request.postDataJSON(),{wallet:scope.owner});value={nonce:'account-only',message:accountChallenge};}
     else if(path==='/api/account/auth/verify')value={token:'cc'.repeat(32),scope:accountScope,expiresAt:new Date(Date.now()+3600000).toISOString()};
     else if(path==='/api/auth/logout')value={loggedOut:true};

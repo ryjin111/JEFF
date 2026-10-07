@@ -351,3 +351,5 @@ main{padding:24px 14px 18px}
 .history-id,.result-meta dd{font-size:9px}
 }
 .product-switch button[aria-pressed=true]:disabled{opacity:1}
+
+.plan-price-summary{padding:17px 16px;margin:0 0 22px;border:1px solid #4d4532;border-radius:8px;background:#24221c}.plan-price-summary .eyebrow{font-size:8px;color:#c6b17b}.plan-price-summary p{display:flex;align-items:baseline;gap:5px;margin:9px 0 10px}.plan-price-summary strong{font-size:28px;font-weight:500;color:#f0d99e;letter-spacing:-1px}.plan-price-summary p>span{font-size:11px;color:#b2a98f}.plan-price-summary small{display:block;font-size:10px;color:#b1a78d;line-height:1.7}.invoice .hosting-details{grid-template-columns:1fr}.invoice #invoice-amount{color:#f0d99e;font-size:13px;font-family:var(--mono)}

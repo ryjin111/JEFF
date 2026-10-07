@@ -1,5 +1,5 @@
 import { JOB_ID, scopeKey, validSession, jobIndex, validateRecord, errorLabel } from './client.js';
-import { validateHosting, validateInvoice, formatTokenAmount, transferData } from './billing.js';
+import { validateHosting, validateInvoice, validUsdPlan, formatUsdCents, formatTokenAmount, transferData } from './billing.js';
 const $ = id => document.getElementById(id);
 const SESSION_KEY = 'simple-jeff:session:v1';
 let config, session, provider, loginWallet, busy = false, waiting = false, version = 0, currentResult, expiryTimer, pollTimer;
@@ -20,7 +20,7 @@ function rememberJob(id) {
   try { localStorage.setItem(historyKey(), JSON.stringify(jobIndex([id, ...ids()]))); }
   catch { showNotice(errorLabel(new Error('JEFF_STORAGE_UNAVAILABLE')), true); }
 }
-function formatDate(value) { return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
+function formatDate(value, seconds = false) { return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: seconds ? 'medium' : 'short', timeZone: 'UTC' }).format(new Date(value)) + ' UTC'; }
 async function api(path, { method = 'GET', body, authenticated = false } = {}) {
   const controller = new AbortController(); requests.add(controller);
   try {
@@ -233,25 +233,34 @@ $('download').addEventListener('click', () => {
 });
 function renderHosting() {
   const active = hostingActive();
+  const plan = hosting?.plan || config?.plan;
+  $('plan-price-summary').hidden = !validUsdPlan(plan);
+  $('plan-price').textContent = validUsdPlan(plan) ? formatUsdCents(plan.usdCents) : '';
+  $('plan-price-copy').textContent = config?.billingEnabled ? 'Paid in $CLOCKERS. Your invoice fixes the exact token amount before payment.' : 'Paid in $CLOCKERS. Monthly AI allowance will be confirmed before checkout opens.';
   $('hosting-status').textContent = !session ? 'Sign in to view' : !hosting ? 'Checking' : active ? 'Active' : 'Inactive';
   $('hosting-status').className = 'status ' + (hosting ? active ? 'active' : 'inactive' : '');
   $('hosting-copy').textContent = !session ? 'Sign in to view hosting access and expiry.' : !hosting ? 'Loading your hosting entitlement.' : active ? standaloneSession() ? 'Hosting access is active for your wallet account.' : 'Hosting access is active for this NFT. Its private workspace stays tied to the current holder.' : 'Hosting is inactive. You can retrieve existing results; new tasks need activation or renewal.';
   $('hosting-plan').textContent = !hosting ? 'Not loaded' : hosting.source === 'pilot' ? 'Pilot access' : hosting.source === 'paid' ? '30-day hosting' : 'Not active';
   $('hosting-expiry').textContent = hosting?.expiresAt ? formatDate(hosting.expiresAt) : 'No active term';
-  $('hosting-usage').textContent = hosting ? 'Service-funded, with task limits' : 'Not loaded';
+  $('hosting-usage').textContent = hosting ? validUsdPlan(plan) ? 'Monthly AI allowance pending' : 'Service-funded, with task limits' : 'Not loaded';
   $('refresh-hosting').disabled = !session || busy || waiting;
   $('create-invoice').hidden = !checkoutAvailable(); $('create-invoice').disabled = busy || waiting;
   $('create-invoice').textContent = active ? 'Renew for 30 days' : 'Create 30-day invoice';
-  $('checkout-copy').textContent = checkoutAvailable() ? 'Payment activates 30 days. No automatic renewal.' : 'Monthly checkout is unavailable until pricing and the payment recipient are configured.';
+  $('checkout-copy').textContent = checkoutAvailable() ? 'Payment activates 30 days. No automatic renewal.' : 'Monthly checkout is not open yet.';
   $('invoice').hidden = !session || !invoice || !checkoutAvailable();
   if (!invoice || !session) {
-    for (const id of ['invoice-amount', 'invoice-network', 'invoice-token', 'invoice-recipient', 'invoice-expiry']) $(id).textContent = '';
+    for (const id of ['invoice-usd', 'invoice-source-copy', 'invoice-amount', 'invoice-network', 'invoice-token', 'invoice-recipient', 'invoice-expiry']) $(id).textContent = '';
+    $('invoice-usd-row').hidden = true; $('invoice-source-copy').hidden = true;
     return;
   }
+  $('invoice-usd-row').hidden = !invoice.pricing;
+  $('invoice-usd').textContent = invoice.pricing ? formatUsdCents(invoice.pricing.usdCents) : '';
+  $('invoice-source-copy').hidden = !invoice.pricing;
+  $('invoice-source-copy').textContent = invoice.pricing ? `DEX Screener price fetched ${formatDate(invoice.pricing.retrievedAt, true)}. Market update time unavailable. The token amount is fixed for this invoice.` : '';
   $('invoice-amount').textContent = Number.isInteger(tokenDecimals) ? `${formatTokenAmount(invoice.amount, tokenDecimals)} $CLOCKERS` : 'Loading exact token amount';
   $('invoice-network').textContent = `Chain ${invoice.chainId}`;
   $('invoice-token').textContent = invoice.token; $('invoice-recipient').textContent = invoice.recipient;
-  $('invoice-expiry').textContent = formatDate(invoice.expiresAt);
+  $('invoice-expiry').textContent = formatDate(invoice.expiresAt, true);
   const hash = $('transaction-hash').value.trim();
   const expired = Date.parse(invoice.expiresAt) <= Date.now();
   $('pay-invoice').disabled = busy || waiting || Boolean(hash) || expired || !Number.isInteger(tokenDecimals);
@@ -281,6 +290,7 @@ async function loadTokenDetails(selected, operation) {
   await walletForInvoice(selected); if (operation !== version) return;
   const response = await provider.request({ method: 'eth_call', params: [{ to: selected.token, data: '0x313ce567' }, 'latest'] });
   const decimals = /^0x[a-f0-9]+$/i.test(response) ? Number.parseInt(response.slice(2), 16) : NaN;
+  if (selected.pricing && selected.pricing.tokenDecimals !== decimals) throw new Error('JEFF_TOKEN_DETAILS_UNAVAILABLE');
   formatTokenAmount(selected.amount, decimals);
   if (operation === version && invoice?.id === selected.id) { tokenDecimals = decimals; renderHosting(); }
 }

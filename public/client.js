@@ -44,6 +44,7 @@ export const labels = {
   JEFF_ACCOUNT_INVALID: 'The wallet account could not be registered. Check the connected wallet and try again.',
   JEFF_HOSTING_INACTIVE: 'Hosting is inactive for this workspace. Activate or renew hosting to run new tasks. Saved results are still accessible.',
   JEFF_CHECKOUT_UNAVAILABLE: 'Monthly checkout is not available yet. No payment has been requested.',
+  JEFF_PRICE_UNAVAILABLE: 'A $CLOCKERS price quote is unavailable. No payment was requested. Try again later.',
   JEFF_HOSTING_INVALID: 'Hosting details could not be verified. New tasks and checkout remain unavailable.',
   JEFF_INVOICE_INVALID: 'This invoice is invalid, expired, or belongs to another holder workspace. No payment was sent.',
   JEFF_INVOICE_EXPIRED: 'The invoice expired. Keep your payment reference and contact support before sending another payment.',
@@ -74,5 +75,5 @@ export const labels = {
 };
 export function errorLabel(error) {
   return Number(error?.code) === 4001 ? 'The wallet request was declined. You can try again when ready.'
-    : labels[error?.message] || 'JEFF could not finish this request. No new task was submitted automatically.';
+    : labels[error?.message] || (/^JEFF_PRICE_/.test(error?.message) ? labels.JEFF_PRICE_UNAVAILABLE : 'JEFF could not finish this request. No new task was submitted automatically.');
 }
