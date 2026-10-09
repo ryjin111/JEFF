@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `ddbe3eeeb88e3ea1bfeeb09cfa35e7d8c933902a` |
+| Application source | `fc3deb5ff0d1c3046f169269cbddaf0fa7079fd9` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `1ce6451b-8f0b-41b4-96e8-9b0a7fda2265` |
+| Current deployment | `b4e2d15b-b052-4775-9370-43a785999e89` |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
@@ -20,7 +20,7 @@ Provider credentials are stored in Railway service variables and omitted from al
 
 ## Verified
 
-- The updated application passed 266 automated tests and 35 fixture browser checks. Coverage includes restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission, private-memory isolation, first-task admission and refresh-failure recovery on desktop and mobile.
+- Backend validation passed 266 automated tests. The updated frontend passed 38 fixture browser checks. Coverage includes restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission, private-memory isolation, first-task admission and automatic recovery after repeated refresh failures on desktop and mobile.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
 - Railway built the pinned Linux Dockerfile successfully and started it with the separate `/data` volume.
 - Seven public HTTPS checks passed: health, exact source revision, live hosted configuration, unsigned private-route rejection, no fixture wallet, strict CSP and reachable application assets.
@@ -38,6 +38,8 @@ The task-flow deployment retrieved the same result at `2026-10-09T05:51:07.518Z`
 
 The RPC configuration deployment retrieved the same result at `2026-10-09T05:58:36.208Z`, again without a model rerun.
 
+The current JEFF wording deployment retrieved the same operator result at `2026-10-09T06:21:05.168Z`, reporting persistence source `fc3deb5ff0d1c3046f169269cbddaf0fa7079fd9` and `modelRerun: false`. This remains an operator proof outside holder workspaces.
+
 The initial upload recognized `railway.json` field mappings but did not persist its deployment settings. A deploy-only environment configuration patch applied the settings explicitly; the replacement deployment metadata proves their effective values. The volume is attached and restart persistence is verified. Provider metadata still does not report a separate `requiredMountPath` guard, so that field is not counted as verified.
 
 ## Room #35 holder acceptance
@@ -53,6 +55,12 @@ Release `ddbe3ee` submits the first task directly through `POST /api/jobs`, usin
 The new diagnostics identified the repeated workspace 503s: `JEFF_CHAIN_UNAVAILABLE` with upstream `HttpRequestError` status **403**, including `2026-10-09T05:53:27.652507770Z` and `2026-10-09T05:54:17.561388658Z`. This establishes the cause of those later ownership failures; the original unlogged conversation exception is not independently identified. Staging's RPC configuration was switched to the mainnet endpoint published by [PublicNode](https://robinhood.publicnode.com/). Local validation confirmed chain 4663, the expected Room #35 owner and epoch, fresh pinned-block reads and Multicall3 consistency.
 
 Railway egress validation then passed four concurrent Room #35 ownership challenges (HTTP 200 in 635/609/618/624 ms), NFT discovery with Room #35 present, and healthy service status at `2026-10-09T06:00:17.576Z`. These checks supplied no holder signature, created no holder session, read no private work and called no model. The sanitized receipts are `evidence/staging/publicnode-rpc-validation.json` and `evidence/staging/rpc-fix-railway-smoke.json`. A new holder task remains the end-to-end acceptance check.
+
+Release `94168bb` fixes a browser recovery defect: a failed workspace GET previously stopped polling and left an ownership warning indefinitely. Temporary failures now retry only workspace GETs after 2, 5, 10 and then at most once every 30 seconds. Recovery clears its own warning, keeps accepted job IDs and unsent drafts, and never repeats a task POST or wallet signature. Logout, wallet changes and session expiry cancel recovery; hidden tabs pause polling. The fixture checks also prove that a rejected Send recovers its connection warning without creating a job, and an admitted job becomes Saved after three consecutive GET failures without another POST.
+
+The holder's task `cad3400e-01b9-4f65-bfb0-b1093c658f95` was admitted on the preceding deployment while this release was building. Sanitized HTTP metadata shows authentication HTTP 200 at `06:14:34.730Z`, task admission HTTP 202 at `06:14:39.080Z`, and workspace HTTP 200 at `06:14:40.026Z` and `06:14:42.926Z`. Its next workspace request returned HTTP 502 in 6 ms at `06:14:45.152Z`, during the staging restart. This latest connection failure is distinct from the earlier ownership HTTP 403s. The saved terminal status has not been read through the holder session. Reopen Room #35 and inspect this existing task in Activity before submitting another; it must not be automatically replayed. A graceful shutdown normally saves a Failed receipt, while restart recovery can expose an Interrupted receipt; neither outcome is claimed for this specific task without its authorized receipt.
+
+Release `fc3deb5` changes normal app status, runtime presentation and legacy marketing copy to JEFF, including “JEFF is working on your request.” Technical run receipts still report the actual runtime and model. Its final 38 fixture browser checks passed, including the rendered JEFF status, preserved receipt details, repeated GET failure recovery, rejected-Send draft preservation and cancellation of recovery on wallet changes. Sanitized live source/health/browser checks are recorded in `evidence/staging/ownership-recovery-smoke.json`; the holder restart correlation is in `evidence/staging/holder-restart-observation.json`. Restarted in-memory sessions require a fresh holder sign-in.
 
 For a broader production service, provision and validate a dedicated RPC endpoint with sufficient capacity. Robinhood's official guide describes its original public endpoint as rate-limited and recommends provider-backed access for production. [Robinhood connection guide](https://docs.robinhood.com/chain/connecting/)
 
