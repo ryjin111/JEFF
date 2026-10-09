@@ -116,8 +116,8 @@ function updateRunNotice() {
   if (job.status === 'completed') notify('Run completed and saved.');
   else if (job.status === 'completed_unsaved') notify('Run completed, but its output is not saved. Retry save to keep the existing result.', true);
   else if (job.status === 'failed') notify(tracked.stopRequested
-    ? 'The run ended after your stop request. Its saved receipt is marked Failed.'
-    : 'Run failed. No completed result was saved. Review its receipt before starting another run.', true);
+    ? 'The run ended after your stop request. Its saved status is Failed.'
+    : 'Run failed. No completed result was saved. Review it in Activity before starting another run.', true);
   else if (job.status === 'interrupted') notify('Run interrupted by a server restart. It was not automatically resubmitted.', true);
 }
 function toast(message) {
@@ -436,8 +436,9 @@ function renderShell() {
   renderAgents();
 }
 
-function resultMessage(job) {
+function resultMessage(job, showReceipt = false) {
   const message = node('article', 'message assistant'); message.dataset.jobId = job.id;
+  message.dataset.jobStatus = job.status; message.dataset.busy = String(S.busy);
   const avatar = node('span', 'message-avatar'); avatar.append(icon('spark'));
   const body = node('div', 'message-body'), heading = node('div', 'message-header');
   heading.append(node('strong', '', S.workspace.settings.name), node('span', 'message-time', when(job.finishedAt || job.startedAt)));
@@ -455,17 +456,20 @@ function resultMessage(job) {
       card.append(node('p', 'state-notice', 'This output has not been saved. It can be lost if the server restarts. Retry save reuses this output without running the model again.'), button('Retry save', 'retry-save', 'download', 'button button-primary', { id: job.id }));
     }
   } else card.append(node('p', 'message-text', job.status === 'interrupted' ? 'The server restarted before this run finished. JEFF did not automatically run the task again.' : 'This run did not complete. Review the task before deciding whether to submit a new run.'));
-  const receipt = node('details', 'work-disclosure receipt-details'); const summary = node('summary'); summary.append(icon('shield'), document.createTextNode('Run receipt'));
-  const facts = node('dl', 'receipt-facts');
-  for (const [label, value] of [['Job ID', job.id], ['Runtime', job.runtime], ['Model', job.model || 'Not returned'], ['Started', when(job.startedAt)], ['Content hash', job.textSha256 || 'Available after completion']]) {
-    const part = node('div'); part.append(node('dt', '', label), node('dd', '', value)); facts.append(part);
+  if (showReceipt) {
+    const receipt = node('details', 'work-disclosure receipt-details'); const summary = node('summary'); summary.append(icon('shield'), document.createTextNode('Run receipt'));
+    const facts = node('dl', 'receipt-facts');
+    for (const [label, value] of [['Job ID', job.id], ['Runtime', job.runtime], ['Model', job.model || 'Not returned'], ['Started', when(job.startedAt)], ['Content hash', job.textSha256 || 'Available after completion']]) {
+      const part = node('div'); part.append(node('dt', '', label), node('dd', '', value)); facts.append(part);
+    }
+    receipt.append(summary, facts, node('p', 'preview-info', 'The content hash checks saved text integrity. It is not a signed proof of provider execution.'));
+    card.append(receipt);
   }
-  receipt.append(summary, facts, node('p', 'preview-info', 'The content hash checks saved text integrity. It is not a signed proof of provider execution.'));
-  card.append(receipt);
   const actions = node('div', 'message-actions');
   if (job.text) actions.append(button('Copy answer', 'copy-result', 'copy', 'text-button', { id: job.id }));
-  actions.append(button('Download receipt', 'download-result', 'download', 'text-button', { id: job.id }));
-  card.append(actions); body.append(card); message.append(avatar, body); return message;
+  if (showReceipt) actions.append(button('Download receipt', 'download-result', 'download', 'text-button', { id: job.id }));
+  if (actions.childElementCount) card.append(actions);
+  body.append(card); message.append(avatar, body); return message;
 }
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
@@ -679,6 +683,11 @@ function render() {
   else view = ({ chat: renderChat, activity: renderActivity, skills: renderSkills, memory: renderMemory, usage: renderUsage, schedules: renderSchedules, hosting: renderHosting, settings: renderSettings }[S.view] || renderChat)();
   if (!signedIn() && S.view !== 'chat') view.append(empty('Your NFT opens the workspace.', 'Ownership is checked before private settings, memory and history are returned.', ['Connect an Agent NFT', 'connect']));
   content.replaceChildren(view);
+  for (const dialog of $$('.receipt-dialog[open]')) {
+    const current = $('.message.assistant', dialog), job = S.jobs.find(item => item.id === current?.dataset.jobId);
+    if (!signedIn() || !job) { dialog.close(); continue; }
+    if (current.dataset.jobStatus !== job.status || current.dataset.busy !== String(S.busy)) current.replaceWith(resultMessage(job, true));
+  }
   if (S.busy) $$('form input, form textarea, form select', content).forEach(element => { if (element.id !== 'composer-input') element.disabled = true; });
   if (focus && $(`#${focus}`, content)) {
     const element = $(`#${focus}`, content);
@@ -819,7 +828,7 @@ function renderCommands() {
 }
 async function copy(value) {
   try { await navigator.clipboard.writeText(value); toast('Copied.'); }
-  catch { notify('Clipboard access is unavailable. Download the receipt to keep a copy.', true); }
+  catch { notify('Clipboard access is unavailable. Open the run in Activity to download a copy.', true); }
 }
 function download(value, name) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
@@ -900,7 +909,7 @@ document.addEventListener('click', async event => {
   }
   if (action === 'pause') { await mutate(() => api('/api/workspace/settings', { method: 'PATCH', body: { revision: S.workspace.revision, paused: !S.workspace.settings.paused } }), S.workspace.settings.paused ? 'Future runs resumed.' : 'Future runs paused. Active work is controlled with Stop.'); return; }
   if (action === 'delete-conversation') {
-    if (!conversation() || !confirm('Delete this conversation from the workspace? Saved job receipts remain in Activity.')) return;
+    if (!conversation() || !confirm('Delete this conversation from the workspace? Saved runs remain in Activity.')) return;
     const selected = conversation(); await mutate(async () => {
       await api(`/api/conversations/${selected.id}`, { method: 'DELETE' });
       if (S.admitted?.conversationId === selected.id) S.admitted = null;
@@ -919,9 +928,7 @@ document.addEventListener('click', async event => {
   const job = S.jobs.find(item => item.id === element.dataset.id);
   if (action === 'open-job') {
     if (!job) { notify('This run is not available in the current job history. Refresh the workspace.', true); return; }
-    const selected = S.workspace.conversations.find(item => item.jobIds.includes(job.id));
-    if (selected) { S.conversationId = selected.id; go('chat'); $(`[data-job-id="${job.id}"]`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion:reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
-    else { openReceipt(job); } return;
+    openReceipt(job); return;
   }
   if (!job) return;
   if (action === 'copy-result') { await copy(job.text); return; }
@@ -936,7 +943,7 @@ document.addEventListener('click', async event => {
 });
 function openReceipt(job) {
   const dialog = node('dialog', 'receipt-dialog'); dialog.setAttribute('aria-label', 'Saved run receipt');
-  const close = button('Close receipt', 'close-dialog', 'close', 'button button-outline'); dialog.append(close, resultMessage(job));
+  const close = button('Close receipt', 'close-dialog', 'close', 'button button-outline'); dialog.append(close, resultMessage(job, true));
   dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal();
 }
 $('#sidebar-backdrop').addEventListener('click', () => closeSidebar());

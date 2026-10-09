@@ -621,6 +621,10 @@ async function walletCallbackIsolation() {
     await page.unroute('**/api/jobs', jobsRoute);
     await page.unroute('**/api/workspace/state', stateRoute);
     page.off('request', observeSubmission);
+    assert.equal(await page.locator('#chat-feed .receipt-details,#chat-feed [data-action="download-result"]').count(), 0);
+    await nav(page, 'activity');
+    await page.locator(`[data-action="open-job"][data-id="${job.id}"]`).click();
+    await page.locator('.receipt-dialog[open]').waitFor();
     await page.locator('.receipt-details summary').last().click();
     assert.equal(await page.locator('.receipt-facts').last().getByText(job.id, { exact: true }).count(), 1);
     assert.equal(await page.locator('.receipt-facts').last().getByText(job.runtime, { exact: true }).count(), 1);
@@ -634,11 +638,13 @@ async function walletCallbackIsolation() {
     assert.equal(createHash('sha256').update(exportedReceipt.text).digest('hex'), job.textSha256);
     const unchangedRecord = (await api(page, `/api/jobs/${job.id}`)).value;
     assert.equal(unchangedRecord.text, job.text); assert.equal(unchangedRecord.textSha256, job.textSha256);
+    await page.keyboard.press('Escape');
+    await nav(page, 'chat');
     report.replyFormatting.rawSource = { copiedMarkdownPreserved: true, downloadedMarkdownPreserved: true,
       clipboardWriteArgumentByteExact: true, nativeClipboardNormalizedLineEndings: nativeClipboardText !== job.text,
       storedTextSha256Preserved: true, textSha256: job.textSha256, modelReruns: 0 };
     checked('Formatting leaves raw copied and downloaded Markdown, stored response and text SHA unchanged without rerunning the task');
-    checked('Receipt discloses integrity limits and downloaded record matches durable job');
+    checked('Chat omits receipt controls; Activity receipt discloses integrity limits and exports the durable job');
     await capture(page, 'desktop-conversation');
 
     // Delay acknowledgement and refresh separately, while the real fixture job runs.
@@ -786,7 +792,7 @@ async function walletCallbackIsolation() {
     report.branding = { runningIndicator: workingLabel, receiptRuntime: job.runtime, receiptModel: job.model, fixturePresentation: 'Test fixture' };
     await page.locator('[data-action="stop-job"]').click();
     await page.locator('.message.assistant .pill').filter({ hasText: 'Failed' }).last().waitFor({ timeout: 12000 });
-    await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'The run ended after your stop request. Its saved receipt is marked Failed.');
+    await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'The run ended after your stop request. Its saved status is Failed.');
     checked('Stop requests owned cancellation and UI reports actual failed terminal state');
     for (const view of ['activity', 'skills', 'memory', 'usage', 'schedules', 'hosting', 'settings', 'chat']) {
       await nav(page, view); assert.ok((await page.locator('#workspace-content').textContent()).trim());
