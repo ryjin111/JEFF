@@ -224,7 +224,8 @@ async function newContext(viewport) {
     await ready(page);
     const objective = `${unique}: draft a short Agent NFT launch checklist. <script>window.qaInjected=true</script>`;
     const submissions = [];
-    let rejectedFirstSubmission = false, acceptedRecord, failedAcceptedRefresh = false, rejectAcceptedRefresh = false, conversationPosts = 0;
+    const signaturesBeforeAdmission = await signatureMessages(page), recoveryRequests = [], rejectedPostRecoveryRequests = [];
+    let rejectedFirstSubmission = false, acceptedRecord, failedAcceptedRefresh = false, rejectedRefreshesRemaining = 0, conversationPosts = 0;
     const observeSubmission = request => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') submissions.push(request.postDataJSON());
     };
@@ -238,13 +239,17 @@ async function newContext(viewport) {
       if (route.request().method() !== 'POST') return route.continue();
       if (!rejectedFirstSubmission) { rejectedFirstSubmission = true; return fixtureUnavailable(page, route, 'initial job admission'); }
       const response = await route.fetch();
-      if (response.status() === 202) { acceptedRecord = await response.json(); rejectAcceptedRefresh = true; }
+      if (response.status() === 202) { acceptedRecord = await response.json(); rejectedRefreshesRemaining = 3; }
       return route.fulfill({ response });
     };
     const stateRoute = async route => {
-      if (route.request().method() === 'GET' && rejectAcceptedRefresh) {
-        rejectAcceptedRefresh = false; failedAcceptedRefresh = true;
-        return fixtureUnavailable(page, route, 'workspace refresh after accepted job');
+      if (route.request().method() === 'GET' && rejectedFirstSubmission && !acceptedRecord) rejectedPostRecoveryRequests.push({ method: 'GET', at: Date.now() });
+      if (route.request().method() === 'GET' && acceptedRecord) {
+        recoveryRequests.push({ method: 'GET', at: Date.now(), rejected: rejectedRefreshesRemaining > 0 });
+        if (rejectedRefreshesRemaining > 0) {
+          rejectedRefreshesRemaining--; failedAcceptedRefresh = true;
+          return fixtureUnavailable(page, route, 'workspace refresh after accepted job');
+        }
       }
       return route.continue();
     };
@@ -258,10 +263,21 @@ async function newContext(viewport) {
     assert.equal(await page.locator('#composer-input').inputValue(), objective);
     assert.deepEqual((await api(page, '/api/workspace')).value.conversations, []);
     assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.objective === objective), false);
-    await page.waitForTimeout(2200);
     assert.equal(submissions.length, 1);
     assert.equal(conversationPosts, 0);
     checked('Rejected first send reports its 503, keeps the draft and creates no conversation, job or automatic retry');
+    await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'Connection restored. Review saved work before retrying.', null, { timeout: 7000 });
+    assert.ok(rejectedPostRecoveryRequests.length >= 1);
+    assert.equal(await page.locator('#composer-input').inputValue(), objective);
+    assert.equal(await page.locator('#workspace-notice').evaluate(element => element.classList.contains('is-error')), false);
+    assert.deepEqual((await api(page, '/api/workspace')).value.conversations, []);
+    assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.objective === objective), false);
+    assert.deepEqual(await signatureMessages(page), signaturesBeforeAdmission);
+    assert.equal(submissions.length, 1); assert.equal(conversationPosts, 0);
+    report.rejectedPostRecovery = { automaticWorkspaceGets: rejectedPostRecoveryRequests.length,
+      draftPreserved: true, conversationsCreated: 0, jobsCreated: 0, additionalJobPosts: 0, authSignaturesAdded: 0,
+      restoredBanner: 'Connection restored. Review saved work before retrying.' };
+    checked('Rejected task POST recovers its connection banner through GET only while preserving the draft and creating no job');
 
     await page.locator('[data-action="send-task"]').click();
     await page.waitForFunction(() => /accepted|admitted/i.test(document.getElementById('workspace-notice').textContent)
@@ -280,9 +296,21 @@ async function newContext(viewport) {
     assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === objective).length, 1);
     checked('Accepted first send survives a refresh 503 with its job ID, cleared draft and no duplicate or split conversation POST');
 
-    await page.locator('[data-action="refresh"]').click();
-    await page.locator('.message.assistant .pill').filter({ hasText: 'Saved' }).last().waitFor({ timeout: 12000 });
+    // Restore only the GET endpoint after three failures; the page must recover itself.
+    await page.locator('.message.assistant .pill').filter({ hasText: 'Saved' }).last().waitFor({ timeout: 35000 });
     await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'Run completed and saved.');
+    assert.equal(recoveryRequests.filter(item => item.rejected).length, 3);
+    assert.ok(recoveryRequests.length >= 4);
+    assert.equal(recoveryRequests.at(-1).rejected, false);
+    const recoveryIntervalsMs = recoveryRequests.slice(1).map((request, index) => request.at - recoveryRequests[index].at);
+    assert.ok(recoveryIntervalsMs.every(interval => interval >= 1000), `GET recovery must avoid rapid retry loops: ${recoveryIntervalsMs}`);
+    assert.deepEqual(await signatureMessages(page), signaturesBeforeAdmission);
+    assert.equal(submissions.length, 2); assert.equal(conversationPosts, 0);
+    assert.equal(await page.locator('#workspace-notice').evaluate(element => element.classList.contains('is-error')), false);
+    report.pollRecovery = { rejectedWorkspaceGets: 3, automaticWorkspaceGets: recoveryRequests.length,
+      requests: recoveryRequests.map(request => ({ ...request })), recoveryIntervalsMs, manualRefreshes: 0, reloadsBeforeRecovery: 0, authSignaturesAdded: 0,
+      jobPostAttempts: submissions.length, additionalJobPosts: 0, conversationPosts };
+    checked('Repeated workspace GET failures recover automatically to the saved job without Refresh, signatures or additional mutation requests');
     const jobs = (await api(page, '/api/jobs')).value.jobs;
     const job = jobs.find(item => item.objective === objective);
     assert.ok(job); assert.equal(job.status, 'completed');
@@ -303,7 +331,7 @@ async function newContext(viewport) {
     assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === objective).length, 1);
     assert.equal(submissions.length, 2); assert.equal(conversationPosts, 0);
     report.firstSend = { initialConversations: 0, jobPostAttempts: submissions.length, rejectedAdmissions: 1, acceptedJobs: 1,
-      conversationPostRequests: conversationPosts, injectedRefreshFailures: 1, jobId: job.id, conversationId,
+      conversationPostRequests: conversationPosts, injectedRefreshFailures: recoveryRequests.filter(item => item.rejected).length, jobId: job.id, conversationId,
       persistedConversationJobIds: persistedWorkspace.conversations[0].jobIds, reloadRestoredHistory: true, automaticResubmissions: 0 };
     checked('Atomic first send binds one saved job to one conversation and reload restores its history without rerunning');
     await page.unroute('**/api/conversations', conversationRoute);
@@ -404,10 +432,34 @@ async function newContext(viewport) {
     await page.locator('.receipt-dialog[open]').waitFor(); await page.keyboard.press('Escape');
     checked('Orphaned saved run opens a receipt after conversation deletion');
     // Wallet events clear private content immediately without changing fixture chain state.
+    let invalidatedRecoveryGets = 0;
+    const signaturesBeforeInvalidation = await signatureMessages(page), invalidatedMutations = [];
+    const invalidationRoute = async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      invalidatedRecoveryGets++;
+      return fixtureUnavailable(page, route, 'queued GET recovery before wallet scope invalidation');
+    };
+    const observeInvalidatedMutation = request => {
+      if (request.method() === 'POST' && ['/api/jobs', '/api/conversations', '/api/auth/challenge', '/api/account/auth/challenge'].includes(new URL(request.url()).pathname)) invalidatedMutations.push(new URL(request.url()).pathname);
+    };
+    page.on('request', observeInvalidatedMutation);
+    await page.route('**/api/workspace/state', invalidationRoute);
+    await page.locator('[data-action="refresh"]').click();
+    await page.waitForFunction(() => document.getElementById('workspace-notice').classList.contains('is-error'));
+    assert.equal(invalidatedRecoveryGets, 1);
     await page.evaluate(() => window.__qaWallet.emit('accountsChanged', ['0x' + '99'.repeat(20)]));
     await page.waitForFunction(() => !sessionStorage.getItem('jeff:workspace:session:v1'));
     assert.equal(await page.locator('.memory-card,.message.assistant').count(), 0);
     checked('accountsChanged clears private state and session immediately');
+    await page.waitForTimeout(3100);
+    assert.equal(invalidatedRecoveryGets, 1);
+    assert.deepEqual(await signatureMessages(page), signaturesBeforeInvalidation);
+    assert.deepEqual(invalidatedMutations, []);
+    report.invalidatedRecovery = { injectedWorkspaceGetFailures: 1, workspaceGetsAfterPrivateClear: 0,
+      observedAfterClearMs: 3100, authSignaturesAdded: 0, jobConversationOrChallengePosts: 0 };
+    checked('Wallet scope invalidation cancels the queued GET recovery without further requests, signatures or jobs');
+    await page.unroute('**/api/workspace/state', invalidationRoute);
+    page.off('request', observeInvalidatedMutation);
     await nav(page, 'chat'); await connect(page);
     await page.evaluate(() => window.__qaWallet.emit('chainChanged', '0x1'));
     await page.waitForFunction(() => !sessionStorage.getItem('jeff:workspace:session:v1'));

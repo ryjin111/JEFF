@@ -15,7 +15,8 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
   inventory: null, wallet: null, mode: 'nft', view: 'chat', conversationId: null, draft: '', busy: false, authBusy: false,
   memoryDraft: { title: '', text: '' }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [] };
-let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, sidebarReturnFocus;
+let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
+const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
 const mobile = matchMedia('(max-width: 760px)');
 const node = (tag, className = '', value) => {
@@ -74,7 +75,7 @@ function allowanceReason() {
   return '';
 }
 function notify(message, error = false) {
-  S.notice = message; S.noticeError = error; S.runNotice = null;
+  S.notice = message; S.noticeError = error; S.runNotice = null; refreshNotice = null;
   const element = $('#workspace-notice'); element.textContent = message; element.hidden = !message;
   element.classList.toggle('is-error', error);
 }
@@ -133,6 +134,7 @@ function saveSession() {
 function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   const token = S.session?.token;
   S.version++; refreshSequence++; clearTimeout(pollTimer); clearTimeout(expiryTimer);
+  refreshFailures = 0; refreshNotice = null;
   for (const controller of pending) controller.abort(); pending.clear();
   S.session = null; S.workspace = null; S.jobs = []; S.hosting = null; S.schedules = []; S.usage = null;
   S.conversationId = null; S.draft = ''; S.memoryDraft = { title: '', text: '' }; S.settingsDraft = null; S.scheduleDraft = null;
@@ -197,8 +199,13 @@ function validateUsage(value) {
   }
   return value;
 }
+function temporaryConnectionError(error) {
+  return error.status === 429 || error.status >= 500
+    || ['JEFF_NETWORK_FAILURE', 'JEFF_CHAIN_UNAVAILABLE', 'JEFF_SERVICE_UNAVAILABLE'].includes(error.message);
+}
 async function refresh({ quiet = false } = {}) {
   if (!S.session) return;
+  clearTimeout(pollTimer);
   const version = S.version, sequence = ++refreshSequence, scope = S.session.scope;
   try {
     const value = await api('/api/workspace/state');
@@ -209,29 +216,40 @@ async function refresh({ quiet = false } = {}) {
     const usage = validateUsage(value.usage);
     if (version !== S.version || sequence !== refreshSequence) return;
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
+    refreshFailures = 0;
+    const recovered = refreshNotice && refreshNotice.scope === scopeKey(scope) && S.noticeError && S.notice === refreshNotice.message ? refreshNotice : null;
     const trackedRun = S.runNotice;
     updateRunNotice();
+    if (recovered) notify(recovered.recoveryMessage || 'Connection restored. Saved work is up to date.');
     if (!workspace.conversations.some(item => item.id === S.conversationId)) S.conversationId = workspace.conversations.at(-1)?.id || null;
     render(); schedulePoll();
-    if (!quiet && !trackedRun) notify('Workspace refreshed.');
+    if (!quiet && !trackedRun && !recovered) notify('Workspace refreshed.');
     return true;
   } catch (error) {
-    if (error.message !== 'JEFF_REQUEST_SUPERSEDED') {
-      if (S.runNotice && S.session && S.runNotice.scope === scopeKey(S.session.scope)) {
-        const tracked = S.runNotice;
-        notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. Use Refresh to retrieve its saved status; do not send it again.`, true);
-        S.runNotice = { ...tracked, message: S.notice, refreshFailed: true };
-      } else notify(friendly(error), true);
-      render();
+    if (version !== S.version || sequence !== refreshSequence || error.message === 'JEFF_REQUEST_SUPERSEDED') return false;
+    const retry = S.session && temporaryConnectionError(error);
+    if (retry) refreshFailures = Math.min(refreshFailures + 1, refreshRetryDelays.length);
+    if (S.runNotice && S.session && S.runNotice.scope === scopeKey(S.session.scope)) {
+      const tracked = S.runNotice;
+      notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. ${retry ? 'Checking its saved status automatically; do not send it again.' : 'Use Refresh to retrieve its saved status; do not send it again.'}`, true);
+      S.runNotice = { ...tracked, message: S.notice, refreshFailed: true };
+    } else {
+      const recoveryMessage = refreshNotice?.scope === scopeKey(scope) ? refreshNotice.recoveryMessage : undefined;
+      notify(retry ? `${error.message === 'JEFF_CHAIN_UNAVAILABLE' ? 'Ownership verification is temporarily unavailable.' : 'The connection is temporarily unavailable.'} Reconnecting to check saved work. Your task will not be sent again.` : friendly(error), true);
+      if (retry) refreshNotice = { scope: scopeKey(scope), message: S.notice, recoveryMessage };
     }
+    render();
+    if (retry) schedulePoll();
     return false;
   }
 }
 function schedulePoll() {
   clearTimeout(pollTimer);
-  if (!S.session) return;
-  const delay = running() ? 2000 : S.schedules.some(item => item.status === 'active') ? 10000 : 30000;
-  pollTimer = setTimeout(() => refresh({ quiet: true }), delay);
+  if (!S.session || document.visibilityState === 'hidden') return;
+  const version = S.version;
+  const delay = refreshFailures ? refreshRetryDelays[refreshFailures - 1]
+    : running() ? 2000 : S.schedules.some(item => item.status === 'active') ? 10000 : 30000;
+  pollTimer = setTimeout(() => { if (version === S.version && S.session) refresh({ quiet: true }); }, delay);
 }
 function scheduleExpiry() {
   clearTimeout(expiryTimer);
@@ -245,7 +263,16 @@ async function mutate(operation, success) {
     if (version !== S.version) return;
     const refreshed = await refresh({ quiet: true });
     if (refreshed && version === S.version && success) { notify(success); toast(success); }
-  } catch (error) { if (error.message !== 'JEFF_REQUEST_SUPERSEDED') notify(friendly(error), true); }
+  } catch (error) {
+    if (version === S.version && error.message !== 'JEFF_REQUEST_SUPERSEDED') {
+      notify(friendly(error), true);
+      if (S.session && temporaryConnectionError(error)) {
+        refreshFailures = Math.max(refreshFailures, 1);
+        refreshNotice = { scope: scopeKey(S.session.scope), message: S.notice,
+          recoveryMessage: 'Connection restored. Review saved work before retrying.' };
+      }
+    }
+  }
   finally { if (version === S.version) { S.busy = false; render(); schedulePoll(); } }
 }
 
@@ -897,7 +924,10 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('hashchange', () => { const next = location.hash.slice(1); if (pages.some(([id]) => id === next)) { S.view = next; render(); } });
 mobile.addEventListener('change', () => closeSidebar({ restoreFocus: false }));
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.session) refresh({ quiet: true }); });
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(pollTimer);
+  if (document.visibilityState === 'visible' && S.session) refresh({ quiet: true });
+});
 
 async function initialize() {
   try { const theme = localStorage.getItem(THEME_KEY); setTheme(['light', 'dark'].includes(theme) ? theme : 'light'); } catch { setTheme('light'); }
