@@ -9,6 +9,11 @@ const report = { origin: base, fixture: true, checks: [], screenshots: [], pageE
 const expectedHttpErrors = new WeakMap();
 let browser;
 const checked = name => { report.checks.push(name); process.stdout.write(`PASS ${name}\n`); };
+async function bounded(promise, label, milliseconds = 10000) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), milliseconds); })]); }
+  finally { clearTimeout(timer); }
+}
 async function capture(page, name) {
   const file = `${name}.png`; await page.screenshot({ path: path.join(output, file), fullPage: true }); report.screenshots.push(file);
 }
@@ -336,7 +341,7 @@ async function newContext(viewport) {
       noticeError: document.getElementById('workspace-notice').classList.contains('is-error'), notice: document.getElementById('workspace-notice').textContent }));
     assert.equal(failedAcceptedRefresh, true);
     assert.ok(acceptedRecord?.id); assert.ok(acceptedRecord?.conversationId);
-    assert.equal(acceptedView.draft, ''); assert.equal(acceptedView.composerDisabled, true); assert.equal(acceptedView.sendDisabled, true);
+    assert.equal(acceptedView.draft, ''); assert.equal(acceptedView.composerDisabled, false); assert.equal(acceptedView.sendDisabled, true);
     assert.equal(acceptedView.noticeError, true);
     assert.match(acceptedView.notice, new RegExp(acceptedRecord.id));
     assert.equal(submissions.length, 2);
@@ -425,11 +430,150 @@ async function newContext(viewport) {
     checked('Formatting leaves raw copied and downloaded Markdown, stored response and text SHA unchanged without rerunning the task');
     checked('Receipt discloses integrity limits and downloaded record matches durable job');
     await capture(page, 'desktop-conversation');
+
+    // Delay acknowledgement and refresh separately, while the real fixture job runs.
+    // Typing must remain responsive without allowing a second task submission.
+    const admissionObjective = `${unique}: verify responsive task admission`;
+    const pendingDraft = 'Draft the next message while JEFF works.';
+    const workingDraft = `${pendingDraft} Please keep this draft.`;
+    const admissionPosts = [], admissionConversationPosts = [];
+    let admissionRecord, postHeldAt, postReleasedAt, stateHeldAt, stateReleasedAt;
+    let releasePost, releaseState, acceptedPost, requestedState;
+    const postGate = new Promise(resolve => { releasePost = resolve; });
+    const stateGate = new Promise(resolve => { releaseState = resolve; });
+    const postAccepted = new Promise(resolve => { acceptedPost = resolve; });
+    const stateRequested = new Promise(resolve => { requestedState = resolve; });
+    const observeAdmission = request => {
+      const endpoint = new URL(request.url()).pathname;
+      if (request.method() === 'POST' && endpoint === '/api/jobs') admissionPosts.push(request.postDataJSON());
+      if (request.method() === 'POST' && endpoint === '/api/conversations') admissionConversationPosts.push(request.postDataJSON());
+    };
+    const admissionRoute = async route => {
+      if (route.request().method() !== 'POST' || route.request().postDataJSON()?.objective !== admissionObjective) return route.continue();
+      const response = await route.fetch();
+      assert.equal(response.status(), 202);
+      admissionRecord = await response.json(); postHeldAt = Date.now(); acceptedPost();
+      await postGate;
+      return route.fulfill({ response });
+    };
+    let heldAdmissionState = false;
+    const admissionStateRoute = async route => {
+      if (route.request().method() !== 'GET' || !admissionRecord || heldAdmissionState) return route.continue();
+      heldAdmissionState = true;
+      const response = await route.fetch();
+      assert.equal(response.status(), 200);
+      stateHeldAt = Date.now(); requestedState();
+      await stateGate;
+      return route.fulfill({ response });
+    };
+    page.on('request', observeAdmission);
+    await page.route('**/api/jobs', admissionRoute);
+    await page.route('**/api/workspace/state', admissionStateRoute);
+    try {
+      await ready(page); await page.locator('#composer-input').fill(admissionObjective);
+      await page.locator('[data-action="send-task"]').click();
+      await page.waitForFunction(() => /sending/i.test(document.querySelector('[data-action="send-task"]')?.getAttribute('aria-label') || ''));
+      await bounded(postAccepted, 'fixture job admission behind the held response');
+      assert.equal(await page.locator('#composer-input').isDisabled(), false);
+      assert.equal(await page.locator('[data-action="send-task"]').isDisabled(), true);
+      assert.ok((await page.locator('#chat-feed').textContent()).includes(admissionObjective), 'The submitted task must be visible before acknowledgement');
+      await page.locator('#composer-input').fill(pendingDraft);
+      await page.keyboard.press('Enter');
+      assert.equal(admissionPosts.length, 1);
+      assert.deepEqual(admissionPosts[0], { objective: admissionObjective, conversationId });
+      assert.equal(await page.locator('#composer-input').inputValue(), pendingDraft);
+      await page.waitForTimeout(1500);
+      postReleasedAt = Date.now(); releasePost();
+      await bounded(stateRequested, 'held workspace state response after admission');
+      await page.locator(`.message.assistant[data-job-id="${admissionRecord.id}"] .running-indicator`).waitFor();
+      assert.equal(await page.locator('#composer-input').isDisabled(), false);
+      assert.equal(await page.locator('#composer-input').inputValue(), pendingDraft);
+      assert.equal(await page.locator('[data-action="send-task"]').isDisabled(), true);
+      assert.deepEqual(await page.evaluate(() => ({ focused: document.activeElement?.id,
+        start: document.getElementById('composer-input').selectionStart, end: document.getElementById('composer-input').selectionEnd })),
+      { focused: 'composer-input', start: pendingDraft.length, end: pendingDraft.length });
+      await page.keyboard.type(' Please keep this draft.');
+      await page.locator('#composer-input').evaluate(element => element.setSelectionRange(6, 18));
+      assert.equal(await page.locator('#composer-input').inputValue(), workingDraft);
+      await page.waitForTimeout(1200);
+      stateReleasedAt = Date.now(); releaseState();
+      await page.locator(`.message.assistant[data-job-id="${admissionRecord.id}"] .pill`).filter({ hasText: 'Saved' }).waitFor({ timeout: 12000 });
+      await ready(page);
+      assert.deepEqual(await page.evaluate(() => ({ draft: document.getElementById('composer-input').value, focused: document.activeElement?.id,
+        start: document.getElementById('composer-input').selectionStart, end: document.getElementById('composer-input').selectionEnd })),
+      { draft: workingDraft, focused: 'composer-input', start: 6, end: 18 });
+      assert.equal(admissionPosts.length, 1); assert.deepEqual(admissionConversationPosts, []);
+      const admittedReceipt = (await api(page, `/api/jobs/${admissionRecord.id}`)).value;
+      assert.equal(admittedReceipt.status, 'completed'); assert.equal(admittedReceipt.objective, admissionObjective);
+      assert.equal(createHash('sha256').update(admittedReceipt.text).digest('hex'), admittedReceipt.textSha256);
+      const admittedWorkspace = (await api(page, '/api/workspace')).value;
+      assert.ok(admittedWorkspace.conversations.find(item => item.id === conversationId)?.jobIds.includes(admissionRecord.id));
+      assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === admissionObjective).length, 1);
+      report.admissionResponsiveness = { pendingFeedbackBeforeAcknowledgement: true, postDeliveryHeldMs: postReleasedAt - postHeldAt,
+        stateDeliveryHeldMs: stateReleasedAt - stateHeldAt, draftTypingDuringAdmission: true, draftTypingDuringWork: true,
+        submittedObjectivePreserved: true, nextDraftPreserved: true, focusAndSelectionPreserved: true,
+        visibleAdmittedJobBeforeStateResponse: true, taskPosts: admissionPosts.length, conversationPosts: 0,
+        savedJobId: admissionRecord.id, conversationId };
+      checked('Delayed task acknowledgement and refresh keep typing responsive, preserve the next draft and selection, and save exactly one submitted task');
+    } finally {
+      releasePost(); releaseState();
+      await page.unroute('**/api/jobs', admissionRoute);
+      await page.unroute('**/api/workspace/state', admissionStateRoute);
+      page.off('request', observeAdmission);
+    }
+
+    const rejectedSuggestionObjective = `${unique}: keep a replacement suggestion after rejected admission`;
+    const suggestionJobsBefore = (await api(page, '/api/jobs')).value.jobs.length;
+    const suggestionSignaturesBefore = await signatureMessages(page), suggestionFailurePosts = [];
+    let releaseSuggestionFailure, requestedSuggestionFailure;
+    const suggestionFailureGate = new Promise(resolve => { releaseSuggestionFailure = resolve; });
+    const suggestionFailureRequested = new Promise(resolve => { requestedSuggestionFailure = resolve; });
+    const observeSuggestionFailure = request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') suggestionFailurePosts.push(request.postDataJSON());
+    };
+    const suggestionFailureRoute = async route => {
+      if (route.request().method() !== 'POST' || route.request().postDataJSON()?.objective !== rejectedSuggestionObjective) return route.continue();
+      requestedSuggestionFailure(); await suggestionFailureGate;
+      return fixtureUnavailable(page, route, 'rejected admission after a suggestion replaced the draft');
+    };
+    page.on('request', observeSuggestionFailure);
+    await page.route('**/api/jobs', suggestionFailureRoute);
+    try {
+      await ready(page); await page.locator('#composer-input').fill(rejectedSuggestionObjective);
+      await page.locator('[data-action="send-task"]').click();
+      await bounded(suggestionFailureRequested, 'held rejected admission before choosing a suggestion');
+      await page.locator('[data-pending-message="sending"]').waitFor();
+      const suggestion = page.locator('[data-action="suggestion"]').first();
+      const suggestedDraft = await suggestion.getAttribute('data-prompt');
+      await suggestion.click();
+      assert.equal(await page.locator('#composer-input').inputValue(), suggestedDraft);
+      releaseSuggestionFailure();
+      await page.locator('[data-pending-message="unconfirmed"]').waitFor();
+      assert.equal(await page.locator('[data-pending-message="unconfirmed"] .user-bubble').textContent(), rejectedSuggestionObjective);
+      assert.equal(await page.locator('#composer-input').inputValue(), suggestedDraft);
+      assert.equal((await api(page, '/api/jobs')).value.jobs.length, suggestionJobsBefore);
+      await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'Connection restored. Review saved work before retrying.', null, { timeout: 7000 });
+      assert.equal(await page.locator('#composer-input').inputValue(), suggestedDraft);
+      assert.equal(await page.locator('[data-pending-message="unconfirmed"] .user-bubble').textContent(), rejectedSuggestionObjective);
+      assert.equal(suggestionFailurePosts.length, 1);
+      assert.deepEqual(suggestionFailurePosts[0], { objective: rejectedSuggestionObjective, conversationId });
+      assert.equal((await api(page, '/api/jobs')).value.jobs.length, suggestionJobsBefore);
+      assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.objective === rejectedSuggestionObjective), false);
+      assert.deepEqual(await signatureMessages(page), suggestionSignaturesBefore);
+      report.suggestionDuringRejectedAdmission = { replacementSuggestionPreserved: true, originalSubmissionMarkedUnconfirmed: true,
+        automaticGetRecoveryPreservedDraft: true, taskPostAttempts: suggestionFailurePosts.length, createdJobs: 0,
+        automaticTaskResubmissions: 0, addedWalletSignatures: 0 };
+      checked('A suggestion replacing the draft during rejected admission survives error and GET recovery while the original send stays unconfirmed without a new job');
+    } finally {
+      releaseSuggestionFailure(); await page.unroute('**/api/jobs', suggestionFailureRoute);
+      page.off('request', observeSuggestionFailure);
+    }
     await ready(page); await page.locator('#composer-input').fill(`${unique}: stop this fixture run`); await page.locator('[data-action="send-task"]').click();
     await page.locator('[data-action="stop-job"]').waitFor();
-    assert.equal(await page.locator('.running-indicator').textContent(), 'JEFF is working on your request.');
+    const workingLabel = `${await page.locator('#agent-title').textContent()} is working on your request.`;
+    assert.equal(await page.locator('.running-indicator').textContent(), workingLabel);
     assert.equal(await page.locator('#context-engine').textContent(), 'Test fixture');
-    report.branding = { runningIndicator: 'JEFF is working on your request.', receiptRuntime: job.runtime, receiptModel: job.model, fixturePresentation: 'Test fixture' };
+    report.branding = { runningIndicator: workingLabel, receiptRuntime: job.runtime, receiptModel: job.model, fixturePresentation: 'Test fixture' };
     await page.locator('[data-action="stop-job"]').click();
     await page.locator('.message.assistant .pill').filter({ hasText: 'Failed' }).last().waitFor({ timeout: 12000 });
     await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'The run ended after your stop request. Its saved receipt is marked Failed.');

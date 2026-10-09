@@ -13,7 +13,7 @@ const pages = [
   ['hosting', 'Hosting', 'credit'], ['settings', 'Settings', 'settings'],
 ];
 const S = { config: null, session: null, workspace: null, jobs: [], hosting: null, schedules: [], usage: null,
-  inventory: null, wallet: null, mode: 'nft', view: 'chat', conversationId: null, draft: '', busy: false, authBusy: false,
+  inventory: null, wallet: null, mode: 'nft', view: 'chat', conversationId: null, draft: '', draftVersion: 0, submission: null, admitted: null, busy: false, authBusy: false,
   memoryDraft: { title: '', text: '' }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [] };
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
@@ -58,7 +58,13 @@ function parseBudget(value) {
   return Number(amount);
 }
 const prepaid = () => S.usage?.enabled === true && ['prepaid', 'prepaid-credits'].includes(S.usage.mode);
-const conversation = () => S.workspace?.conversations.find(item => item.id === S.conversationId);
+const conversation = () => {
+  const saved = S.workspace?.conversations.find(item => item.id === S.conversationId);
+  const admitted = S.admitted?.conversationId === S.conversationId ? [S.admitted] : [];
+  if (!saved && !admitted.length) return;
+  return { ...(saved || { id: S.conversationId, title: admitted[0].objective.slice(0, 64) }),
+    jobIds: [...new Set([...(saved?.jobIds || []), ...admitted.map(job => job.id)])] };
+};
 const running = () => S.jobs.some(job => job.status === 'running');
 const signedIn = () => Boolean(S.session && S.workspace);
 function allowanceReason() {
@@ -72,7 +78,7 @@ function allowanceReason() {
   if (!S.hosting.usage || S.hosting.usage.remaining === 0) return 'Your included task allowance is used up. Check Hosting for the next period.';
   if (S.hosting.usage.hourlyRemaining === 0) return 'The hourly task limit was reached. Check Usage for the next available time.';
   if (prepaid() && (!S.usage.balance || S.usage.balance.availableMicros <= 0 || S.usage.balance.paused || S.usage.balance.restoreBlocked)) return 'Inference credits are unavailable. Check Usage & credits before running.';
-  if (running()) return 'JEFF is working. You can close this page and return to the saved job.';
+  if (running()) return `${S.workspace.settings.name} is working. You can draft your next message while you wait.`;
   return '';
 }
 function notify(message, error = false) {
@@ -138,7 +144,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   refreshFailures = 0; refreshNotice = null;
   for (const controller of pending) controller.abort(); pending.clear();
   S.session = null; S.workspace = null; S.jobs = []; S.hosting = null; S.schedules = []; S.usage = null;
-  S.conversationId = null; S.draft = ''; S.memoryDraft = { title: '', text: '' }; S.settingsDraft = null; S.scheduleDraft = null;
+  S.conversationId = null; S.draft = ''; S.draftVersion++; S.submission = null; S.admitted = null; S.memoryDraft = { title: '', text: '' }; S.settingsDraft = null; S.scheduleDraft = null;
   S.invoice = null; S.decimals = null; S.paymentHash = ''; S.paymentSubmitted = false; S.busy = false; S.authBusy = false; S.runNotice = null;
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
@@ -216,13 +222,20 @@ async function refresh({ quiet = false } = {}) {
     const hosting = validateHosting(value.hosting, scope);
     const usage = validateUsage(value.usage);
     if (version !== S.version || sequence !== refreshSequence) return;
+    if (S.admitted) {
+      const observed = jobs.find(job => job.id === S.admitted.id);
+      const savedConversation = workspace.conversations.find(item => item.id === S.admitted.conversationId);
+      const bound = savedConversation?.jobIds.includes(S.admitted.id);
+      if (observed && (bound || (!savedConversation && observed.status !== 'running'))) S.admitted = null;
+      else if (!observed) jobs.unshift(S.admitted);
+    }
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
     refreshFailures = 0;
     const recovered = refreshNotice && refreshNotice.scope === scopeKey(scope) && S.noticeError && S.notice === refreshNotice.message ? refreshNotice : null;
     const trackedRun = S.runNotice;
     updateRunNotice();
     if (recovered) notify(recovered.recoveryMessage || 'Connection restored. Saved work is up to date.');
-    if (!workspace.conversations.some(item => item.id === S.conversationId)) S.conversationId = workspace.conversations.at(-1)?.id || null;
+    if (!workspace.conversations.some(item => item.id === S.conversationId) && !conversation()) S.conversationId = workspace.conversations.at(-1)?.id || null;
     render(); schedulePoll();
     if (!quiet && !trackedRun && !recovered) notify('Workspace refreshed.');
     return true;
@@ -419,7 +432,7 @@ function resultMessage(job) {
   body.append(heading);
   const card = node('div', 'report-card live-report');
   if (job.status === 'running') {
-    card.append(node('div', 'running-indicator', 'JEFF is working on your request.'), node('p', 'preview-info', 'Your job is registered on the server. Closing this page does not resubmit or cancel it.'));
+    card.append(node('div', 'running-indicator', `${S.workspace.settings.name} is working on your request.`), node('p', 'preview-info', 'Your job is registered on the server. Closing this page does not resubmit or cancel it.'));
     const stop = button('Stop this run', 'stop-job', 'pause', 'button button-outline', { id: job.id }); stop.disabled = S.busy; card.append(stop);
   } else if (job.status === 'completed' || job.status === 'completed_unsaved') {
     const reply = node('div', 'message-text message-markdown');
@@ -443,21 +456,29 @@ function resultMessage(job) {
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
   if (!signedIn()) { view.append(empty(S.session ? 'Opening your workspace…' : 'A home for your Agent NFT.', S.session ? 'Checking ownership and loading saved work.' : 'Give your agent useful work. Keep conversations and memories together, and return to the results whenever you need them.', S.session ? null : ['Connect an Agent NFT', 'connect'])); return view; }
+  const selected = conversation(), conversations = S.workspace.conversations.slice();
+  if (selected && !conversations.some(item => item.id === selected.id)) conversations.push(selected);
   const toolbar = node('div', 'conversation-toolbar');
   const selector = node('select', 'field conversation-select'); selector.id = 'conversation-select'; selector.setAttribute('aria-label', 'Open a saved conversation');
-  if (!S.workspace.conversations.length) selector.append(node('option', '', 'Start your first conversation'));
-  for (const item of S.workspace.conversations.slice().reverse()) { const option = node('option', '', item.title); option.value = item.id; option.selected = item.id === S.conversationId; selector.append(option); }
-  selector.disabled = S.busy || !S.workspace.conversations.length;
+  if (!conversations.length) selector.append(node('option', '', 'Start your first conversation'));
+  for (const item of conversations.reverse()) { const option = node('option', '', item.title); option.value = item.id; option.selected = item.id === S.conversationId; selector.append(option); }
+  selector.disabled = S.busy || !conversations.length;
   toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
   if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
   view.append(toolbar);
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
-  const selected = conversation();
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
-  if (!selectedJobs.length) feed.append(empty(selected ? 'What are we working on?' : 'Your first conversation starts here.', 'Bring an idea, a question, or material to work through. JEFF can write, analyze and plan from what you provide.'));
+  const submitting = S.submission?.conversationId === S.conversationId ? S.submission : null;
+  if (!selectedJobs.length && !submitting) feed.append(empty(selected ? 'What are we working on?' : 'Your first conversation starts here.', 'Bring an idea, a question, or material to work through. JEFF can write, analyze and plan from what you provide.'));
   for (const job of selectedJobs) {
     const user = node('article', 'message user'), body = node('div', 'message-body'), heading = node('div', 'message-header');
     heading.append(node('strong', '', 'You'), node('span', 'message-time', when(job.startedAt))); body.append(heading, node('p', 'user-bubble message-text', job.objective)); user.append(body); feed.append(user, resultMessage(job));
+  }
+  if (submitting) {
+    const message = node('article', 'message user pending-message'), body = node('div', 'message-body'), heading = node('div', 'message-header');
+    message.dataset.pendingMessage = submitting.status;
+    heading.append(node('strong', '', 'You'), pill(submitting.status === 'sending' ? 'Sending…' : 'Send not confirmed'));
+    body.append(heading, node('p', 'user-bubble message-text', submitting.objective)); message.append(body); feed.append(message);
   }
   view.append(feed);
   const composerWrap = node('div', 'composer-wrap');
@@ -465,9 +486,10 @@ function renderChat() {
   for (const [title, prompt, iconName] of [['Plan a project', 'Help me plan a project. Ask me about my goal, constraints and deadline.', 'clock'], ['Shape an idea', 'Help me examine an idea. Ask me for the context and compare the main options.', 'spark'], ['Draft an update', 'Help me draft a community update. Ask me for the information and tone to use.', 'book']]) suggestions.append(button(title, 'suggestion', iconName, 'suggestion-chip', { prompt }));
   const form = node('form', 'composer'); form.id = 'composer-form';
   const input = node('textarea'); input.id = 'composer-input'; input.name = 'objective'; input.placeholder = `Give ${S.workspace.settings.name} something to work on…`; input.maxLength = 4000; input.rows = 2; input.required = true; input.value = S.draft;
-  const reason = allowanceReason(); input.disabled = Boolean(reason) || S.busy;
+  const reason = allowanceReason(); input.disabled = Boolean(reason) && !running() && S.submission?.status !== 'sending';
   const lower = node('div', 'composer-bottom'), meta = node('div', 'composer-meta'); meta.append(icon('spark'), node('span', '', S.workspace.settings.model.replace(/^bankr\//, '')), pill('PRIVATE WORKSPACE'));
   const send = button('Send task', 'send-task', 'send', 'send-button'); send.type = 'submit'; send.setAttribute('aria-label', 'Send task'); send.disabled = Boolean(reason) || S.busy || !S.draft.trim();
+  if (S.submission?.status === 'sending') { send.setAttribute('aria-label', 'Sending message'); send.setAttribute('aria-busy', 'true'); }
   lower.append(meta, send); form.append(input, lower);
   composerWrap.append(suggestions, form, node('p', 'composer-footnote', reason || 'Enter to send · Shift + Enter for a new line · External tools and messaging are disabled.'));
   if (S.session.scope.kind === 'account' && (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now())) {
@@ -633,7 +655,7 @@ function render() {
   else view = ({ chat: renderChat, activity: renderActivity, skills: renderSkills, memory: renderMemory, usage: renderUsage, schedules: renderSchedules, hosting: renderHosting, settings: renderSettings }[S.view] || renderChat)();
   if (!signedIn() && S.view !== 'chat') view.append(empty('Your NFT opens the workspace.', 'Ownership is checked before private settings, memory and history are returned.', ['Connect an Agent NFT', 'connect']));
   content.replaceChildren(view);
-  if (S.busy) $$('form input, form textarea, form select', content).forEach(element => { element.disabled = true; });
+  if (S.busy) $$('form input, form textarea, form select', content).forEach(element => { if (element.id !== 'composer-input') element.disabled = true; });
   if (focus && $(`#${focus}`, content)) {
     const element = $(`#${focus}`, content);
     if (!element.disabled) { element.focus({ preventScroll: true }); if (typeof start === 'number' && element.setSelectionRange && !['number', 'checkbox'].includes(element.type)) element.setSelectionRange(start, end); }
@@ -736,16 +758,28 @@ async function newConversation(title) {
 }
 async function sendTask(event) {
   event.preventDefault();
-  const objective = S.draft.trim();
+  const originalDraft = S.draft, objective = originalDraft.trim();
   if (!objective || objective.length > 4000 || S.busy || allowanceReason()) return;
+  const version = S.version, draftVersion = S.draftVersion, scope = S.session.scope;
+  const selected = conversation();
+  S.submission = { objective, conversationId: S.conversationId, status: 'sending' };
+  S.draft = ''; notify('Sending your message…');
   await mutate(async () => {
-    const selected = conversation();
-    const record = await api('/api/jobs', { method: 'POST', body: { objective, ...(selected ? { conversationId: selected.id } : {}) } });
-    await validateRecord(record, S.session.scope);
-    if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
-    S.conversationId = record.conversationId;
-    S.draft = ''; S.jobs = [record, ...S.jobs.filter(job => job.id !== record.id)];
-    notifyRun(record.id, 'Run admitted. Its result will appear here.');
+    try {
+      const record = await api('/api/jobs', { method: 'POST', body: { objective, ...(selected ? { conversationId: selected.id } : {}) } });
+      await validateRecord(record, scope);
+      if (version !== S.version) throw new Error('JEFF_REQUEST_SUPERSEDED');
+      if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
+      S.conversationId = record.conversationId;
+      S.submission = null; S.admitted = record; S.jobs = [record, ...S.jobs.filter(job => job.id !== record.id)];
+      notifyRun(record.id, 'Run admitted. Its result will appear here.'); render();
+    } catch (error) {
+      if (version === S.version) {
+        if (S.draftVersion === draftVersion) { S.draft = originalDraft; S.submission = null; }
+        else S.submission = { objective, conversationId: selected?.id || null, status: 'unconfirmed' };
+      }
+      throw error;
+    }
   });
   $('#chat-feed')?.scrollTo({ top: $('#chat-feed').scrollHeight });
 }
@@ -826,12 +860,16 @@ document.addEventListener('click', async event => {
     catch (error) { put('#connect-status', friendly(error)); } return;
   }
   if (!signedIn()) return;
-  if (action === 'new-session') { S.draft = ''; await mutate(() => newConversation(), 'New conversation created.'); go('chat'); return; }
-  if (action === 'suggestion') { S.draft = element.dataset.prompt; render(); $('#composer-input')?.focus(); return; }
+  if (action === 'new-session') { if (S.busy) return; S.draft = ''; S.draftVersion++; await mutate(() => newConversation(), 'New conversation created.'); go('chat'); return; }
+  if (action === 'suggestion') { S.draft = element.dataset.prompt; S.draftVersion++; render(); $('#composer-input')?.focus(); return; }
   if (action === 'pause') { await mutate(() => api('/api/workspace/settings', { method: 'PATCH', body: { revision: S.workspace.revision, paused: !S.workspace.settings.paused } }), S.workspace.settings.paused ? 'Future runs resumed.' : 'Future runs paused. Active work is controlled with Stop.'); return; }
   if (action === 'delete-conversation') {
     if (!conversation() || !confirm('Delete this conversation from the workspace? Saved job receipts remain in Activity.')) return;
-    const selected = conversation(); await mutate(() => api(`/api/conversations/${selected.id}`, { method: 'DELETE' }), 'Conversation removed.'); return;
+    const selected = conversation(); await mutate(async () => {
+      await api(`/api/conversations/${selected.id}`, { method: 'DELETE' });
+      if (S.admitted?.conversationId === selected.id) S.admitted = null;
+      if (S.submission?.conversationId === selected.id) S.submission = null;
+    }, 'Conversation removed.'); return;
   }
   if (action === 'toggle-skill') { const skill = S.workspace.skills.find(item => item.id === element.dataset.id); if (skill) await mutate(() => api('/api/workspace/skills', { method: 'PATCH', body: { id: skill.id, enabled: !skill.enabled } }), 'Prompt recipe saved.'); return; }
   if (action === 'edit-memory') { const memory = S.workspace.memories.find(item => item.id === element.dataset.id); if (memory) { S.memoryDraft = { id: memory.id, title: memory.title, text: memory.text }; render(); $('#memory-title')?.focus(); } return; }
@@ -876,14 +914,14 @@ $('#connect-mode').addEventListener('change', event => {
 $('#command-search').addEventListener('input', renderCommands);
 document.addEventListener('input', event => {
   const element = event.target;
-  if (element.id === 'composer-input') { S.draft = element.value; const send = $('[data-action="send-task"]'); if (send) send.disabled = S.busy || Boolean(allowanceReason()) || !S.draft.trim(); element.style.height = 'auto'; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }
+  if (element.id === 'composer-input') { S.draft = element.value; S.draftVersion++; const send = $('[data-action="send-task"]'); if (send) send.disabled = S.busy || Boolean(allowanceReason()) || !S.draft.trim(); element.style.height = 'auto'; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }
   if (['memory-title', 'memory-text'].includes(element.id)) S.memoryDraft[element.id === 'memory-title' ? 'title' : 'text'] = element.value;
   if (element.id === 'payment-hash') { S.paymentHash = element.value; if (element.value.trim()) S.paymentSubmitted = true; }
   if (element.closest('#settings-form')) S.settingsDraft = { revision: S.settingsDraft?.revision ?? S.workspace.revision, name: $('#settings-name').value, model: $('#settings-model').value, budget: $('#settings-budget').value, paused: $('#settings-paused').checked };
   if (element.closest('#schedule-form')) S.scheduleDraft = { objective: $('#schedule-objective').value, interval: $('#schedule-interval').value, maxRuns: $('#schedule-max-runs').value, expiry: $('#schedule-expiry').value, consent: $('#schedule-consent').checked };
 });
 document.addEventListener('change', event => {
-  if (event.target.id === 'conversation-select') { S.conversationId = event.target.value; S.draft = ''; render(); }
+  if (event.target.id === 'conversation-select') { S.conversationId = event.target.value; S.draft = ''; S.draftVersion++; render(); }
   if (event.target.closest('#settings-form') || event.target.closest('#schedule-form')) event.target.dispatchEvent(new Event('input', { bubbles: true }));
 });
 document.addEventListener('submit', async event => {
