@@ -44,6 +44,8 @@ The initial upload recognized `railway.json` field mappings but did not persist 
 
 ## Room #35 holder acceptance
 
+After deployment `ccfee069`, the holder confirmed **“The conversation reopens correctly”** in response to the staging sign-in/reload check. Public configuration still reports candidate source `124c6f4154b485f1a4e0a0de7e613be41f93b3cc`. This passes saved-conversation reload acceptance by holder report; it does not yet verify a new continuation turn, memory recall, scheduled execution or the latest agent name in a fresh response. No operator holder signature, private-workspace read or model call was used. The receipt is `evidence/staging/holder-reload-acceptance.json`.
+
 The holder confirmed Room #35 for staging acceptance. Its signed NFT workspace showed owner epoch 0, Ready status and 100 tasks remaining. A later holder screenshot dated **9 October 2026, 14:31 Asia/Taipei** shows a generated reply, the Saved badge and “Run completed and saved.” Sanitized HTTP metadata records a task admission HTTP 202 at `2026-10-09T06:31:47.854Z` and successful workspace refreshes afterward. This confirms at least one genuine Room #35 task completed and saved in the hosted pilot. The screenshot does not disclose its job ID, and does not establish the terminal status of the earlier `cad3400e` task. Evidence is in `evidence/staging/holder-task-acceptance-metadata.json`. Restarted sessions still require a fresh holder signature.
 
 The initial holder screenshot showed a signed standalone wallet account with no hosting, rather than an NFT workspace. Read-only staging discovery for that wallet returned Rooms **7, 35, 108, 109 and 110**. The UI preserved account mode when opening an Agent NFT connection, and its dropdown could lose a selected mode during synchronous session cleanup. Release `3025468` fixes both paths: Agent NFT actions choose NFT mode explicitly, account mode remains an explicit choice, and inactive wallet accounts display a route to their owned Rooms. Room hosting remains attached to the NFT and requires a fresh holder signature; account memories stay in their separate workspace.
@@ -113,7 +115,7 @@ Provider snapshots and JEFF encrypted exports are separate recovery paths. A pro
 
 ## Remaining acceptance
 
-1. Verify conversation continuation after reload and memory persistence. Holder sign-in and a completed saved response have passed.
+1. Verify memory persistence/recall and a new conversation continuation turn. Holder sign-in, a completed saved response and saved-conversation reload have passed; the reload was confirmed by the holder on candidate `124c6f4`.
 2. Complete the holder-authorized cloud schedule and pause/cancellation checks above.
 3. Verify a replacement cloud service/volume recovery and independent key retention; configure recurring off-machine backups. Cloud/local isolated storage restores and one encrypted off-host capture have passed.
 4. Check production capacity and independent always-on monitoring with a tested alert destination before a wider holder pilot. The configured workstation monitor and short public sample do not establish those gates.
