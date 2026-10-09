@@ -63,7 +63,7 @@ const signedIn = () => Boolean(S.session && S.workspace);
 function allowanceReason() {
   if (!S.session) return 'Connect your Agent NFT to start a conversation.';
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
-  if (!S.config?.modelConfigured) return 'The model connection is unavailable. Saved work remains accessible.';
+  if (!S.config?.modelConfigured) return 'JEFF’s model connection is unavailable. Saved work remains accessible.';
   if (S.workspace.settings.paused) return 'Future runs are paused. Resume this agent to send a task.';
   if (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return S.session.scope.kind === 'account'
     ? 'This wallet account has no active hosting. Open your Agent NFT to use its hosting.'
@@ -71,7 +71,7 @@ function allowanceReason() {
   if (!S.hosting.usage || S.hosting.usage.remaining === 0) return 'Your included task allowance is used up. Check Hosting for the next period.';
   if (S.hosting.usage.hourlyRemaining === 0) return 'The hourly task limit was reached. Check Usage for the next available time.';
   if (prepaid() && (!S.usage.balance || S.usage.balance.availableMicros <= 0 || S.usage.balance.paused || S.usage.balance.restoreBlocked)) return 'Inference credits are unavailable. Check Usage & credits before running.';
-  if (running()) return 'Your agent is working. You can close this page and return to the saved job.';
+  if (running()) return 'JEFF is working. You can close this page and return to the saved job.';
   return '';
 }
 function notify(message, error = false) {
@@ -384,10 +384,10 @@ function renderShell() {
   put('#context-model', settings?.model?.replace(/^bankr\//, '') || '—');
   put('#context-last-run', S.jobs.length ? when(S.jobs[0].startedAt) : 'No runs yet');
   put('#context-host', S.config?.continuousHosting ? 'Simple JEFF · cloud' : 'Simple JEFF · local');
-  put('#context-engine', S.config?.fixture ? 'Test fixture' : 'OpenClaw');
+  put('#context-engine', S.config?.fixture ? 'Test fixture' : 'JEFF');
   put('#runtime-mode', !S.config ? 'CONNECTING' : S.config.fixture ? 'FIXTURE' : S.config.modelConfigured ? 'CONNECTED' : 'UNAVAILABLE');
   put('#runtime-label', S.config?.fixture ? 'DEVELOPMENT FIXTURE' : 'JEFF WORKSPACE');
-  put('#runtime-copy', !S.config ? 'Connecting to the OpenClaw runtime…' : S.config.fixture ? 'Explicit test runtime. Responses and funding are fixtures, not live AI or payments.' : !S.config.modelConfigured ? 'Model unavailable. Sign in to manage your agent and reopen saved work.' : S.config.continuousHosting ? 'Hosted by Simple JEFF. Your Agent NFT’s private workspace.' : 'Your local OpenClaw workspace for Agent NFTs.');
+  put('#runtime-copy', !S.config ? 'Connecting to JEFF…' : S.config.fixture ? 'Explicit test runtime. Responses and funding are fixtures, not live AI or payments.' : !S.config.modelConfigured ? 'JEFF’s model connection is unavailable. Sign in to reopen saved work.' : S.config.continuousHosting ? 'Hosted by Simple JEFF. Your Agent NFT’s private workspace.' : 'Your local JEFF workspace for Agent NFTs.');
   $('#runtime-banner').classList.toggle('fixture-banner', S.config?.fixture === true);
   const pause = $('#pause-agent'); pause.disabled = !signedIn() || S.busy;
   $('span', pause).textContent = settings?.paused ? 'Resume future runs' : 'Pause future runs';
@@ -418,7 +418,7 @@ function resultMessage(job) {
   body.append(heading);
   const card = node('div', 'report-card live-report');
   if (job.status === 'running') {
-    card.append(node('div', 'running-indicator', 'OpenClaw is working on your request.'), node('p', 'preview-info', 'Your job is registered on the server. Closing this page does not resubmit or cancel it.'));
+    card.append(node('div', 'running-indicator', 'JEFF is working on your request.'), node('p', 'preview-info', 'Your job is registered on the server. Closing this page does not resubmit or cancel it.'));
     const stop = button('Stop this run', 'stop-job', 'pause', 'button button-outline', { id: job.id }); stop.disabled = S.busy; card.append(stop);
   } else if (job.status === 'completed' || job.status === 'completed_unsaved') {
     card.append(node('div', 'message-text', job.text));
@@ -482,7 +482,7 @@ function renderActivity() {
   const jobs = section('Runs');
   for (const job of S.jobs) {
     const element = node('div', 'list-row activity-row'), marker = node('span', 'activity-marker'); marker.append(icon(job.status === 'completed' ? 'check' : job.status === 'running' ? 'clock' : 'activity'));
-    const copy = node('div', 'activity-copy'); copy.append(node('strong', '', job.objective), node('span', 'muted', `${when(job.startedAt)} · ${job.model || 'OpenClaw'} · ${job.id}`));
+    const copy = node('div', 'activity-copy'); copy.append(node('strong', '', job.objective), node('span', 'muted', `${when(job.startedAt)} · ${job.model || 'JEFF'} · ${job.id}`));
     element.append(marker, copy, pill(job.status.replaceAll('_', ' '), job.status === 'completed' ? 'success' : ''), button('Open receipt', 'open-job', 'arrow', 'text-button', { id: job.id })); jobs.append(element);
   }
   if (!S.jobs.length) jobs.append(node('p', 'preview-info', 'No runs have been submitted.'));
