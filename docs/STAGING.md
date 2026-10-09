@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `e87fd9365e9f42803a61d8e3d5cdc13688a07d60` |
+| Application source | `2ff9a919006a8ade4c95fe45fe1f984fdbae8b3a` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `240b6c0c-5577-4008-bf67-591e0a3a46f6` |
+| Current deployment | `73a4e6a2-c32c-419b-a770-1510719e22fb` |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
@@ -20,7 +20,7 @@ Provider credentials are stored in Railway service variables and omitted from al
 
 ## Verified
 
-- The full automated suite passed 271 tests. Six frontend integrity tests were also rerun successfully. The updated frontend passed 43 fixture browser checks. Coverage includes restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission, private-memory isolation, first-task admission, automatic recovery after repeated refresh failures, safe formatted replies on desktop and mobile, scoped agent identity and editable drafts during admission and execution.
+- The final full automated suite passed **285/285 tests** with a fresh isolated OpenClaw `2026.9.9` installation. The updated frontend passed **49/49 fixture browser checks**. Coverage includes account/NFT session isolation, expiry/logout races, scheduled cancellation, restored-storage execution guards, missing known ledgers, split UTF-8 requests, two-tab Settings conflicts, late wallet callbacks, hosting admission, private memory, automatic GET recovery, safe formatted replies, scoped agent identity and editable drafts during admission and execution.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
 - Railway built the pinned Linux Dockerfile successfully and started it with the separate `/data` volume.
 - Seven public HTTPS checks passed: health, exact source revision, live hosted configuration, unsigned private-route rejection, no fixture wallet, strict CSP and reachable application assets.
@@ -74,6 +74,16 @@ The identity/send deployment began only after checking HTTP admission metadata: 
 
 The replacement process retrieved the original operator result at `2026-10-09T08:08:53.417Z`, reporting persistence source `e87fd9365e9f42803a61d8e3d5cdc13688a07d60`, `retrievedAfterProcessRestart: true` and `modelRerun: false`. All 12 live public checks passed at **16:09 Asia/Taipei**, including exact source and asset hashes, health, public Room #35 discovery/challenge, unsigned private-route rejection and safe desktop/mobile rendering. There were no browser errors, external requests or overflow. These checks used no holder session, private workspace or inference call; the new identity's real-provider response has not yet been confirmed by a holder.
 
+The broader review in release `2ff9a91` reproduced and fixed eight bug groups: schedule cancellation during a pending admission check; authentication completing after logout/session expiry or challenge expiry; split UTF-8 request chunks corrupting stored Chinese text or emoji; missing known hosting ledgers resetting quotas/free passes; missing known inference databases losing financial history; Settings drafts becoming stuck on stale revisions and failed refresh notices; late wallet callbacks changing another session's notices/payment lock; and operator-funded manual inference bypassing the restore guard. Regression tests demonstrated the prior failures. Restored workspaces remain readable, while all new model execution stays blocked until reconciliation.
+
+Validation used a fresh isolated dependency installation: **285/285 automated tests** and **49/49 browser checks** passed with OpenClaw `2026.9.9`, including actual CLI requests to a local fixture provider. The original pilot's shared dependencies were untouched. The production dependency audit improved from seven findings to five, with three high and two moderate reports remaining inside bundled npm components. Attempts with upstream npm `11.21.0` and `12.2.0` did not remove those reports; no override is shipped. These remain open findings, not a claim of a clean audit. See `docs/RELEASE.md` and the before/after registry reports under `evidence/release/`.
+
+The bug-fix deployment passed **12/12 live public checks at 16:58 Asia/Taipei**, with exact source and asset hashes, ready health, public Room #35 discovery/challenge, unsigned private-route rejection and safe desktop/mobile Markdown rendering. Both browser sizes reported zero JavaScript, console/CSP or external-request errors and no horizontal overflow. No holder session, private workspace or model invocation was used. The pre-deploy HTTP metadata check observed zero accepted tasks in the preceding ten minutes; its sanitized receipt is `evidence/staging/bug-audit-deploy-precheck.json`.
+
+The replacement process retrieved the original saved operator job again at `2026-10-09T08:57:47.188Z`, reporting persistence source `2ff9a919006a8ade4c95fe45fe1f984fdbae8b3a`, `retrievedAfterProcessRestart: true` and `modelRerun: false`. The six-field sanitized receipt is `evidence/staging/bug-audit-restart-persistence.json`. Read-only provider metadata and public configuration confirm that production remains on its existing deployment and source.
+
+All review fixtures were stopped. Automatic approval review rejected deleting the disposable local directory `.private/release-preview-tHY8Y8`, stating **blocked by policy**. It remains in place; that rejection was not bypassed. The directory contains disposable fixture data, not a live holder workspace.
+
 For a broader production service, provision and validate a dedicated RPC endpoint with sufficient capacity. Robinhood's official guide describes its original public endpoint as rate-limited and recommends provider-backed access for production. [Robinhood connection guide](https://docs.robinhood.com/chain/connecting/)
 
 1. Send one task and wait for its saved response. Reload and continue the conversation.
@@ -100,5 +110,6 @@ Provider snapshots and JEFF encrypted exports are separate recovery paths. A pro
 3. Complete the stage-only encrypted backup/isolated restore drill and record its receipt.
 4. Check production capacity and continuous monitoring before a wider holder pilot. Railway deployment health checks alone are not ongoing monitoring.
 5. Approve a funded credit policy and payment configuration before enabling their corresponding features. Token relaunch and automatic token-holder distributions remain separate.
+6. Resolve or reassess the five remaining bundled npm dependency findings before widening the service or enabling additional runtime tools.
 
 Public smoke reports and screenshots are in the local ignored `evidence/staging/` folder. Provider keys and backup encryption keys are excluded. Production remains on deployment `3dbc3610-d799-4c0a-8133-ac727759559d`, source `4a0145727279d22e0db0394b0da0ea5ff3ace03e`.
