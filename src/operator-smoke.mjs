@@ -20,13 +20,14 @@ export async function verifyHostedRuntime({ env = process.env, resolveOwner: own
     return { ...cached, persistenceVerifiedAt: new Date().toISOString(), persistenceReleaseSha: env.JEFF_RELEASE_SHA || null,
       retrievedAfterProcessRestart: true, modelRerun: false };
   }
+  const runtimeVersion = JSON.parse(await readFile(new URL('../node_modules/openclaw/package.json', import.meta.url), 'utf8')).version;
   const state = await resolveOwner(candidate);
   const scope = { ...candidate, owner: state.owner, ownerEpoch: state.ownerEpoch };
   const bridge = createJeffOpenClawNftBridge(options);
   const result = await bridge.run(scope, 'Create a concise checklist for testing an NFT-controlled hosted assistant. Supplied facts: JEFF uses OpenClaw; Room 35 has a 30-day pilot; tasks produce saved text; paid checkout is disabled; external tools are disabled. Separate available behavior from pending behavior. Do not claim payment verification, holder login or autonomous actions occurred.');
   const read = await createJeffOpenClawNftBridge(options).retrieve(scope, result.id);
   if (result.textSha256 !== read.textSha256 || result.text !== read.text) throw new Error('RETRIEVAL_FAILED');
-  const proof = { schema: 'simple-jeff-hosted-runtime-proof-v1', observedAt: new Date().toISOString(), releaseSha: env.JEFF_RELEASE_SHA || null, runtime: 'OpenClaw 2026.9.8', operatorTest: true, signedHolderSessionTested: false, simulatedModel: false, jobId: result.id, scope, textSha256: result.textSha256, retrievedAfterBridgeRestart: true, paidCheckoutEnabled: false };
+  const proof = { schema: 'simple-jeff-hosted-runtime-proof-v1', observedAt: new Date().toISOString(), releaseSha: env.JEFF_RELEASE_SHA || null, runtime: `OpenClaw ${runtimeVersion}`, operatorTest: true, signedHolderSessionTested: false, simulatedModel: false, jobId: result.id, scope, textSha256: result.textSha256, retrievedAfterBridgeRestart: true, paidCheckoutEnabled: false };
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
   await writeFile(file, JSON.stringify(proof), { mode: 0o600 });
   return proof;

@@ -31,8 +31,10 @@ export function createHolderSessions({ origin, chainId, collection, resolveOwner
       let signer;
       try { signer = (await recoverMessageAddress({ message: challenge.message, signature })).toLowerCase(); }
       catch { throw new Error('JEFF_SIGNATURE_INVALID'); }
+      if (challenge.expiresAt <= now()) throw new Error('JEFF_CHALLENGE_EXPIRED');
       const state = await resolveOwner(challenge.scope);
       if (signer !== challenge.scope.owner || state.owner !== signer || state.ownerEpoch !== challenge.scope.ownerEpoch) throw new Error('JEFF_OWNER_REQUIRED');
+      if (challenge.expiresAt <= now()) throw new Error('JEFF_CHALLENGE_EXPIRED');
       const token = randomBytes(32).toString('hex');
       const expiresAt = now() + 3600000;
       sessions.set(digest(token), { scope: challenge.scope, expiresAt });
@@ -41,11 +43,14 @@ export function createHolderSessions({ origin, chainId, collection, resolveOwner
     async authenticate(token) {
       prune();
       if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) throw new Error('JEFF_SESSION_REQUIRED');
-      const session = sessions.get(digest(token));
+      const key = digest(token), session = sessions.get(key);
       if (!session) throw new Error('JEFF_SESSION_REQUIRED');
       const state = await resolveOwner(session.scope);
+      // Logout or expiry may occur while the fresh ownership read is pending.
+      prune();
+      if (sessions.get(key) !== session) throw new Error('JEFF_SESSION_REQUIRED');
       if (state.owner !== session.scope.owner || state.ownerEpoch !== session.scope.ownerEpoch) {
-        sessions.delete(digest(token)); throw new Error('JEFF_SESSION_REVOKED');
+        sessions.delete(key); throw new Error('JEFF_SESSION_REVOKED');
       }
       return session.scope;
     },

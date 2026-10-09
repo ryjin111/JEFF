@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHostingLedger } from '../src/hosting.mjs';
 const scope = { chainId: 4663, collection: '0x' + '11'.repeat(20), tokenId: '35', owner: '0x' + '22'.repeat(20), ownerEpoch: 0 };
@@ -99,4 +99,37 @@ test('unavailable, stale, wrong-plan and inconsistent quotes never create payabl
   await assert.rejects(createHostingLedger({ ...f.options, quotePayment: async () => { throw Error('JEFF_PRICE_UNAVAILABLE'); } }).invoice(scope), /PRICE_UNAVAILABLE/);
   assert.equal((await f.ledger.status(scope)).active, false);
   assert.throws(() => createHostingLedger({ ...f.options, quotePayment: undefined }).invoice(scope), /CHECKOUT_UNAVAILABLE/);
+});
+
+test('losing an initialized hosting ledger cannot reset pilot task usage across restart', async t => {
+  const f = await setup(t, { env: { JEFF_PILOT_NFTS: '35', JEFF_PILOT_EXPIRES_AT: '2026-10-07T00:00:00Z' } });
+  assert.equal((await f.ledger.status(scope)).usage.remaining, 100);
+  await f.ledger.startJob(scope, async () => ({ id: 'already-admitted' }));
+  assert.equal((await f.ledger.status(scope)).usage.remaining, 99);
+  const file = resolve(f.options.dataRoot, 'hosting', 'ledger.json');
+  await rm(file);
+  let starts = 0;
+  for (const ledger of [f.ledger, createHostingLedger(f.options)]) {
+    await assert.rejects(ledger.status(scope), /JEFF_USAGE_STORAGE_UNAVAILABLE/);
+    await assert.rejects(ledger.startJob(scope, () => { starts++; }), /JEFF_USAGE_STORAGE_UNAVAILABLE/);
+  }
+  assert.equal(starts, 0);
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+});
+
+test('legacy hosting ledgers gain a loss guard without changing saved paid terms or usage', async t => {
+  const f = await setup(t), invoice = await f.ledger.invoice(scope);
+  await f.ledger.activate(scope, { invoiceId: invoice.id, transactionHash: hash });
+  await f.ledger.startJob(scope, async () => ({ id: 'legacy-admission' }));
+  const file = resolve(f.options.dataRoot, 'hosting', 'ledger.json');
+  const marker = resolve(f.options.dataRoot, 'hosting', 'ledger-initialized.json');
+  const saved = await readFile(file);
+  await rm(marker, { force: true });
+  const restarted = createHostingLedger(f.options);
+  const current = await restarted.status(scope);
+  assert.equal(current.active, true); assert.equal(current.usage.used, 1);
+  assert.deepEqual(await readFile(file), saved);
+  assert.equal(JSON.parse(await readFile(marker, 'utf8')).schema, 'simple-jeff-hosting-initialized-v1');
+  await rm(file);
+  await assert.rejects(createHostingLedger(f.options).status(scope), /JEFF_USAGE_STORAGE_UNAVAILABLE/);
 });

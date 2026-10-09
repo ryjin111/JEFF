@@ -75,7 +75,8 @@ function paidPeriods(entitlement, time) {
 export function createHostingLedger({ dataRoot, env = process.env, verifyPayment, quotePayment, resolveOwner, now = () => Date.now() }) {
   const directory = resolve(dataRoot, 'hosting');
   const file = resolve(directory, 'ledger.json');
-  let queue = Promise.resolve();
+  const initializedFile = resolve(directory, 'ledger-initialized.json');
+  let queue = Promise.resolve(), initialized = false;
   const pilotIds = new Set(String(env.JEFF_PILOT_NFTS || '').split(',').filter(Boolean));
   const pilotExpiry = Date.parse(env.JEFF_PILOT_EXPIRES_AT || '');
   const token = env.CLOCKERS_TOKEN_ADDRESS || '0xefc067e5d19b847da7863f3f997c2a4639686ba3';
@@ -88,12 +89,37 @@ export function createHostingLedger({ dataRoot, env = process.env, verifyPayment
     try { await lstat(resolve(directory, 'restore-guard.json')); return false; }
     catch (error) { return error.code === 'ENOENT'; }
   }
+  async function markInitialized() {
+    if (initialized) return;
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(initializedFile, JSON.stringify({ schema: 'simple-jeff-hosting-initialized-v1' }), { flag: 'wx', mode: 0o600 });
+    } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    initialized = true;
+  }
+  async function wasInitialized() {
+    if (initialized) return true;
+    try { await lstat(initializedFile); initialized = true; return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  }
   async function read() {
-    try { return validateFreePasses(validateUsageContainers(JSON.parse(await readFile(file, 'utf8')))); }
-    catch (error) { if (error.code === 'ENOENT') return { invoices: {}, consumed: {}, entitlements: {} }; throw error; }
+    try {
+      const stat = await lstat(file);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
+      // Existing installations acquire the guard before any state is returned.
+      // Never interpret loss of a known ledger as unused quota or a fresh pass.
+      await markInitialized();
+      return validateFreePasses(validateUsageContainers(JSON.parse(await readFile(file, 'utf8'))));
+    } catch (error) {
+      if (error.code === 'ENOENT' && !await wasInitialized()) return { invoices: {}, consumed: {}, entitlements: {} };
+      if (['JEFF_USAGE_STORAGE_UNAVAILABLE', 'JEFF_FREE_PASS_STORAGE_UNAVAILABLE'].includes(error.message)) throw error;
+      throw new Error('JEFF_USAGE_STORAGE_UNAVAILABLE');
+    }
   }
   async function write(value) {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    // Persist the loss guard first. A crash before the first ledger commit must
+    // fail closed, since the outcome of that attempted grant/admission is unknown.
+    await markInitialized();
     const temporary = `${file}.${randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify(value), { mode: 0o600 }); await rename(temporary, file);
   }

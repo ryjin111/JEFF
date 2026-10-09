@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -196,4 +196,29 @@ test('missing pause metadata fails closed across restart instead of restoring an
   const tampered = new DatabaseSync(f.ledger.file);
   tampered.exec("DELETE FROM inference_meta WHERE key='paused'"); tampered.close();
   assert.throws(() => f.open(), /STORAGE_UNAVAILABLE/);
+});
+
+test('a lost initialized database cannot silently recreate funding receipts or erase unknown provider holds', async t => {
+  const f = await fixture(t);
+  f.reserve('unknown-before-loss', 400); f.ledger.markForwarded('unknown-before-loss');
+  f.ledger.settle({ id: 'unknown-before-loss', outcome: 'unknown' });
+  f.ledger.close();
+  await rm(f.ledger.file);
+  assert.throws(() => f.open(), /JEFF_INFERENCE_STORAGE_UNAVAILABLE/);
+  await assert.rejects(readFile(f.ledger.file), { code: 'ENOENT' });
+});
+
+test('legacy inference databases gain a loss guard while preserving funding and unresolved holds', async t => {
+  const f = await fixture(t);
+  f.reserve('legacy-unknown', 400); f.ledger.markForwarded('legacy-unknown');
+  f.ledger.settle({ id: 'legacy-unknown', outcome: 'unknown' });
+  const balance = f.ledger.balance(scope), history = f.ledger.list(scope);
+  const marker = resolve(f.root, 'inference', 'ledger-initialized.json');
+  f.ledger.close(); await rm(marker, { force: true });
+  const reopened = f.open();
+  assert.deepEqual(reopened.balance(scope), balance);
+  assert.deepEqual(reopened.list(scope), history);
+  assert.equal(JSON.parse(await readFile(marker, 'utf8')).schema, 'simple-jeff-inference-initialized-v1');
+  reopened.close(); await rm(reopened.file);
+  assert.throws(() => f.open(), /JEFF_INFERENCE_STORAGE_UNAVAILABLE/);
 });

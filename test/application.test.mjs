@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { request as httpRequest } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createJeffApplication } from '../src/application.mjs';
 import { createDurableJobReader, resolveMaintenanceMarkerPath } from '../src/maintenance.mjs';
+import { captureBackup, encryptBackup, restoreBackup } from '../src/backup.mjs';
 
 const first = privateKeyToAccount('0x' + '12'.repeat(32)); // Disposable signing fixture; never a live RPC.
 const second = privateKeyToAccount('0x' + '34'.repeat(32));
@@ -71,6 +74,39 @@ test('failed ownership RPC diagnostics exclude request secrets and preserve fail
     error: 'JEFF_CHAIN_UNAVAILABLE', types: ['Error', 'HttpRequestError'], codes: [], upstreamStatus: 429 }]);
   assert.equal(JSON.stringify(diagnostics).includes(secret), false);
   assert.equal(f.calls.length, 0);
+});
+
+test('JSON request text preserves UTF-8 characters split across HTTP chunks', async t => {
+  const f = await fixture(t), session = await f.login();
+  const text = '你好，JEFF 👋', payload = Buffer.from(JSON.stringify({ title: 'UTF-8', text }));
+  const split = payload.indexOf(Buffer.from('你')) + 1;
+  let incomingRequest;
+  const firstChunkReceived = new Promise(done => {
+    f.app.server.prependOnceListener('request', incoming => {
+      incomingRequest = incoming;
+      incoming.once('readable', done);
+    });
+  });
+  let outgoing;
+  const response = new Promise((done, reject) => {
+    outgoing = httpRequest({ hostname: '127.0.0.1', port: f.app.server.address().port, path: '/api/memory', method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json', 'Content-Length': payload.length } }, incoming => {
+      const chunks = [];
+      incoming.on('data', chunk => chunks.push(chunk));
+      incoming.on('end', () => done({ status: incoming.statusCode, value: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+      incoming.on('error', reject);
+    });
+    outgoing.on('error', reject);
+  });
+  outgoing.write(payload.subarray(0, split));
+  await firstChunkReceived;
+  for (let attempt = 0; incomingRequest.readableLength && attempt < 100; attempt++) await delay(1);
+  const firstChunkConsumed = incomingRequest.readableLength === 0;
+  outgoing.end(payload.subarray(split));
+  const result = await response;
+  assert.equal(firstChunkConsumed, true);
+  assert.equal(result.status, 200, JSON.stringify(result.value));
+  assert.equal(result.value.memories[0].text, text);
 });
 
 test('real signed HTTP flow persists private context, binds conversation jobs, and reopens history', async t => {
@@ -144,6 +180,30 @@ test('schedule grants require an owned conversation and restore guard blocks new
   await writeFile(resolve(f.dataRoot, 'hosting', 'restore-guard.json'), '{}');
   assert.equal((await f.api('/api/schedules', { method: 'POST', session, input })).value.error, 'JEFF_RESTORE_GUARDED');
   assert.equal((await f.api('/api/config')).value.schedulesEnabled, false);
+});
+
+test('an encrypted restored app blocks operator-funded manual inference while saved work stays readable', async t => {
+  const source = await fixture(t), sourceSession = await source.login();
+  await source.api('/api/memory', { method: 'POST', session: sourceSession, input: { title: 'Saved preference', text: 'Preserve this private memory.' } });
+  await source.app.close();
+  const snapshot = await captureBackup({ dataRoot: source.dataRoot, writersQuiesced: true });
+  const parent = await mkdtemp(resolve('test', '.application-restores-'));
+  const key = randomBytes(32), restoredTree = await restoreBackup({ archive: encryptBackup(snapshot, key), key, parent });
+  const restored = await fixture(t, { dataRoot: restoredTree.root });
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const session = await restored.login();
+  assert.equal(restored.app.config().creditsEnabled, false);
+  assert.equal(restored.app.config().restoreBlocked, true);
+  const saved = await restored.api('/api/workspace/state', { session });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.value.workspace.memories[0].text, 'Preserve this private memory.');
+  const admission = await restored.api('/api/jobs', { method: 'POST', session, input: { objective: 'Must not spend restored provider capacity' } });
+  if (admission.status === 202) await restored.terminal(session, admission.value.id);
+  assert.equal(restored.calls.length, 0);
+  assert.equal(admission.status, 503);
+  assert.deepEqual(admission.value, { error: 'JEFF_RESTORE_GUARDED' });
+  await assert.rejects(restored.app.submit(session.scope, { objective: 'Direct admission must also stay guarded' }), /JEFF_RESTORE_GUARDED/);
+  assert.equal((await restored.api('/api/workspace/state', { session })).value.jobs.length, 0);
 });
 
 test('application publishes readiness where the backup reader expects its configured marker', async t => {

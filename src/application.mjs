@@ -85,6 +85,10 @@ export async function createJeffApplication(options = {}) {
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 16) throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
   let admittedJobs = 0, closing = false, closePromise;
   const requireAdmission = () => { if (closing) throw new Error('JEFF_SERVICE_MAINTENANCE'); };
+  const requireExecution = () => {
+    requireAdmission();
+    if (restoreBlocked()) throw new Error('JEFF_RESTORE_GUARDED');
+  };
   const pending = new Map(), controllers = new Map(), admission = new Map();
   let bridge, accountBridge;
   const activeBridge = scope => scope.kind === 'account' ? accountBridge : bridge;
@@ -105,6 +109,7 @@ export async function createJeffApplication(options = {}) {
         if (record.status === 'completed') history.push({ objective: record.objective.slice(0, 2000), text: record.text.slice(0, 6000) });
       }
       if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+      requireExecution();
       const inferenceGateway = gateway?.issue({ jobId: args.jobId, scope: args.scope, model: context.settings.model.slice(6),
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
       return await runner({ ...args, signal: controller.signal, executionContext: { ...context, history }, inferenceGateway });
@@ -114,7 +119,7 @@ export async function createJeffApplication(options = {}) {
   accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent });
 
   async function submit(scope, input) {
-    requireAdmission();
+    requireExecution();
     strict(input, ['objective', 'conversationId', 'source', 'occurrenceId']);
     if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) throw new Error('JEFF_OBJECTIVE_INVALID');
     if (!modelConfigured) throw new Error('JEFF_MODEL_NOT_CONFIGURED');
@@ -126,20 +131,20 @@ export async function createJeffApplication(options = {}) {
     admission.set(key, true);
     try {
       const current = await workspace.get(scope);
-      requireAdmission();
+      requireExecution();
       if (current.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
       gateway?.preflight({ scope, model: current.settings.model.slice(6), dailyLimitMicros: current.settings.dailyBudgetMicros,
         maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
       let conversationId = input.conversationId;
       if (conversationId && (!uuid.test(conversationId) || !current.conversations.some(item => item.id === conversationId))) throw new Error('JEFF_CONVERSATION_NOT_FOUND');
       if (!conversationId) conversationId = (await workspace.createConversation(scope, { title: input.objective.trim().slice(0, 70) })).id;
-      requireAdmission();
+      requireExecution();
       await hosting.requireActive(scope);
-      requireAdmission();
+      requireExecution();
       if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
       pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual' });
       const record = await hosting.startJob(scope, () => {
-        requireAdmission();
+        requireExecution();
         return activeBridge(scope).start(scope, input.objective.trim());
       });
       const completion = maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id: record.id }) }), `job:${record.id}`);
@@ -164,9 +169,10 @@ export async function createJeffApplication(options = {}) {
     response.end(JSON.stringify(value));
   };
   async function body(request) {
-    let data = '', size = 0;
-    for await (const chunk of request) { size += chunk.length; if (size > 32768) throw new Error('JEFF_REQUEST_TOO_LARGE'); data += chunk; }
-    try { return JSON.parse(data); } catch { throw new Error('JEFF_REQUEST_INVALID'); }
+    const chunks = []; let size = 0;
+    for await (const chunk of request) { size += chunk.length; if (size > 32768) throw new Error('JEFF_REQUEST_TOO_LARGE'); chunks.push(chunk); }
+    // A multibyte character can span chunks. Decode only after joining bytes.
+    try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); } catch { throw new Error('JEFF_REQUEST_INVALID'); }
   }
   const usage = scope => ({ enabled: creditsEnabled, mode: creditsEnabled ? 'prepaid' : 'operator-funded',
     pricingBasis: creditsEnabled ? 'operator-token-tariff' : null, balance: inference.balance(scope), transactions: inference.list(scope) });

@@ -57,6 +57,15 @@ function parseBudget(value) {
   if (amount < 1n || amount > 1000000000n) throw new Error('JEFF_BUDGET_INVALID');
   return Number(amount);
 }
+const settingsSnapshot = settings => Object.fromEntries(['name', 'model', 'dailyBudgetMicros', 'paused'].map(key => [key, settings[key]]));
+function reconcileSettingsDraft(workspace) {
+  const draft = S.settingsDraft;
+  if (!draft || draft.revision === workspace.revision) return;
+  const unchanged = Object.entries(draft.savedSettings).every(([key, value]) => workspace.settings[key] === value);
+  // Conversation, memory and run updates also advance the workspace revision.
+  // Rebase only when the persisted settings still match the draft's starting point.
+  S.settingsDraft = unchanged ? { ...draft, revision: workspace.revision, conflict: false } : { ...draft, conflict: true };
+}
 const prepaid = () => S.usage?.enabled === true && ['prepaid', 'prepaid-credits'].includes(S.usage.mode);
 const conversation = () => {
   const saved = S.workspace?.conversations.find(item => item.id === S.conversationId);
@@ -70,6 +79,7 @@ const signedIn = () => Boolean(S.session && S.workspace);
 function allowanceReason() {
   if (!S.session) return 'Connect your Agent NFT to start a conversation.';
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
+  if (S.config?.restoreBlocked) return 'New runs are paused while restored storage is verified. Saved work remains accessible.';
   if (!S.config?.modelConfigured) return 'JEFF’s model connection is unavailable. Saved work remains accessible.';
   if (S.workspace.settings.paused) return 'Future runs are paused. Resume this agent to send a task.';
   if (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return S.session.scope.kind === 'account'
@@ -121,6 +131,7 @@ function friendly(error) {
     JEFF_WORKSPACE_NOT_FOUND: 'That conversation or memory is no longer available. Refresh the workspace.',
     JEFF_WORKSPACE_STORAGE_UNAVAILABLE: 'Workspace storage could not be verified. Work is paused until storage is available.',
     JEFF_AGENT_PAUSED: 'This agent is paused. Resume future runs before submitting a task.',
+    JEFF_RESTORE_GUARDED: 'New runs are paused while restored storage is verified. Saved work remains accessible.',
     JEFF_INFERENCE_INSUFFICIENT_CREDITS: 'There are not enough available inference credits for this run.',
     JEFF_INFERENCE_INSUFFICIENT: 'There are not enough available inference credits for this run.',
     JEFF_INFERENCE_BALANCE_INSUFFICIENT: 'There are not enough available inference credits for this run.',
@@ -229,6 +240,7 @@ async function refresh({ quiet = false } = {}) {
       if (observed && (bound || (!savedConversation && observed.status !== 'running'))) S.admitted = null;
       else if (!observed) jobs.unshift(S.admitted);
     }
+    reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
     refreshFailures = 0;
     const recovered = refreshNotice && refreshNotice.scope === scopeKey(scope) && S.noticeError && S.notice === refreshNotice.message ? refreshNotice : null;
@@ -279,7 +291,7 @@ async function mutate(operation, success) {
     if (refreshed && version === S.version && success) { notify(success); toast(success); }
   } catch (error) {
     if (version === S.version && error.message !== 'JEFF_REQUEST_SUPERSEDED') {
-      notify(friendly(error), true);
+      if (!error.refreshHandled) notify(friendly(error), true);
       if (S.session && temporaryConnectionError(error)) {
         refreshFailures = Math.max(refreshFailures, 1);
         refreshNotice = { scope: scopeKey(S.session.scope), message: S.notice,
@@ -576,6 +588,15 @@ function renderSettings() {
   const view = page('Make this agent yours.', 'A name, a model and clear limits. Settings are saved privately for this NFT, holder and ownership epoch.', 'SETTINGS');
   const settings = S.settingsDraft || { ...S.workspace.settings, budget: dollarsInput(S.workspace.settings.dailyBudgetMicros) };
   const form = node('form', 'panel-card settings-form'); form.id = 'settings-form';
+  if (settings.conflict) {
+    const conflict = node('div', 'state-notice settings-conflict'); conflict.setAttribute('role', 'status');
+    conflict.append(node('p', '', 'Saved settings changed while you were editing. Your draft is preserved. Review the saved values before choosing which settings to use.'),
+      row('Saved agent name', S.workspace.settings.name), row('Saved model', S.workspace.settings.model.replace(/^bankr\//, '')),
+      row('Saved daily budget', dollars(S.workspace.settings.dailyBudgetMicros)), row('Saved run preference', S.workspace.settings.paused ? 'Paused' : 'Active'));
+    const keep = button('Keep my draft', 'keep-settings-draft', 'check'); keep.disabled = S.busy;
+    const reset = button('Use saved settings', 'reset-settings-draft', 'activity'); reset.disabled = S.busy;
+    conflict.append(keep, reset); form.append(conflict);
+  }
   const name = field('Agent name', 'settings-name', { value: settings.name, maxLength: 80 });
   const modelWrap = node('div', 'form-field'); const label = node('label', 'field-label', 'Model'); label.htmlFor = 'settings-model';
   const select = node('select', 'field'); select.id = 'settings-model'; select.name = 'settings-model';
@@ -584,7 +605,8 @@ function renderSettings() {
   const budget = field('Daily inference budget (USD)', 'settings-budget', { value: settings.budget, maxLength: 14 }); budget.input.inputMode = 'decimal';
   form.append(name.wrap, modelWrap, budget.wrap, node('p', 'preview-info', prepaid() ? 'Prepaid inference admission enforces this agent’s rolling 24-hour usage limit. Amounts use exact microdollar units.' : 'Saved for prepaid mode. Current operator-funded task allowances do not enforce a dollar cap on provider billing.'));
   const paused = node('label', 'checkbox-row'); const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.id = 'settings-paused'; checkbox.checked = settings.paused; paused.append(checkbox, node('span', '', 'Pause future manual and scheduled runs')); form.append(paused);
-  const save = button('Save settings', 'save-settings', 'check', 'button button-primary'); save.type = 'submit'; save.disabled = S.busy; form.append(save);
+  const save = button('Save settings', 'save-settings', 'check', 'button button-primary'); save.type = 'submit'; save.disabled = S.busy || settings.conflict === true; form.append(save);
+  if (S.settingsDraft && !settings.conflict) { const reset = button('Discard changes', 'reset-settings-draft', 'close'); reset.disabled = S.busy; form.append(reset); }
   const owner = section('Ownership & session'); owner.append(row('Wallet', S.session.scope.owner), row('Network', `Chain ${S.session.scope.chainId}`));
   if (S.session.scope.kind !== 'account') owner.append(row('NFT', `${S.session.scope.collection} #${S.session.scope.tokenId}`), row('Holder epoch', String(S.session.scope.ownerEpoch), 'Transfers isolate private conversations, settings and memory.'));
   owner.append(row('Session ends', when(S.session.expiresAt)), button('Sign out', 'logout', 'arrow-left'));
@@ -745,10 +767,9 @@ async function connect({ preferredToken, discoverOnly = false } = {}) {
     if (chosen && S.inventory.tokenIds.includes(chosen) && !discoverOnly) await signIn(chosen, wallet, version);
     else { put('#connect-status', `${S.inventory.tokenIds.length} owned Rooms found. Choose one and sign in.`); renderConnection(); $('#connect-token').focus(); }
   } catch (error) {
-    if (error.message !== 'JEFF_REQUEST_SUPERSEDED') {
-      put('#connect-status', friendly(error)); notify(friendly(error), true);
-      if (error.message === 'JEFF_WALLET_NETWORK_MISMATCH') $('#switch-network').hidden = false;
-    }
+    if (version !== S.version || error.message === 'JEFF_REQUEST_SUPERSEDED') return;
+    put('#connect-status', friendly(error)); notify(friendly(error), true);
+    if (error.message === 'JEFF_WALLET_NETWORK_MISMATCH') $('#switch-network').hidden = false;
   } finally { if (version === S.version) { S.authBusy = false; renderConnection(); render(); } }
 }
 async function newConversation(title) {
@@ -814,7 +835,10 @@ async function createInvoice() {
       if (version !== S.version) return;
       const decimals = Number(BigInt(raw)); if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error('JEFF_TOKEN_DETAILS_UNAVAILABLE');
       S.decimals = decimals;
-    } catch (error) { notify(`${friendly(error)} The invoice is available; wallet payment remains disabled.`, true); }
+    } catch (error) {
+      if (version !== S.version || error.message === 'JEFF_REQUEST_SUPERSEDED') return;
+      notify(`${friendly(error)} The invoice is available; wallet payment remains disabled.`, true);
+    }
   });
 }
 async function payInvoice() {
@@ -828,7 +852,11 @@ async function payInvoice() {
       if (version !== S.version) return;
       if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) throw new Error('JEFF_PAYMENT_INVALID');
       S.paymentHash = hash; notify('Payment submitted. Keep this reference and verify the same transaction.');
-    } catch (error) { if (Number(error.code) === 4001) S.paymentSubmitted = false; throw error; }
+    } catch (error) {
+      if (version !== S.version || error.message === 'JEFF_REQUEST_SUPERSEDED') return;
+      if (Number(error.code) === 4001) S.paymentSubmitted = false;
+      throw error;
+    }
   });
 }
 
@@ -862,6 +890,12 @@ document.addEventListener('click', async event => {
   if (!signedIn()) return;
   if (action === 'new-session') { if (S.busy) return; S.draft = ''; S.draftVersion++; await mutate(() => newConversation(), 'New conversation created.'); go('chat'); return; }
   if (action === 'suggestion') { S.draft = element.dataset.prompt; S.draftVersion++; render(); $('#composer-input')?.focus(); return; }
+  if (action === 'reset-settings-draft') { if (S.busy) return; S.settingsDraft = null; render(); notify('Latest saved settings loaded.'); return; }
+  if (action === 'keep-settings-draft') {
+    if (S.busy || !S.settingsDraft) return;
+    S.settingsDraft = { ...S.settingsDraft, revision: S.workspace.revision, savedSettings: settingsSnapshot(S.workspace.settings), conflict: false };
+    render(); notify('Your draft is preserved. Review it, then save when ready.'); return;
+  }
   if (action === 'pause') { await mutate(() => api('/api/workspace/settings', { method: 'PATCH', body: { revision: S.workspace.revision, paused: !S.workspace.settings.paused } }), S.workspace.settings.paused ? 'Future runs resumed.' : 'Future runs paused. Active work is controlled with Stop.'); return; }
   if (action === 'delete-conversation') {
     if (!conversation() || !confirm('Delete this conversation from the workspace? Saved job receipts remain in Activity.')) return;
@@ -917,7 +951,9 @@ document.addEventListener('input', event => {
   if (element.id === 'composer-input') { S.draft = element.value; S.draftVersion++; const send = $('[data-action="send-task"]'); if (send) send.disabled = S.busy || Boolean(allowanceReason()) || !S.draft.trim(); element.style.height = 'auto'; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }
   if (['memory-title', 'memory-text'].includes(element.id)) S.memoryDraft[element.id === 'memory-title' ? 'title' : 'text'] = element.value;
   if (element.id === 'payment-hash') { S.paymentHash = element.value; if (element.value.trim()) S.paymentSubmitted = true; }
-  if (element.closest('#settings-form')) S.settingsDraft = { revision: S.settingsDraft?.revision ?? S.workspace.revision, name: $('#settings-name').value, model: $('#settings-model').value, budget: $('#settings-budget').value, paused: $('#settings-paused').checked };
+  if (element.closest('#settings-form')) S.settingsDraft = { revision: S.settingsDraft?.revision ?? S.workspace.revision,
+    savedSettings: S.settingsDraft?.savedSettings || settingsSnapshot(S.workspace.settings), conflict: S.settingsDraft?.conflict === true,
+    name: $('#settings-name').value, model: $('#settings-model').value, budget: $('#settings-budget').value, paused: $('#settings-paused').checked };
   if (element.closest('#schedule-form')) S.scheduleDraft = { objective: $('#schedule-objective').value, interval: $('#schedule-interval').value, maxRuns: $('#schedule-max-runs').value, expiry: $('#schedule-expiry').value, consent: $('#schedule-consent').checked };
 });
 document.addEventListener('change', event => {
@@ -931,7 +967,15 @@ document.addEventListener('submit', async event => {
   if (!signedIn() || S.busy) return;
   if (event.target.id === 'memory-form') { const draft = { ...S.memoryDraft }; await mutate(async () => { await api('/api/memory', { method: 'POST', body: draft }); S.memoryDraft = { title: '', text: '' }; }, 'Memory saved.'); }
   if (event.target.id === 'settings-form') {
-    try { const settings = { revision: S.settingsDraft?.revision ?? S.workspace.revision, name: $('#settings-name').value.trim(), model: $('#settings-model').value, dailyBudgetMicros: parseBudget($('#settings-budget').value), paused: $('#settings-paused').checked }; await mutate(async () => { await api('/api/workspace/settings', { method: 'PATCH', body: settings }); S.settingsDraft = null; }, 'Agent settings saved.'); }
+    if (S.settingsDraft?.conflict) return;
+    try { const settings = { revision: S.settingsDraft?.revision ?? S.workspace.revision, name: $('#settings-name').value.trim(), model: $('#settings-model').value, dailyBudgetMicros: parseBudget($('#settings-budget').value), paused: $('#settings-paused').checked }; await mutate(async () => {
+      try { await api('/api/workspace/settings', { method: 'PATCH', body: settings }); }
+      catch (error) {
+        if (error.message === 'JEFF_WORKSPACE_CONFLICT' && !await refresh({ quiet: true })) error.refreshHandled = true;
+        throw error;
+      }
+      S.settingsDraft = null;
+    }, 'Agent settings saved.'); }
     catch (error) { notify(friendly(error), true); }
   }
   if (event.target.id === 'schedule-form') {

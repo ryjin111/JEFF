@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.1-5909a4d.tgz",
-    "openclaw": "2026.9.8",
+    "openclaw": "2026.9.9",
     "viem": "2.57.3"
   }
 }

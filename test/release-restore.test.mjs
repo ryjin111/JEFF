@@ -71,6 +71,7 @@ test('encrypted release backup restores workspace, grants and SQLite holds witho
   const snapshot = await captureBackup({ dataRoot, writersQuiesced: true });
   const paths = snapshot.files.map(item => item.path);
   assert.ok(paths.includes('inference/ledger.sqlite'));
+  assert.ok(paths.includes('inference/ledger-initialized.json'));
   assert.ok(paths.includes('.schedules/index.json'));
   assert.ok(paths.some(path => path.endsWith('/workspace-state.json')));
   assert.ok(paths.some(path => path.endsWith(`/schedules/${grant.id}.json`)));

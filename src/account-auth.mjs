@@ -37,12 +37,16 @@ export function createAccountSessions({ origin, chainId, dataRoot, now = () => D
       try { signer = (await recoverMessageAddress({ message: challenge.message, signature })).toLowerCase(); }
       catch { throw new Error('JEFF_SIGNATURE_INVALID'); }
       if (signer !== challenge.scope.owner) throw new Error('JEFF_SIGNATURE_INVALID');
-      if (!await registered(challenge.scope)) {
+      if (challenge.expiresAt <= now()) throw new Error('JEFF_CHALLENGE_EXPIRED');
+      const exists = await registered(challenge.scope);
+      if (challenge.expiresAt <= now()) throw new Error('JEFF_CHALLENGE_EXPIRED');
+      if (!exists) {
         await mkdir(directory, { recursive: true, mode: 0o700 });
         const file = path(challenge.scope), temporary = `${file}.${randomUUID()}.tmp`;
         await writeFile(temporary, JSON.stringify({ schema: 'simple-jeff-account-v1', scope: challenge.scope, createdAt: new Date(now()).toISOString() }), { mode: 0o600 });
         await rename(temporary, file);
       }
+      if (challenge.expiresAt <= now()) throw new Error('JEFF_CHALLENGE_EXPIRED');
       const token = randomBytes(32).toString('hex'), expiresAt = now() + 3600000;
       sessions.set(digest(token), { scope: challenge.scope, expiresAt });
       return { token, scope: challenge.scope, expiresAt: new Date(expiresAt).toISOString() };
@@ -50,8 +54,11 @@ export function createAccountSessions({ origin, chainId, dataRoot, now = () => D
     async authenticate(token) {
       prune();
       if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) throw new Error('JEFF_SESSION_REQUIRED');
-      const session = sessions.get(digest(token));
+      const key = digest(token), session = sessions.get(key);
       if (!session || !await registered(session.scope)) throw new Error('JEFF_SESSION_REQUIRED');
+      // The registration read must not revive a logged-out or expired session.
+      prune();
+      if (sessions.get(key) !== session) throw new Error('JEFF_SESSION_REQUIRED');
       return session.scope;
     },
     logout(token) { if (typeof token === 'string') sessions.delete(digest(token)); },

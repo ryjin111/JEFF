@@ -140,6 +140,29 @@ test('list and cancel stay responsive during execution and cancellation survives
   f.advance(); await f.scheduler.tick(); assert.equal(executions, 1);
 });
 
+test('cancellation during the final asynchronous pause check prevents execution', async t => {
+  let pauseChecks = 0, entered, release;
+  const finalCheck = new Promise(done => { entered = done; });
+  const gate = new Promise(done => { release = done; });
+  const f = await fixture(t, { isPaused: async () => {
+    if (++pauseChecks === 2) { entered(); await gate; }
+    return false;
+  } });
+  const record = await f.scheduler.create(scope, options);
+  f.advance();
+  const ticking = f.scheduler.tick();
+  await finalCheck;
+  const cancelled = await f.scheduler.cancel(scope, record.id);
+  assert.equal(cancelled.status, 'cancelled');
+  release();
+  await ticking;
+  assert.equal(f.calls.length, 0);
+  const saved = (await f.scheduler.list(scope))[0];
+  assert.equal(saved.status, 'cancelled');
+  assert.equal(saved.runs[0].status, 'interrupted');
+  assert.equal(saved.runs[0].error, 'JEFF_SCHEDULE_ADMISSION_STOPPED');
+});
+
 test('explicit authorization denial revokes a grant while transport failures remain retryable', async t => {
   let error;
   const f = await fixture(t, { isPaused: async () => {

@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, existsSync, chmodSync } from 'node:fs';
+import { mkdirSync, existsSync, chmodSync, lstatSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -29,7 +29,20 @@ export function createInferenceLedger({ dataRoot, now = Date.now } = {}) {
   const root = resolve(dataRoot), directory = resolve(root, 'inference');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = resolve(directory, 'ledger.sqlite');
-  const newFile = !existsSync(file);
+  const initializedFile = resolve(directory, 'ledger-initialized.json');
+  const entry = path => { try { return lstatSync(path); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
+  let newFile;
+  try {
+    const stat = entry(file);
+    newFile = !stat;
+    if ((stat && (!stat.isFile() || stat.isSymbolicLink())) || (newFile && entry(initializedFile))) throw failure('STORAGE_UNAVAILABLE');
+    // A new file is legitimate only before this data tree has hosted a ledger.
+    // Keep funding receipt idempotency and uncertain provider holds fail closed
+    // if the database disappears; backups retain this independent loss guard.
+    try {
+      writeFileSync(initializedFile, JSON.stringify({ schema: 'simple-jeff-inference-initialized-v1' }), { flag: 'wx', mode: 0o600 });
+    } catch (error) { if (error.code !== 'EEXIST') throw error; }
+  } catch { throw failure('STORAGE_UNAVAILABLE'); }
   const db = new DatabaseSync(file);
   try { chmodSync(file, 0o600); } catch (error) { if (process.platform !== 'win32') throw error; }
   try {

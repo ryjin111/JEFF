@@ -183,21 +183,32 @@ export function createScheduler({ dataRoot, resolveOwner, execute, isPaused = as
           });
           continue;
         }
-        const stillActive = (await serial(() => read(entry))).status === 'active';
-        if (!stillActive || !await allowed(record.scope)) {
+        if (!await allowed(record.scope)) {
           await serial(async () => interrupted(await read(entry), 'JEFF_SCHEDULE_ADMISSION_STOPPED'));
           continue;
         }
-        // The asynchronous ownership and pause checks can outlive the grant.
-        // No await belongs between this deadline check and calling execute.
-        if (timestamp() >= date(record.expiresAt)) {
-          await serial(async () => expire(await read(entry)));
-          continue;
-        }
-        activeExecutions++;
+        // Cancellation can commit while the final pause check waits. Read the
+        // grant after that check, in the same queue as cancellation writes.
+        const execution = await serial(async () => {
+          const current = await read(entry), canAdmit = await canRun();
+          if (timestamp() >= date(current.expiresAt)) { await expire(current); return null; }
+          if (stopping || canAdmit !== true || current.status !== 'active') {
+            await interrupted(current, 'JEFF_SCHEDULE_ADMISSION_STOPPED');
+            return null;
+          }
+          // Start inside the cancellation queue, but never hold it for the run.
+          // No await belongs between the final grant checks and this admission.
+          activeExecutions++;
+          let result;
+          try {
+            result = Promise.resolve(execute(current.scope, { objective: current.objective,
+              conversationId: current.conversationId, occurrenceId, source: 'schedule' }));
+          } catch (error) { result = Promise.reject(error); }
+          return { result };
+        });
+        if (!execution) continue;
         try {
-          const result = await execute(record.scope, { objective: record.objective,
-            conversationId: record.conversationId, occurrenceId, source: 'schedule' });
+          const result = await execution.result;
           if (!result || typeof result.id !== 'string' || !UUID.test(result.id)
             || !['completed', 'failed', 'cancelled', 'interrupted'].includes(result.status)) throw fail('RESULT_INVALID');
           await update(entry, current => {

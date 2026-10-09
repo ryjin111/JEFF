@@ -63,6 +63,19 @@ async function consume(f, count, subject = scope, target = f.ledger) {
   }
 }
 
+test('a lost hosting ledger cannot make a consumed free pass redeemable again', async t => {
+  const f = await setup(t);
+  await f.ledger.redeemFreePass(scope);
+  await rm(f.file);
+  const checks = f.ownerChecks();
+  for (const ledger of [f.ledger, f.restart()]) {
+    await assert.rejects(ledger.status(scope), /JEFF_USAGE_STORAGE_UNAVAILABLE/);
+    await assert.rejects(ledger.redeemFreePass(scope), /JEFF_USAGE_STORAGE_UNAVAILABLE/);
+  }
+  assert.equal(f.ownerChecks(), checks);
+  await assert.rejects(readFile(f.file), { code: 'ENOENT' });
+});
+
 test('an eligible NFT redeems one durable 100 task, 30 day free pass without payment', async t => {
   const f = await setup(t);
   const available = await f.ledger.status(scope);

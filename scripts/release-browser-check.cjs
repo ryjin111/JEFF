@@ -151,8 +151,9 @@ async function switchNft(page, tokenId) {
   await page.waitForFunction(() => !document.getElementById('connect-dialog').open);
   await page.locator('#composer-input').waitFor();
 }
-async function newContext(viewport) {
+async function newContext(viewport, cachedSession, configure) {
   const context = await browser.newContext({ viewport, reducedMotion: 'reduce', deviceScaleFactor: 1, acceptDownloads: true });
+  if (cachedSession) await context.addInitScript(session => sessionStorage.setItem('jeff:workspace:session:v1', JSON.stringify(session)), cachedSession);
   await context.addInitScript(() => {
     const listeners = {}, signatures = [];
     let wallet;
@@ -187,9 +188,214 @@ async function newContext(viewport) {
     if (/^https?:/.test(url) && new URL(url).origin !== base) { report.externalRequests.push(url); return route.abort(); }
     return route.continue();
   });
+  if (configure) await configure(page);
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.locator('#runtime-label').filter({ hasText: 'DEVELOPMENT FIXTURE' }).waitFor();
   return { context, page };
+}
+
+async function settingsConcurrency(page, memoryTitle) {
+  const cached = await page.evaluate(() => JSON.parse(sessionStorage.getItem('jeff:workspace:session:v1')));
+  const second = await newContext({ width: 1440, height: 1000 }, cached);
+  const other = second.page;
+  const original = (await api(page, '/api/workspace')).value.settings;
+  const patches = [];
+  const observe = request => { if (request.method() === 'PATCH' && new URL(request.url()).pathname === '/api/workspace/settings') patches.push(request.postDataJSON()); };
+  page.on('request', observe);
+  async function reloadState(target) {
+    await nav(target, 'activity');
+    const response = target.waitForResponse(item => new URL(item.url()).pathname === '/api/workspace/state' && item.request().method() === 'GET');
+    await target.locator('[data-action="refresh"]').click(); await response;
+    await target.waitForFunction(() => document.querySelector('#workspace-notice').textContent === 'Workspace refreshed.');
+    await nav(target, 'settings');
+  }
+  async function save(target, status = 200) {
+    const response = target.waitForResponse(item => new URL(item.url()).pathname === '/api/workspace/settings' && item.request().method() === 'PATCH');
+    await target.locator('#settings-form button[type="submit"]').click();
+    assert.equal((await response).status(), status);
+    await target.waitForFunction(() => !document.querySelector('#settings-name').disabled);
+  }
+  try {
+    await nav(page, 'settings');
+    await page.locator('#settings-name').fill('Draft after an unrelated update');
+    await nav(other, 'memory');
+    const memory = other.locator('.memory-card').filter({ hasText: memoryTitle });
+    await memory.locator('[data-action="edit-memory"]').click();
+    await other.locator('#memory-text').fill('This account memory was edited in another tab.');
+    await other.locator('#memory-form button[type="submit"]').click();
+    await memory.getByText('This account memory was edited in another tab.', { exact: true }).waitFor();
+    await reloadState(page);
+    assert.equal(await page.locator('#settings-name').inputValue(), 'Draft after an unrelated update');
+    assert.equal(await page.locator('.settings-conflict').count(), 0);
+    await save(page);
+    assert.equal((await api(page, '/api/workspace')).value.settings.name, 'Draft after an unrelated update');
+    checked('Unrelated memory updates rebase the settings revision and preserve the unsaved draft');
+
+    await page.locator('#settings-name').fill('My preserved draft');
+    await page.locator('#settings-budget').fill('0.000007');
+    await reloadState(other);
+    await other.locator('#settings-name').fill('Saved in another tab');
+    await other.locator('#settings-budget').fill('0.000009'); await save(other);
+    let conflictGetFailures = 0;
+    const conflictRoute = async route => {
+      if (!conflictGetFailures++) await fixtureUnavailable(page, route, 'settings-conflict-refresh');
+      else await route.continue();
+    };
+    await page.route('**/api/workspace/state', conflictRoute);
+    await save(page, 409);
+    assert.match(await page.locator('#workspace-notice').textContent(), /Reconnecting to check saved work/);
+    assert.equal(await page.locator('#settings-name').inputValue(), 'My preserved draft');
+    await page.locator('.settings-conflict').waitFor();
+    await page.waitForFunction(() => document.querySelector('#workspace-notice').textContent === 'Connection restored. Saved work is up to date.');
+    await page.unroute('**/api/workspace/state', conflictRoute);
+    assert.equal(conflictGetFailures, 2);
+    assert.equal(await page.locator('#settings-name').inputValue(), 'My preserved draft');
+    assert.equal(await page.locator('#settings-budget').inputValue(), '0.000007');
+    assert.match(await page.locator('.settings-conflict').textContent(), /Saved in another tab/);
+    assert.match(await page.locator('.settings-conflict').textContent(), /\$0\.000009/);
+    assert.equal(await page.locator('#settings-form button[type="submit"]').isDisabled(), true);
+    assert.equal((await api(page, '/api/workspace')).value.settings.name, 'Saved in another tab');
+    const beforeChoice = patches.length;
+    await page.locator('[data-action="keep-settings-draft"]').click();
+    assert.equal(patches.length, beforeChoice, 'Choosing a draft must not automatically save it');
+    assert.equal(await page.locator('#settings-name').inputValue(), 'My preserved draft');
+    assert.equal(await page.locator('#settings-form button[type="submit"]').isDisabled(), false);
+    await save(page);
+    const kept = (await api(page, '/api/workspace')).value.settings;
+    assert.equal(kept.name, 'My preserved draft'); assert.equal(kept.dailyBudgetMicros, 7);
+    checked('Conflicting settings preserve both versions and require explicit review before a new save');
+
+    await page.locator('#settings-name').fill('A draft to discard');
+    await reloadState(other);
+    await other.locator('#settings-name').fill('Use this saved version'); await save(other);
+    await reloadState(page); await page.locator('.settings-conflict').waitFor();
+    const beforeReset = patches.length;
+    await page.locator('[data-action="reset-settings-draft"]').click();
+    assert.equal(patches.length, beforeReset);
+    assert.equal(await page.locator('#settings-name').inputValue(), 'Use this saved version');
+    assert.equal(await page.locator('#settings-budget').inputValue(), '0.000007');
+    assert.equal(await page.locator('.settings-conflict').count(), 0);
+    assert.equal((await api(page, '/api/workspace')).value.settings.name, 'Use this saved version');
+    checked('Using saved settings discards only the local draft without an extra mutation');
+    await page.locator('#settings-name').fill(original.name);
+    await page.locator('#settings-model').selectOption(original.model);
+    await page.locator('#settings-budget').fill(String(original.dailyBudgetMicros / 1000000));
+    await page.locator('#settings-paused').setChecked(original.paused); await save(page);
+    report.settingsConcurrency = { unrelatedRevisionRebased: true, conflictingDraftPreserved: true, latestValuesShown: true, conflictGetFailureRecovered: true,
+      explicitKeepRequiresSave: true, resetDoesNotMutate: true, authSignaturesAdded: (await signatureMessages(other)).length };
+    assert.equal(report.settingsConcurrency.authSignaturesAdded, 0);
+  } finally { page.off('request', observe); await second.context.close(); }
+}
+
+async function walletCallbackIsolation() {
+  let invoiceIndex = 0;
+  const paymentHash = '0x' + 'aa'.repeat(32);
+  const isolated = await newContext({ width: 1440, height: 1000 }, undefined, async page => {
+    // Checkout is disabled in the fixture service. These page-local invoices and
+    // wallet promises exercise UI isolation without sending any chain request.
+    await page.route('**/api/config', async route => {
+      const value = await (await route.fetch()).json(); value.billingEnabled = true; await route.fulfill({ json: value });
+    });
+    await page.route('**/api/workspace/state', async route => {
+      const value = await (await route.fetch()).json();
+      Object.assign(value.hosting, { checkoutEnabled: true, recipient: '0x' + '55'.repeat(20), amount: null });
+      await route.fulfill({ json: value });
+    });
+    await page.route('**/api/hosting/invoice', async route => {
+      const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem('jeff:workspace:session:v1')));
+      await route.fulfill({ json: { id: (++invoiceIndex).toString(16).padStart(8, '0') + '-1234-1234-1234-123456789abc',
+        scope: session.scope, chainId: session.scope.chainId, token: '0x' + '44'.repeat(20), recipient: '0x' + '55'.repeat(20),
+        amount: '1000000000000000000', periodDays: 30, tasksIncluded: 100,
+        issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() } });
+    });
+  });
+  const page = isolated.page, requests = [];
+  page.on('request', request => requests.push({ method: request.method(), path: new URL(request.url()).pathname }));
+  async function signAccount() {
+    await nav(page, 'chat'); await page.locator('#workspace-content [data-action="connect"]').click(); await signStandalone(page);
+  }
+  async function logout() {
+    await nav(page, 'settings'); await page.locator('#workspace-content [data-action="logout"]').click();
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('jeff:workspace:session:v1')), null);
+  }
+  async function createInvoice() {
+    await nav(page, 'hosting'); await page.locator('[data-action="create-invoice"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-action="pay-invoice"]')?.disabled);
+  }
+  try {
+    await signAccount();
+    await page.evaluate(({ paymentHash }) => {
+      const original = ethereum.request.bind(ethereum);
+      const prompts = window.__qaWalletPrompts = { transactions: [], holdDecimals: true, holdPayment: false, holdSignature: false };
+      const hold = key => new Promise((resolve, reject) => { prompts[key] = () => reject(Object.assign(new Error('Fixture wallet request rejected'), { code: 4001 })); });
+      ethereum.request = parameters => {
+        if (parameters.method === 'eth_call') {
+          if (prompts.holdDecimals) { prompts.holdDecimals = false; return hold('rejectDecimals'); }
+          return Promise.resolve('0x12');
+        }
+        if (parameters.method === 'eth_sendTransaction') {
+          prompts.transactions.push(parameters.params[0]);
+          if (prompts.holdPayment) { prompts.holdPayment = false; return hold('rejectPayment'); }
+          return Promise.resolve(paymentHash);
+        }
+        if (parameters.method === 'personal_sign' && prompts.holdSignature) { prompts.holdSignature = false; return hold('rejectSignature'); }
+        return original(parameters);
+      };
+    }, { paymentHash });
+    await nav(page, 'hosting'); await page.locator('[data-action="create-invoice"]').click();
+    await page.waitForFunction(() => typeof window.__qaWalletPrompts.rejectDecimals === 'function');
+    await logout();
+    const logoutNotice = await page.locator('#workspace-notice').textContent();
+    const beforeLateDecimals = requests.filter(item => item.path === '/api/workspace/state').length;
+    await page.evaluate(() => window.__qaWalletPrompts.rejectDecimals()); await page.waitForTimeout(100);
+    assert.equal(await page.locator('#workspace-notice').textContent(), logoutNotice);
+    assert.equal(await page.locator('[data-action="pay-invoice"]').count(), 0);
+    assert.equal(requests.filter(item => item.path === '/api/workspace/state').length, beforeLateDecimals);
+    checked('A rejected invoice wallet read after sign-out cannot restore old invoice notices or private state');
+
+    await signAccount(); await createInvoice();
+    await page.evaluate(() => { window.__qaWalletPrompts.holdPayment = true; });
+    await page.locator('[data-action="pay-invoice"]').click();
+    await page.waitForFunction(() => typeof window.__qaWalletPrompts.rejectPayment === 'function');
+    await logout(); await nav(page, 'chat'); await connect(page, '207'); await ready(page); await createInvoice();
+    await page.locator('[data-action="pay-invoice"]').click();
+    await page.waitForFunction(hash => document.querySelector('#payment-hash')?.value === hash && !document.querySelector('#payment-hash').disabled, paymentHash);
+    assert.equal(await page.locator('[data-action="pay-invoice"]').isDisabled(), true);
+    await page.evaluate(() => window.__qaWalletPrompts.rejectPayment()); await page.waitForTimeout(100);
+    const refreshed = page.waitForResponse(item => new URL(item.url()).pathname === '/api/workspace/state');
+    await page.locator('[data-action="refresh"]').click(); await refreshed;
+    await page.waitForFunction(() => document.querySelector('#workspace-notice').textContent === 'Workspace refreshed.');
+    assert.equal(await page.locator('[data-action="pay-invoice"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-action="create-invoice"]').isDisabled(), true);
+    assert.equal(await page.locator('#payment-hash').inputValue(), paymentHash);
+    await page.locator('[data-action="pay-invoice"]').evaluate(element => element.click());
+    const transactions = await page.evaluate(() => window.__qaWalletPrompts.transactions);
+    assert.equal(transactions.length, 2, 'An old declined prompt must not allow a third payment');
+    for (const transaction of transactions) {
+      assert.equal(transaction.to, '0x' + '44'.repeat(20)); assert.equal(transaction.value, '0x0');
+      assert.equal(transaction.data, '0xa9059cbb' + '55'.repeat(20).padStart(64, '0') + BigInt('1000000000000000000').toString(16).padStart(64, '0'));
+    }
+    checked('A late declined payment from an old session cannot unlock the new NFT session payment or alter its transaction hash');
+
+    await logout(); await nav(page, 'chat'); await page.locator('#workspace-content [data-action="connect"]').click();
+    await page.locator('#connect-mode').selectOption('account');
+    await page.evaluate(() => { window.__qaWalletPrompts.holdSignature = true; });
+    await page.locator('#connect-submit').click();
+    await page.waitForFunction(() => typeof window.__qaWalletPrompts.rejectSignature === 'function');
+    await page.evaluate(() => window.__qaWallet.emit('chainChanged', '0x1'));
+    const changedNotice = await page.locator('#workspace-notice').textContent();
+    assert.match(changedNotice, /Wallet network changed/);
+    const beforeVerify = requests.filter(item => /\/api\/(account\/)?auth\/verify$/.test(item.path)).length;
+    await page.evaluate(() => window.__qaWalletPrompts.rejectSignature()); await page.waitForTimeout(100);
+    assert.equal(await page.locator('#workspace-notice').textContent(), changedNotice);
+    assert.equal(await page.locator('#connect-submit').isDisabled(), false);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('jeff:workspace:session:v1')), null);
+    assert.equal(requests.filter(item => /\/api\/(account\/)?auth\/verify$/.test(item.path)).length, beforeVerify);
+    assert.equal(requests.filter(item => item.method === 'POST' && ['/api/jobs', '/api/conversations', '/api/hosting/activate'].includes(item.path)).length, 0);
+    checked('A late declined login signature cannot overwrite wallet-change feedback, restore a session or verify the old login');
+    report.walletCallbackIsolation = { invoiceReadNoticePreserved: true, newScopePaymentLockPreserved: true, transactionHashPreserved: true,
+      lateLoginNoticePreserved: true, simulatedTransactionRequests: transactions.length, actualChainRequests: 0, jobsCreated: 0 };
+  } finally { await isolated.context.close(); }
 }
 
 (async () => {
@@ -227,6 +433,8 @@ async function newContext(viewport) {
       assert.equal((await signatureMessages(ap)).length, 0);
       checked('Reload restores the signed standalone account and its private memory without a new signature');
 
+      await settingsConcurrency(ap, accountNote);
+
       await sidebarAction(ap, '[data-action="connect-account"]', true);
       assert.equal(await ap.locator('#connect-mode').inputValue(), 'account');
       await ap.keyboard.press('Escape');
@@ -263,6 +471,8 @@ async function newContext(viewport) {
       await ap.keyboard.press('Escape');
       checked('Standalone remains reachable through the dropdown and inactive account offers an explicit NFT switch');
     } finally { await accountCase.context.close(); }
+
+    await walletCallbackIsolation();
 
     assert.match(await page.locator('#runtime-copy').textContent(), /simulated|fixture|no live/i);
     assert.equal(await page.locator('#composer-input').count(), 0);

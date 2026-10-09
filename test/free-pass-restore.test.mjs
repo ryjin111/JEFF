@@ -49,6 +49,7 @@ test('an encrypted backup after redemption restores the spent pass and its full 
   assert.equal(Date.parse(redeemed.usage.resetsAt) - Date.parse(redeemed.usage.periodStartsAt), monthMs);
   const before = await readFile(ledgerPath(f.dataRoot));
   const saved = await f.backup();
+  assert.ok(saved.snapshot.files.some(file => file.path === 'hosting/ledger-initialized.json'));
   const started = Date.now();
   const restored = await f.restore(saved);
   const finished = Date.now();
