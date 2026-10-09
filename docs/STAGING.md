@@ -8,33 +8,38 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `7b5e81ca48f609f682ac9eecea9dcdb3085ff94b` |
+| Application source | `30254683cb44c8c907de8633b7a59b0f84c81808` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `bf228c57-06c3-4336-a5ac-9550bb92931c` |
+| Current deployment | `56008b28-ffad-4b88-bbd9-ef89e8cdc541` |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 
 Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. Prepaid inference accounting, paid checkout, free passes and external tools remain disabled. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
 
 ## Verified
 
-- The application release passed 261 automated tests and 25 fixture browser checks.
+- The application baseline passed 261 automated tests. The wallet-switch correction passed 32 fixture browser checks, including restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission and private-memory isolation on desktop and mobile.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
 - Railway built the pinned Linux Dockerfile successfully and started it with the separate `/data` volume.
 - Seven public HTTPS checks passed: health, exact source revision, live hosted configuration, unsigned private-route rejection, no fixture wallet, strict CSP and reachable application assets.
 - Desktop and mobile staging render without horizontal overflow, external page requests, JavaScript errors or console/CSP errors. These checks used an isolated browser without a holder wallet.
+- The live wallet-flow correction was checked at 1440×1000 and 390×844: served JavaScript matches the local source hash, Agent NFT actions reset account mode, the connection headings match the selected scope, and unsigned private requests still return 401. No live wallet signature or model request was made by this check.
 - A genuine operator OpenClaw turn completed and its saved result was retrieved through a new bridge. This was an operator check outside holder workspaces, without impersonating a holder login.
 - A replacement process retrieved the same saved job and text hash from the volume. It reported `retrievedAfterProcessRestart: true` and `modelRerun: false`.
 - Effective deployment metadata confirms one replica, Serverless disabled, direct Node startup, `/health`, health timeout 180 seconds, overlap zero and graceful drain 180 seconds.
 
 Operator evidence: job `e81aeefc-57fb-42fa-94e0-588674b300ad`; text SHA-256 `e4fa97816b655102b0b983e70aaf12ddb357d6f4ef6a04472538e4109adf68ee`. The original result timestamp is `2026-10-09T04:58:48.797Z`; process-restart retrieval was verified at `2026-10-09T05:02:01.891Z`. No model output text is published here.
 
+The wallet-flow deployment retrieved that same saved result again at `2026-10-09T05:33:17.209Z`, reporting persistence source `30254683cb44c8c907de8633b7a59b0f84c81808` and `modelRerun: false`.
+
 The initial upload recognized `railway.json` field mappings but did not persist its deployment settings. A deploy-only environment configuration patch applied the settings explicitly; the replacement deployment metadata proves their effective values. The volume is attached and restart persistence is verified. Provider metadata still does not report a separate `requiredMountPath` guard, so that field is not counted as verified.
 
 ## Room #35 holder acceptance
 
-The holder confirmed Room #35 for staging acceptance. Its wallet signature has not yet been supplied. Open staging in a browser with the holder wallet, choose **Connect an Agent NFT**, select Room #35 if prompted, and sign the login challenge.
+The holder confirmed Room #35 for staging acceptance. Its NFT holder login has not yet been verified. Refresh staging in a browser with the holder wallet, choose **Connect an Agent NFT**, select Room #35, and sign the login challenge.
+
+The initial holder screenshot showed a signed standalone wallet account with no hosting, rather than an NFT workspace. Read-only staging discovery for that wallet returned Rooms **7, 35, 108, 109 and 110**. The UI preserved account mode when opening an Agent NFT connection, and its dropdown could lose a selected mode during synchronous session cleanup. Release `3025468` fixes both paths: Agent NFT actions choose NFT mode explicitly, account mode remains an explicit choice, and inactive wallet accounts display a route to their owned Rooms. Room hosting remains attached to the NFT and requires a fresh holder signature; account memories stay in their separate workspace.
 
 1. Send one task and wait for its saved response. Reload and continue the conversation.
 2. Save a harmless memory note, send a task that uses it, then reopen Memory to verify persistence.
