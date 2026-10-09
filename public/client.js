@@ -82,7 +82,8 @@ export const labels = {
   JEFF_RESULT_INVALID: 'This result did not match the current workspace or pass the integrity check. It was withheld.',
   JEFF_OPENCLAW_RESULT_INVALID: 'The saved result failed its integrity check. It was withheld.',
   JEFF_WALLET_UNAVAILABLE: 'Open this page in a browser with an Ethereum wallet extension, then sign in.',
-  JEFF_SERVICE_UNAVAILABLE: 'The service is unavailable. Check the connection before trying again.',
+  JEFF_CHAIN_UNAVAILABLE: 'The ownership check is unavailable. Your task was not automatically resubmitted. Wait and refresh to check saved work.',
+  JEFF_SERVICE_UNAVAILABLE: 'The service is unavailable. Refresh to check saved work before submitting another task.',
   JEFF_NETWORK_FAILURE: 'The request was interrupted. A task may still be running; do not submit it again automatically.',
   JEFF_STORAGE_UNAVAILABLE: 'Browser storage is unavailable. Keep the job ID or download the result so you can retrieve it later.',
 };

@@ -58,6 +58,21 @@ async function fixture(t, overrides = {}) {
   return { api, login, terminal, dataRoot, calls, ownership, get app() { return app; }, async reopen() { await app.close(); await open(); } };
 }
 
+test('failed ownership RPC diagnostics exclude request secrets and preserve fail-closed responses', async t => {
+  const diagnostics = [];
+  const secret = 'private-fixture-canary';
+  const cause = Object.assign(new Error(`Provider detail ${secret}`), { name: 'HttpRequestError', status: 429, details: secret });
+  const f = await fixture(t, { resolveOwner: async () => { throw new Error('JEFF_CHAIN_UNAVAILABLE', { cause }); },
+    onRequestError: event => diagnostics.push(event) });
+  const result = await f.api(`/api/auth/challenge?private=${secret}`, { method: 'POST', input: { wallet: first.address, tokenId: '35' } });
+  assert.equal(result.status, 503);
+  assert.deepEqual(result.value, { error: 'JEFF_CHAIN_UNAVAILABLE' });
+  assert.deepEqual(diagnostics, [{ event: 'JEFF_REQUEST_FAILED', method: 'POST', route: '/api/auth/challenge', status: 503,
+    error: 'JEFF_CHAIN_UNAVAILABLE', types: ['Error', 'HttpRequestError'], codes: [], upstreamStatus: 429 }]);
+  assert.equal(JSON.stringify(diagnostics).includes(secret), false);
+  assert.equal(f.calls.length, 0);
+});
+
 test('real signed HTTP flow persists private context, binds conversation jobs, and reopens history', async t => {
   const f = await fixture(t);
   assert.equal((await f.api('/api/workspace')).status, 401);

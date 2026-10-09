@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const base = process.env.JEFF_QA_ORIGIN || 'http://127.0.0.1:8421';
 const output = path.resolve(__dirname, '..', 'evidence', 'release');
-const report = { origin: base, fixture: true, checks: [], screenshots: [], pageErrors: [], consoleErrors: [], externalRequests: [], failures: [] };
+const report = { origin: base, fixture: true, checks: [], screenshots: [], pageErrors: [], consoleErrors: [], externalRequests: [], injectedFailures: [], failures: [] };
+const expectedHttpErrors = new WeakMap();
 let browser;
 const checked = name => { report.checks.push(name); process.stdout.write(`PASS ${name}\n`); };
 async function capture(page, name) {
@@ -18,6 +19,11 @@ async function api(page, endpoint, method = 'GET', input) {
       body: input === undefined ? undefined : JSON.stringify(input) });
     return { status: response.status, value: await response.json() };
   }, { endpoint, method, input });
+}
+async function fixtureUnavailable(page, route, phase) {
+  const failure = { path: new URL(route.request().url()).pathname, status: 503, phase, consoleObserved: false };
+  report.injectedFailures.push(failure); expectedHttpErrors.get(page).push(failure);
+  await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'JEFF_SERVICE_UNAVAILABLE' }) });
 }
 async function nav(page, view) {
   if (await page.locator('[data-action="sidebar"]').isVisible() && !await page.locator('#sidebar').evaluate(e => e.classList.contains('open'))) await page.locator('[data-action="sidebar"]').click();
@@ -112,8 +118,15 @@ async function newContext(viewport) {
     } });
   });
   const page = await context.newPage();
+  expectedHttpErrors.set(page, []);
   page.on('pageerror', error => report.pageErrors.push(error.message));
-  page.on('console', message => { if (message.type() === 'error' && !/^Failed to load resource: the server responded with a status of (401|409)/.test(message.text())) report.consoleErrors.push(message.text()); });
+  page.on('console', message => {
+    if (message.type() !== 'error' || /^Failed to load resource: the server responded with a status of (401|409)/.test(message.text())) return;
+    const expected = expectedHttpErrors.get(page).find(item => !item.consoleObserved && message.location().url === new URL(item.path, base).href
+      && /^Failed to load resource: the server responded with a status of 503/.test(message.text()));
+    if (expected) expected.consoleObserved = true;
+    else report.consoleErrors.push(message.text());
+  });
   page.on('dialog', dialog => dialog.accept());
   await page.route('**/*', route => {
     const url = route.request().url();
@@ -207,20 +220,96 @@ async function newContext(viewport) {
     assert.equal(initial.value.scope.tokenId, '35');
     // Leave preexisting fixture work untouched; only remove records created by this run.
     const unique = `QA ${Date.now()}`;
-    await page.locator('[data-action="new-session"]').click(); await ready(page);
-    const conversationId = await page.locator('#conversation-select').inputValue();
+    assert.deepEqual(initial.value.conversations, [], 'First-send regression requires an empty isolated Room35 fixture workspace');
+    await ready(page);
     const objective = `${unique}: draft a short Agent NFT launch checklist. <script>window.qaInjected=true</script>`;
+    const submissions = [];
+    let rejectedFirstSubmission = false, acceptedRecord, failedAcceptedRefresh = false, rejectAcceptedRefresh = false, conversationPosts = 0;
+    const observeSubmission = request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') submissions.push(request.postDataJSON());
+    };
+    page.on('request', observeSubmission);
+    const conversationRoute = async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      conversationPosts++;
+      return fixtureUnavailable(page, route, 'obsolete split first-send conversation request');
+    };
+    const jobsRoute = async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      if (!rejectedFirstSubmission) { rejectedFirstSubmission = true; return fixtureUnavailable(page, route, 'initial job admission'); }
+      const response = await route.fetch();
+      if (response.status() === 202) { acceptedRecord = await response.json(); rejectAcceptedRefresh = true; }
+      return route.fulfill({ response });
+    };
+    const stateRoute = async route => {
+      if (route.request().method() === 'GET' && rejectAcceptedRefresh) {
+        rejectAcceptedRefresh = false; failedAcceptedRefresh = true;
+        return fixtureUnavailable(page, route, 'workspace refresh after accepted job');
+      }
+      return route.continue();
+    };
+    await page.route('**/api/conversations', conversationRoute);
+    await page.route('**/api/jobs', jobsRoute);
+    await page.route('**/api/workspace/state', stateRoute);
     await page.locator('#composer-input').fill(objective);
     await page.locator('[data-action="send-task"]').click();
-    await page.locator('[data-action="stop-job"]').waitFor();
+    await page.waitForFunction(() => /service is unavailable/i.test(document.getElementById('workspace-notice').textContent));
+    await ready(page);
+    assert.equal(await page.locator('#composer-input').inputValue(), objective);
+    assert.deepEqual((await api(page, '/api/workspace')).value.conversations, []);
+    assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.objective === objective), false);
+    await page.waitForTimeout(2200);
+    assert.equal(submissions.length, 1);
+    assert.equal(conversationPosts, 0);
+    checked('Rejected first send reports its 503, keeps the draft and creates no conversation, job or automatic retry');
+
+    await page.locator('[data-action="send-task"]').click();
+    await page.waitForFunction(() => /accepted|admitted/i.test(document.getElementById('workspace-notice').textContent)
+      && /refresh|reload/i.test(document.getElementById('workspace-notice').textContent));
+    const acceptedView = await page.evaluate(() => ({ draft: document.getElementById('composer-input').value,
+      composerDisabled: document.getElementById('composer-input').disabled, sendDisabled: document.querySelector('[data-action="send-task"]').disabled,
+      noticeError: document.getElementById('workspace-notice').classList.contains('is-error'), notice: document.getElementById('workspace-notice').textContent }));
+    assert.equal(failedAcceptedRefresh, true);
+    assert.ok(acceptedRecord?.id); assert.ok(acceptedRecord?.conversationId);
+    assert.equal(acceptedView.draft, ''); assert.equal(acceptedView.composerDisabled, true); assert.equal(acceptedView.sendDisabled, true);
+    assert.equal(acceptedView.noticeError, true);
+    assert.match(acceptedView.notice, new RegExp(acceptedRecord.id));
+    assert.equal(submissions.length, 2);
+    assert.ok(submissions.every(input => input.objective === objective && !Object.hasOwn(input, 'conversationId')));
+    assert.equal(conversationPosts, 0);
+    assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === objective).length, 1);
+    checked('Accepted first send survives a refresh 503 with its job ID, cleared draft and no duplicate or split conversation POST');
+
+    await page.locator('[data-action="refresh"]').click();
     await page.locator('.message.assistant .pill').filter({ hasText: 'Saved' }).last().waitFor({ timeout: 12000 });
     await page.waitForFunction(() => document.getElementById('workspace-notice').textContent === 'Run completed and saved.');
     const jobs = (await api(page, '/api/jobs')).value.jobs;
     const job = jobs.find(item => item.objective === objective);
     assert.ok(job); assert.equal(job.status, 'completed');
+    const conversationId = acceptedRecord.conversationId;
+    const persistedWorkspace = (await api(page, '/api/workspace')).value;
+    assert.equal(persistedWorkspace.conversations.length, 1);
+    assert.deepEqual(persistedWorkspace.conversations[0].jobIds, [job.id]);
+    assert.equal(persistedWorkspace.conversations[0].id, conversationId);
+    assert.equal(await page.locator('#conversation-select').inputValue(), conversationId);
+    assert.equal(job.id, acceptedRecord.id);
     assert.equal(createHash('sha256').update(job.text).digest('hex'), job.textSha256);
     assert.equal(await page.evaluate(() => window.qaInjected), undefined);
     checked('Real persisted task polls to Saved, hash verifies, and supplied HTML renders as text');
+    await page.reload(); await ready(page);
+    await page.locator('.message.assistant .pill').filter({ hasText: 'Saved' }).last().waitFor();
+    assert.equal(await page.locator('#conversation-select').inputValue(), conversationId);
+    assert.deepEqual(await page.locator('.message.user .user-bubble').evaluateAll(nodes => nodes.map(element => element.textContent)), [objective]);
+    assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === objective).length, 1);
+    assert.equal(submissions.length, 2); assert.equal(conversationPosts, 0);
+    report.firstSend = { initialConversations: 0, jobPostAttempts: submissions.length, rejectedAdmissions: 1, acceptedJobs: 1,
+      conversationPostRequests: conversationPosts, injectedRefreshFailures: 1, jobId: job.id, conversationId,
+      persistedConversationJobIds: persistedWorkspace.conversations[0].jobIds, reloadRestoredHistory: true, automaticResubmissions: 0 };
+    checked('Atomic first send binds one saved job to one conversation and reload restores its history without rerunning');
+    await page.unroute('**/api/conversations', conversationRoute);
+    await page.unroute('**/api/jobs', jobsRoute);
+    await page.unroute('**/api/workspace/state', stateRoute);
+    page.off('request', observeSubmission);
     await page.locator('.receipt-details summary').last().click();
     assert.equal(await page.locator('.receipt-facts').last().getByText(job.id, { exact: true }).count(), 1);
     const downloadPromise = page.waitForEvent('download');

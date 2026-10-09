@@ -86,9 +86,13 @@ function notifyRun(jobId, message, stopRequested = false) {
 function updateRunNotice() {
   const tracked = S.runNotice;
   if (!tracked || !S.session || tracked.scope !== scopeKey(S.session.scope)
-    || S.noticeError || S.notice !== tracked.message) return;
+    || (S.noticeError && !tracked.refreshFailed) || S.notice !== tracked.message) return;
   const job = S.jobs.find(item => item.id === tracked.jobId);
-  if (!job || job.status === 'running') return;
+  if (!job) return;
+  if (job.status === 'running') {
+    if (tracked.refreshFailed) notifyRun(job.id, 'Run admitted. Its result will appear here.', tracked.stopRequested);
+    return;
+  }
   if (job.status === 'completed') notify('Run completed and saved.');
   else if (job.status === 'completed_unsaved') notify('Run completed, but its output is not saved. Retry save to keep the existing result.', true);
   else if (job.status === 'failed') notify(tracked.stopRequested
@@ -205,12 +209,23 @@ async function refresh({ quiet = false } = {}) {
     const usage = validateUsage(value.usage);
     if (version !== S.version || sequence !== refreshSequence) return;
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
+    const trackedRun = S.runNotice;
     updateRunNotice();
     if (!workspace.conversations.some(item => item.id === S.conversationId)) S.conversationId = workspace.conversations.at(-1)?.id || null;
     render(); schedulePoll();
-    if (!quiet) notify('Workspace refreshed.');
+    if (!quiet && !trackedRun) notify('Workspace refreshed.');
     return true;
-  } catch (error) { if (error.message !== 'JEFF_REQUEST_SUPERSEDED') { notify(friendly(error), true); render(); } return false; }
+  } catch (error) {
+    if (error.message !== 'JEFF_REQUEST_SUPERSEDED') {
+      if (S.runNotice && S.session && S.runNotice.scope === scopeKey(S.session.scope)) {
+        const tracked = S.runNotice;
+        notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. Use Refresh to retrieve its saved status; do not send it again.`, true);
+        S.runNotice = { ...tracked, message: S.notice, refreshFailed: true };
+      } else notify(friendly(error), true);
+      render();
+    }
+    return false;
+  }
 }
 function schedulePoll() {
   clearTimeout(pollTimer);
@@ -695,9 +710,11 @@ async function sendTask(event) {
   const objective = S.draft.trim();
   if (!objective || objective.length > 4000 || S.busy || allowanceReason()) return;
   await mutate(async () => {
-    const selected = conversation() || await newConversation(objective.slice(0, 80));
-    const record = await api('/api/jobs', { method: 'POST', body: { objective, conversationId: selected.id } });
+    const selected = conversation();
+    const record = await api('/api/jobs', { method: 'POST', body: { objective, ...(selected ? { conversationId: selected.id } : {}) } });
     await validateRecord(record, S.session.scope);
+    if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
+    S.conversationId = record.conversationId;
     S.draft = ''; S.jobs = [record, ...S.jobs.filter(job => job.id !== record.id)];
     notifyRun(record.id, 'Run admitted. Its result will appear here.');
   });

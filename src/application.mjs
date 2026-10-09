@@ -23,6 +23,19 @@ const strict = (input, fields) => {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !fields.includes(key))) throw new Error('JEFF_REQUEST_INVALID');
   return input;
 };
+const diagnosticTypes = new Set(['Error', 'TypeError', 'RangeError', 'HttpRequestError', 'TimeoutError', 'RpcRequestError',
+  'ContractFunctionExecutionError', 'ContractFunctionRevertedError', 'InvalidInputRpcError', 'InternalRpcError', 'UnknownRpcError']);
+function failureDetails(error) {
+  const types = [], codes = [];
+  let upstreamStatus = null;
+  for (let cause = error, depth = 0; cause && depth < 6; cause = cause.cause, depth++) {
+    types.push(diagnosticTypes.has(cause.name) ? cause.name : 'OtherError');
+    if (Number.isSafeInteger(cause.status) && cause.status >= 400 && cause.status <= 599) upstreamStatus = cause.status;
+    if (Number.isSafeInteger(cause.code)) codes.push(cause.code);
+    else if (['EACCES', 'ENOSPC', 'EIO', 'ENOENT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED'].includes(cause.code)) codes.push(cause.code);
+  }
+  return { types, codes, upstreamStatus };
+}
 
 // Injectable dependencies support isolated tests. Production has no auth bypass.
 export async function createJeffApplication(options = {}) {
@@ -167,9 +180,11 @@ export async function createJeffApplication(options = {}) {
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
     const finish = maintenance.beginRequest();
     if (!finish) return send(response, 503, { error: 'JEFF_SERVICE_MAINTENANCE' });
+    let diagnosticRoute = 'other';
     try {
       if (request.headers.origin && request.headers.origin !== origin) return send(response, 403, { error: 'JEFF_ORIGIN_DENIED' });
       const url = new URL(request.url, origin), route = url.pathname, method = request.method;
+      if (/^\/api\/(?:auth\/(?:nfts|challenge|verify|logout)|account\/auth\/(?:challenge|verify|logout)|workspace(?:\/(?:state|settings|skills))?|conversations|memory|activity|inference|schedules|jobs)$/.test(route)) diagnosticRoute = route;
       if (method === 'GET' && route === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw', scheduler: scheduler.status() });
       if (method === 'GET' && route === '/api/config') return send(response, 200, config());
       const bearer = request.headers.authorization?.replace(/^Bearer /, '');
@@ -242,6 +257,11 @@ export async function createJeffApplication(options = {}) {
       const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : error.code === 'ENOENT' ? 'JEFF_ROUTE_NOT_FOUND' : 'JEFF_SERVICE_UNAVAILABLE';
       const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400
         : /CONFLICT|BUSY|PAUSED/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED/.test(message) ? 403 : 503;
+      if (status >= 500) {
+        const event = { event: 'JEFF_REQUEST_FAILED', method: ['GET', 'POST', 'PATCH', 'DELETE', 'HEAD'].includes(request.method) ? request.method : 'OTHER',
+          route: diagnosticRoute, status, error: message, ...failureDetails(error) };
+        try { (options.onRequestError || (value => console.error(JSON.stringify(value))))(event); } catch {}
+      }
       send(response, status, { error: message });
     } finally { finish(); }
   });
