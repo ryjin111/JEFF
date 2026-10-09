@@ -64,7 +64,9 @@ function allowanceReason() {
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
   if (!S.config?.modelConfigured) return 'The model connection is unavailable. Saved work remains accessible.';
   if (S.workspace.settings.paused) return 'Future runs are paused. Resume this agent to send a task.';
-  if (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return 'Activate hosting to run tasks. Your saved work remains accessible.';
+  if (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return S.session.scope.kind === 'account'
+    ? 'This wallet account has no active hosting. Open your Agent NFT to use its hosting.'
+    : 'Activate hosting to run tasks. Your saved work remains accessible.';
   if (!S.hosting.usage || S.hosting.usage.remaining === 0) return 'Your included task allowance is used up. Check Hosting for the next period.';
   if (S.hosting.usage.hourlyRemaining === 0) return 'The hourly task limit was reached. Check Usage for the next available time.';
   if (prepaid() && (!S.usage.balance || S.usage.balance.availableMicros <= 0 || S.usage.balance.paused || S.usage.balance.restoreBlocked)) return 'Inference credits are unavailable. Check Usage & credits before running.';
@@ -257,6 +259,13 @@ function openDialog(selector) {
   if (selector === '#connect-dialog') renderConnection();
   if (selector === '#command-dialog') { $('#command-search').value = ''; renderCommands(); $('#command-search').focus(); }
 }
+function openConnection(mode = 'nft') {
+  if (S.authBusy) return false;
+  S.mode = mode === 'account' ? 'account' : 'nft';
+  put('#connect-status', ''); $('#switch-network').hidden = true;
+  openDialog('#connect-dialog');
+  return true;
+}
 function go(view) {
   if (!pages.some(([id]) => id === view)) return;
   S.view = view; history.replaceState(null, '', `#${view}`); closeSidebar({ restoreFocus: false });
@@ -300,8 +309,9 @@ function renderAgents() {
     const connect = button('Connect your Agent NFT', 'connect', 'plus', 'agent-item agent-connect');
     list.append(connect, node('p', 'sidebar-help', 'Your owned Rooms appear after your wallet is checked.'));
   } else if (S.session.scope.kind === 'account') {
-    const element = button(S.workspace?.settings.name || 'My JEFF', 'connect', 'spark', 'agent-item active');
+    const element = button(S.workspace?.settings.name || 'My JEFF', 'connect-account', 'spark', 'agent-item active');
     element.append(node('small', 'agent-item-meta', 'Standalone wallet account')); list.append(element);
+    list.append(button('Open an Agent NFT', 'discover-agents', 'search', 'button sidebar-discover'));
   } else {
     const tokenIds = S.inventory?.wallet === S.session.scope.owner ? S.inventory.tokenIds : [S.session.scope.tokenId];
     for (const tokenId of tokenIds) {
@@ -416,6 +426,11 @@ function renderChat() {
   const send = button('Send task', 'send-task', 'send', 'send-button'); send.type = 'submit'; send.setAttribute('aria-label', 'Send task'); send.disabled = Boolean(reason) || S.busy || !S.draft.trim();
   lower.append(meta, send); form.append(input, lower);
   composerWrap.append(suggestions, form, node('p', 'composer-footnote', reason || 'Enter to send · Shift + Enter for a new line · External tools and messaging are disabled.'));
+  if (S.session.scope.kind === 'account' && (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now())) {
+    const actions = node('div', 'prompt-suggestions');
+    actions.append(button('Open your Agent NFT', 'connect', 'link', 'button button-outline'));
+    composerWrap.append(actions);
+  }
   view.append(composerWrap); return view;
 }
 function renderActivity() {
@@ -604,7 +619,8 @@ function renderConnection() {
   $('#account-mode-option').disabled = !S.config?.standaloneAccounts;
   $('#connect-mode').value = S.mode;
   $('#connect-mode').disabled = S.authBusy;
-  put('#connect-copy', S.mode === 'account' ? 'Sign in with your wallet to create or open a standalone Simple JEFF account. This is separate from your Agent NFT workspace.' : 'Connect the wallet holding your Clockers Room. Sign the login message to open its private workspace.');
+  put('#connect-heading', S.mode === 'account' ? 'Your wallet workspace.' : 'Your NFT. Your agent.');
+  put('#connect-copy', S.mode === 'account' ? 'Sign in to a standalone wallet workspace. Wallet accounts have separate hosting; your Room’s hosting belongs to its Agent NFT workspace.' : 'Connect the wallet holding your Clockers Room. Choose your Room and sign the login message to use its private workspace and hosting.');
   const showPicker = S.mode === 'nft' && S.inventory?.tokenIds.length > 0;
   $('#token-picker').hidden = !showPicker;
   const selector = $('#connect-token'), current = selector.value; selector.replaceChildren();
@@ -632,7 +648,8 @@ async function signIn(tokenId, wallet, version) {
     || (account ? candidate.scope.kind !== 'account' : candidate.scope.kind !== undefined || candidate.scope.tokenId !== tokenId)) throw new Error('JEFF_SCOPE_INVALID');
   S.session = candidate; saveSession(); scheduleExpiry(); $('#connect-dialog').close(); render();
   notify('Signed in. Loading your private workspace.'); await refresh({ quiet: true });
-  if (version === S.version && S.workspace) notify('Your workspace is ready.');
+  if (version === S.version && S.workspace) notify(S.session.scope.kind === 'account' && !S.hosting?.active
+    ? 'Wallet account opened. Open your Agent NFT to use its hosting.' : 'Your workspace is ready.');
 }
 async function connect({ preferredToken, discoverOnly = false } = {}) {
   if (S.authBusy || !S.config) return;
@@ -740,7 +757,8 @@ document.addEventListener('click', async event => {
   const action = element.dataset.action;
   if (element.dataset.view && action !== 'command-view') { go(element.dataset.view); return; }
   if (!action) return;
-  if (action === 'connect') { openDialog('#connect-dialog'); return; }
+  if (action === 'connect') { openConnection('nft'); return; }
+  if (action === 'connect-account') { openConnection('account'); return; }
   if (action === 'command') { openDialog('#command-dialog'); return; }
   if (action === 'close-dialog') { element.closest('dialog')?.close(); return; }
   if (action === 'sidebar') { openSidebar(); return; }
@@ -755,8 +773,8 @@ document.addEventListener('click', async event => {
   if (action === 'command-view') { go(element.dataset.view); return; }
   if (action === 'logout') { clearPrivate(); $('#connect-dialog').close(); notify('Signed out. Private content was cleared from this tab.'); return; }
   if (action === 'refresh') { await refresh(); return; }
-  if (action === 'discover-agents') { openDialog('#connect-dialog'); await connect({ discoverOnly: true }); return; }
-  if (action === 'select-agent') { if (element.dataset.token === S.session?.scope.tokenId) return; openDialog('#connect-dialog'); await connect({ preferredToken: element.dataset.token }); return; }
+  if (action === 'discover-agents') { if (openConnection('nft')) await connect({ discoverOnly: true }); return; }
+  if (action === 'select-agent') { if (element.dataset.token === S.session?.scope.tokenId) return; if (openConnection('nft')) await connect({ preferredToken: element.dataset.token }); return; }
   if (action === 'switch-network') {
     try { bindProvider(window.ethereum); if (!provider) throw new Error('JEFF_WALLET_UNAVAILABLE'); await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${S.config.chainId.toString(16)}` }] }); put('#connect-status', 'Network switched. Connect your wallet again.'); }
     catch (error) { put('#connect-status', friendly(error)); } return;
@@ -803,7 +821,12 @@ function openReceipt(job) {
 }
 $('#sidebar-backdrop').addEventListener('click', () => closeSidebar());
 $('#connect-form').addEventListener('submit', event => { event.preventDefault(); connect(); });
-$('#connect-mode').addEventListener('change', event => { if (S.session) clearPrivate(); S.mode = event.target.value === 'account' ? 'account' : 'nft'; S.inventory = null; put('#connect-status', ''); renderConnection(); });
+$('#connect-mode').addEventListener('change', event => {
+  if (S.authBusy) return;
+  const selectedMode = event.target.value === 'account' ? 'account' : 'nft';
+  if (S.session) clearPrivate();
+  S.mode = selectedMode; S.inventory = null; put('#connect-status', ''); renderConnection();
+});
 $('#command-search').addEventListener('input', renderCommands);
 document.addEventListener('input', event => {
   const element = event.target;

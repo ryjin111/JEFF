@@ -33,6 +33,37 @@ async function refresh(page) {
   else { await nav(page, 'chat'); await page.locator('[data-action="refresh"]').click(); }
   await page.waitForTimeout(100);
 }
+async function sidebarAction(page, selector, keyboard = false) {
+  if (await page.locator('[data-action="sidebar"]').isVisible() && !await page.locator('#sidebar').evaluate(e => e.classList.contains('open'))) await page.locator('[data-action="sidebar"]').click();
+  const target = page.locator(`#sidebar ${selector}`).first();
+  if (keyboard) { await target.focus(); await page.keyboard.press('Enter'); }
+  else await target.click();
+}
+async function signatureMessages(page) {
+  return (await page.evaluate(() => window.__qaWallet.signatures.map(item => item.message))).map(message => Buffer.from(message.slice(2), 'hex').toString('utf8'));
+}
+async function signStandalone(page) {
+  assert.equal(await page.locator('#account-mode-option').isDisabled(), false);
+  await page.locator('#connect-mode').selectOption('account');
+  await page.locator('#connect-submit').click();
+  await page.waitForFunction(() => !document.getElementById('connect-dialog').open);
+  await nav(page, 'chat');
+  await page.locator('#composer-input').waitFor();
+  assert.equal((await api(page, '/api/workspace')).value.scope.kind, 'account');
+}
+async function signPickedRoom(page, tokenId = '35') {
+  assert.equal(await page.locator('#connect-mode').inputValue(), 'nft');
+  await page.locator('#token-picker').waitFor({ state: 'visible' });
+  await page.locator('#connect-token').selectOption(tokenId);
+  await page.locator('#connect-submit').click();
+  await page.waitForFunction(() => !document.getElementById('connect-dialog').open);
+  await nav(page, 'chat');
+  await ready(page);
+  const workspace = (await api(page, '/api/workspace')).value;
+  assert.equal(workspace.scope.kind, undefined);
+  assert.equal(workspace.scope.tokenId, tokenId);
+  assert.equal((await api(page, '/api/hosting')).value.active, true);
+}
 async function connect(page, tokenId = '35') {
   if (!await page.locator('#connect-dialog').evaluate(e => e.open)) {
     const center = page.locator('#workspace-content [data-action="connect"]').first();
@@ -104,6 +135,68 @@ async function newContext(viewport) {
   const desktop = await newContext({ width: 1440, height: 1000 });
   const page = desktop.page;
   try {
+    // Reproduce a saved standalone login, then deliberately open an NFT workspace.
+    // An NFT pilot must never fund the account or silently change its authentication scope.
+    const accountCase = await newContext({ width: 1440, height: 1000 });
+    const ap = accountCase.page;
+    try {
+      await ap.locator('#workspace-content [data-action="connect"]').click();
+      assert.equal(await ap.locator('#connect-mode').inputValue(), 'nft');
+      await signStandalone(ap);
+      assert.equal((await api(ap, '/api/hosting')).value.active, false);
+      assert.equal(await ap.locator('#composer-input').isDisabled(), true);
+      assert.equal(await ap.locator('#workspace-content [data-action="connect"]').isVisible(), true);
+      assert.match((await signatureMessages(ap))[0], /^Simple JEFF standalone account login\n/);
+      checked('Explicit standalone login stays account scoped and cannot consume Room35 pilot hosting');
+
+      const accountNote = `Account-only QA ${Date.now()}`;
+      await nav(ap, 'memory');
+      await ap.locator('#memory-title').fill(accountNote); await ap.locator('#memory-text').fill('This private note belongs only to the standalone wallet account.');
+      await ap.locator('#memory-form button[type="submit"]').click();
+      await ap.locator('.memory-card').filter({ hasText: accountNote }).waitFor();
+      await ap.reload();
+      await ap.locator('.memory-card').filter({ hasText: accountNote }).waitFor();
+      assert.equal((await api(ap, '/api/workspace')).value.scope.kind, 'account');
+      assert.equal((await signatureMessages(ap)).length, 0);
+      checked('Reload restores the signed standalone account and its private memory without a new signature');
+
+      await sidebarAction(ap, '[data-action="connect-account"]', true);
+      assert.equal(await ap.locator('#connect-mode').inputValue(), 'account');
+      await ap.keyboard.press('Escape');
+      await sidebarAction(ap, '.sidebar-section-heading [data-action="connect"]', true);
+      assert.equal(await ap.locator('#connect-mode').inputValue(), 'nft');
+      assert.equal((await signatureMessages(ap)).length, 0);
+      await ap.keyboard.press('Escape');
+      checked('Keyboard account entry remains explicit while Agent NFT plus resets restored account mode');
+
+      await sidebarAction(ap, '[data-action="discover-agents"]');
+      await ap.locator('#token-picker').waitFor({ state: 'visible' });
+      assert.equal(await ap.locator('#connect-mode').inputValue(), 'nft');
+      assert.deepEqual(await ap.locator('#connect-token option').evaluateAll(nodes => nodes.map(n => n.value)), ['35', '128', '207']);
+      assert.equal((await signatureMessages(ap)).length, 0);
+      checked('Account Room discovery requests NFT inventory without making a standalone personal_sign');
+
+      await signPickedRoom(ap);
+      assert.deepEqual((await signatureMessages(ap)).map(message => message.split('\n')[0]), ['Simple JEFF holder login']);
+      assert.match((await signatureMessages(ap))[0], /\nToken: 35\n/);
+      await nav(ap, 'memory');
+      assert.equal(await ap.locator('.memory-card').filter({ hasText: accountNote }).count(), 0);
+      checked('Room35 requires a fresh NFT signature, activates its pilot composer and receives no account memory');
+
+      await sidebarAction(ap, '.sidebar-section-heading [data-action="connect"]');
+      await signStandalone(ap);
+      await nav(ap, 'memory');
+      const accountMemory = ap.locator('.memory-card').filter({ hasText: accountNote });
+      await accountMemory.waitFor();
+      await accountMemory.locator('[data-action="delete-memory"]').click();
+      await accountMemory.waitFor({ state: 'detached' });
+      await nav(ap, 'chat');
+      await ap.locator('#workspace-content [data-action="connect"]').click();
+      assert.equal(await ap.locator('#connect-mode').inputValue(), 'nft');
+      await ap.keyboard.press('Escape');
+      checked('Standalone remains reachable through the dropdown and inactive account offers an explicit NFT switch');
+    } finally { await accountCase.context.close(); }
+
     assert.match(await page.locator('#runtime-copy').textContent(), /simulated|fixture|no live/i);
     assert.equal(await page.locator('#composer-input').count(), 0);
     checked('Signed-out view contains no private conversation and fixture is explicit');
@@ -274,6 +367,26 @@ async function newContext(viewport) {
     await nav(mp, 'chat'); await mp.locator('[data-action="toggle-inspector"]').click(); await capture(mp, 'mobile-agent-details'); await mp.keyboard.press('Escape');
     await mp.locator('[data-action="theme"]').click(); assert.equal(await mp.locator('html').getAttribute('data-theme'), 'dark'); await capture(mp, 'mobile-dark');
     checked('Mobile agent details and theme switch remain usable');
+    await mp.locator('[data-action="theme"]').click();
+    await sidebarAction(mp, '.sidebar-section-heading [data-action="connect"]');
+    await signStandalone(mp);
+    await mp.reload(); await mp.locator('#composer-input').waitFor();
+    assert.equal(await mp.locator('#composer-input').isDisabled(), true);
+    assert.equal((await api(mp, '/api/workspace')).value.scope.kind, 'account');
+    await sidebarAction(mp, '.sidebar-section-heading [data-action="connect"]', true);
+    assert.equal(await mp.locator('#connect-mode').inputValue(), 'nft');
+    await mp.keyboard.press('Escape');
+    assert.ok(await mp.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await mp.locator('#workspace-content [data-action="connect"]').click();
+    assert.equal(await mp.locator('#connect-mode').inputValue(), 'nft');
+    await mp.locator('#connect-submit').click();
+    await mp.locator('#token-picker').waitFor({ state: 'visible' });
+    assert.equal((await signatureMessages(mp)).length, 0);
+    await signPickedRoom(mp);
+    assert.deepEqual((await signatureMessages(mp)).map(message => message.split('\n')[0]), ['Simple JEFF holder login']);
+    assert.ok(await mp.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await capture(mp, 'mobile-account-to-nft');
+    checked('Mobile restored account switches to signed Room35 through NFT controls without overflow or account signing');
     await mobile.context.close();
     assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.pageErrors, []); assert.deepEqual(report.consoleErrors, []);
     checked('Zero external page requests, JavaScript errors or console/CSP errors');
