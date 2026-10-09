@@ -14,22 +14,28 @@ const validPath = path => typeof path === 'string' && path.length > 0 && !/[\\:\
     && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 
 // The caller must stop all writers first. A stable reread detects accidental writes.
-export async function captureBackup({ dataRoot, writersQuiesced = false }) {
+export async function captureBackup({ dataRoot, writersQuiesced = false, maxBytes = 64 * 1024 * 1024, maxFileBytes = 32 * 1024 * 1024, maxFiles = 10000, maxDepth = 32 }) {
   if (!writersQuiesced) throw new Error('JEFF_BACKUP_WRITERS_REQUIRED');
+  if (![maxBytes, maxFileBytes, maxFiles, maxDepth].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('JEFF_BACKUP_LIMIT_INVALID');
   const root = await realpath(dataRoot);
   async function scan() {
-    const files = [], excludedPaths = [];
-    async function visit(directory) {
+    const files = [], excludedPaths = []; let totalBytes = 0, entries = 0;
+    async function visit(directory, depth = 0) {
+      if (depth > maxDepth) throw new Error('JEFF_BACKUP_TOO_LARGE');
       for (const entry of (await readdir(directory)).sort()) {
+        if (++entries > maxFiles) throw new Error('JEFF_BACKUP_TOO_LARGE');
         const file = resolve(directory, entry), path = relative(root, file).split(sep).join('/');
         if (!validPath(path)) throw new Error('JEFF_BACKUP_PATH_INVALID');
         const stat = await lstat(file);
         const reason = exclusion(path);
         if (reason) { excludedPaths.push({ path, reason, kind: stat.isSymbolicLink() ? 'symlink' : stat.isDirectory() ? 'directory' : 'file' }); continue; }
         if (stat.isSymbolicLink()) throw new Error('JEFF_BACKUP_LINK_DENIED');
-        if (stat.isDirectory()) await visit(file);
+        if (stat.isDirectory()) await visit(file, depth + 1);
         else if (stat.isFile()) {
+          totalBytes += stat.size;
+          if (totalBytes > maxBytes || stat.size > maxFileBytes) throw new Error('JEFF_BACKUP_TOO_LARGE');
           const bytes = await readFile(file);
+          if (bytes.length !== stat.size) throw new Error('JEFF_BACKUP_SOURCE_CHANGED');
           files.push({ path, size: bytes.length, sha256: sha(bytes), data: bytes.toString('base64') });
         } else throw new Error('JEFF_BACKUP_FILE_INVALID');
       }

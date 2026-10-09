@@ -184,6 +184,7 @@ export async function createJeffApplication(options = {}) {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    if (options.backupExport?.handleRequest(request, response)) return;
     const finish = maintenance.beginRequest();
     if (!finish) return send(response, 503, { error: 'JEFF_SERVICE_MAINTENANCE' });
     let diagnosticRoute = 'other';

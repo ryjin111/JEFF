@@ -1,6 +1,14 @@
 ﻿import { createJeffApplication } from './application.mjs';
 
-const app = await createJeffApplication();
+const { prepareStartupBackup } = await import('./startup-backup.mjs');
+let backupExport;
+try { backupExport = await prepareStartupBackup(); }
+catch (error) {
+  console.error(/^JEFF_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_BACKUP_EXPORT_FAILED');
+  process.exit(1);
+}
+const app = await createJeffApplication({ backupExport });
+if (backupExport) console.log(JSON.stringify(backupExport.receipt));
 process.on('SIGUSR2', () => app.maintenance.pause()
   .then(marker => { if (marker) console.log(JSON.stringify({ event: 'JEFF_MAINTENANCE_READY', ...marker })); })
   .catch(() => console.error('JEFF_MAINTENANCE_DRAIN_FAILED')));
@@ -9,6 +17,7 @@ let closing = false;
 const shutdown = () => {
   if (closing) return;
   closing = true;
+  backupExport?.dispose();
   app.close().then(() => process.exit(0)).catch(() => process.exit(1));
 };
 process.on('SIGTERM', shutdown);
