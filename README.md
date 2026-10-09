@@ -6,6 +6,8 @@ This folder contains the connected JEFF workspace release candidate: eight appli
 
 Use Node 24.21.0 and `npm run preview:release` for the isolated local fixture, or follow [the release guide](docs/RELEASE.md) for configured operation, credit administration, deployment and restore behavior. Run `npm run test:release` for the release checks.
 
+An isolated [JEFF staging service](https://jeff-staging-jeff-staging.up.railway.app) now runs the release with real OpenClaw. [Staging acceptance](docs/STAGING.md) records its build, live provider and restart checks, plus the remaining holder-wallet checks.
+
 The sections below preserve the earlier hosted pilot record. Their capability and deployment statements describe that pilot; the release guide describes this candidate.
 
 ## Existing hosted pilot record
