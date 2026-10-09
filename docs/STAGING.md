@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `a31222cdf5866f1c08a023a498e12585758201fe` |
+| Application source | `8dd2f573b7e5652b46022d95c5ea4b3db15a54fc` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `83a6dc19-1192-40c9-b169-057093e0d26a` |
+| Current deployment | `9c7b4ddf-df56-4326-ba63-e31be320279c` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
@@ -44,6 +44,8 @@ The JEFF wording deployment retrieved the same operator result at `2026-10-09T06
 The initial upload recognized `railway.json` field mappings but did not persist its deployment settings. A deploy-only environment configuration patch applied the settings explicitly; the replacement deployment metadata proves their effective values. The volume is attached and restart persistence is verified. Provider metadata still does not report a separate `requiredMountPath` guard, so that field is not counted as verified.
 
 ## Room #35 holder acceptance
+
+The holder subsequently supplied a screenshot of a saved “Memory Test” card, with its update time shown as **9 October 2026, 18:51 Asia/Taipei**. This establishes a saved-note UI observation; memory persistence after reload and recall in a new conversation still need confirmation. The screenshot does not independently identify the signed workspace or application source. No operator read of holder data was made. The sanitized observation is `evidence/staging/holder-memory-note-observation.json`.
 
 After deployment `ccfee069`, the holder confirmed **“The conversation reopens correctly”** in response to the staging sign-in/reload check. That check was against candidate source `124c6f4154b485f1a4e0a0de7e613be41f93b3cc`. This passes saved-conversation reload acceptance by holder report; it does not yet verify a new continuation turn, memory recall, scheduled execution or the latest agent name in a fresh response. No operator holder signature, private-workspace read or model call was used. The receipt is `evidence/staging/holder-reload-acceptance.json`.
 
@@ -94,6 +96,10 @@ Release `124c6f4` adds the optional encrypted startup export and storage verific
 Release `a31222c` uses the saved agent name in the Memory label and introduction, empty conversation guidance and Skills description. Room #35 therefore shows “What should Room #35 remember?”; a custom name follows its own workspace, while JEFF remains the application and runtime brand. All **eight focused fixture browser checks** and **12 existing frontend tests** passed. The browser checks verified default and custom names across the three views, persistence after reload, literal HTML-looking names without injected elements or handlers, 80-character names without horizontal overflow at 390 px, and separate NFT/account names. There were no JavaScript, console or external-request errors. These local checks used no live holder session or provider call. Holder memory acceptance is still pending; fixture evidence is `evidence/release/agent-name-copy-browser.json` and `agent-name-memory.png`.
 
 The agent-name deployment passed **12/12 live public checks at 18:33 Asia/Taipei**, including exact source and asset hashes, healthy service, public Room #35 discovery/challenge, denied unsigned private access and safe desktop/mobile rendering. Browser checks reported no JavaScript, console/CSP errors, external requests or horizontal overflow. Startup retrieved the same original operator result at `2026-10-09T10:32:44.666Z`, reporting the new persistence source and `modelRerun: false`. The monitor pin was updated and its public sample passed at `2026-10-09T10:34:21.670Z`. Reports are `evidence/staging/agent-name-copy-live-smoke.json`, `agent-name-copy-restart-persistence.json` and `agent-name-copy-release.json`. These checks used no holder signature, private holder workspace or new inference.
+
+Release `8dd2f57` removes Run receipt and Download receipt from conversation replies, keeping Copy answer and the applicable Stop/Retry save controls. Run details and JSON export open from Activity; those dialogs follow saved status changes and clear with session changes. Empty action rows are omitted. The existing broad browser script now expects receipts in Activity. All **12 existing frontend tests** and **9 focused fixture browser checks** passed; fixture evidence is `evidence/release/receipt-ui-browser.json` and `receipt-free-conversation.png`. The focused checks include chat controls, Activity export integrity and mobile layout.
+
+The receipt-UI deployment passed **12/12 live public checks at 18:59 Asia/Taipei**, with exact source/asset hashes, healthy service, public ownership/discovery, denied unsigned private access and safe desktop/mobile rendering. The original operator result was retrieved at `2026-10-09T10:59:30.269Z` with `modelRerun: false`; public monitoring was repinned and passed at `2026-10-09T10:59:51.400Z`. Reports are `evidence/staging/receipt-ui-live-smoke.json`, `receipt-ui-restart-persistence.json` and `receipt-ui-release.json`. These checks used no holder signature, private holder workspace or new inference.
 
 The [five-minute public workstation monitor](MONITORING.md) is registered under the current user's limited interactive principal, and its pin was updated for each successful release. Its initial backup-release sample passed at `2026-10-09T10:01:49.437Z`. It needs the workstation on and user logged in; there is no outside alert delivery or independently hosted monitor. A bounded 12-request sample passed but does not establish production throughput. The [production migration/rollback procedure](PROMOTION.md) preserves the existing production volume and records the legacy maintenance-marker incompatibility. Production has not been changed.
 
