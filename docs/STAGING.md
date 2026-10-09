@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `2ff9a919006a8ade4c95fe45fe1f984fdbae8b3a` |
+| Application source | `124c6f4154b485f1a4e0a0de7e613be41f93b3cc` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `73a4e6a2-c32c-419b-a770-1510719e22fb` |
+| Current deployment | `ccfee069-4cc8-4a52-accc-51c0129184e4` |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
@@ -20,7 +20,7 @@ Provider credentials are stored in Railway service variables and omitted from al
 
 ## Verified
 
-- The final full automated suite passed **285/285 tests** with a fresh isolated OpenClaw `2026.9.9` installation. The updated frontend passed **49/49 fixture browser checks**. Coverage includes account/NFT session isolation, expiry/logout races, scheduled cancellation, restored-storage execution guards, missing known ledgers, split UTF-8 requests, two-tab Settings conflicts, late wallet callbacks, hosting admission, private memory, automatic GET recovery, safe formatted replies, scoped agent identity and editable drafts during admission and execution.
+- The backup/monitoring candidate passed **301/301 automated tests** with a fresh isolated OpenClaw `2026.9.9` installation; all ten focused encrypted-export/client checks passed again after final hardening. The unchanged frontend retains its **49/49 fixture browser checks**. Coverage includes account/NFT session isolation, expiry/logout races, scheduled cancellation, restored-storage execution guards, missing known ledgers, split UTF-8 requests, two-tab Settings conflicts, late wallet callbacks, hosting admission, private memory, automatic GET recovery, safe formatted replies, scoped agent identity, editable drafts, encrypted exports/storage restores and bounded public monitoring.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
 - Railway built the pinned Linux Dockerfile successfully and started it with the separate `/data` volume.
 - Seven public HTTPS checks passed: health, exact source revision, live hosted configuration, unsigned private-route rejection, no fixture wallet, strict CSP and reachable application assets.
@@ -86,6 +86,10 @@ All review fixtures were stopped. Automatic approval review rejected deleting th
 
 For a broader production service, provision and validate a dedicated RPC endpoint with sufficient capacity. Robinhood's official guide describes its original public endpoint as rate-limited and recommends provider-backed access for production. [Robinhood connection guide](https://docs.robinhood.com/chain/connecting/)
 
+Release `124c6f4` adds the optional encrypted startup export and storage verification described in [backup operation](BACKUP.md). It passed all **12 live public checks at 18:01 Asia/Taipei**, with exact source/asset hashes, healthy public ownership/discovery, denied unsigned private access, safe desktop/mobile rendering and no browser errors or external requests. The original operator result was retrieved at `2026-10-09T10:00:57.978Z` with the new persistence source and `modelRerun: false`. The pre-deployment check observed zero accepted tasks in the preceding ten minutes. Reports are `evidence/staging/checklist-deploy-precheck.json`, `ownership-recovery-smoke.json` and `checklist-restart-persistence.json`.
+
+The [five-minute public workstation monitor](MONITORING.md) is registered under the current user's limited interactive principal, and its pin was updated to this source. Its first post-deployment sample passed at `2026-10-09T10:01:49.437Z`. It needs the workstation on and user logged in; there is no outside alert delivery or independently hosted monitor. A bounded 12-request sample passed but does not establish production throughput. The [production migration/rollback procedure](PROMOTION.md) preserves the existing production volume and records the legacy maintenance-marker incompatibility. Production has not been changed.
+
 1. Send one task and wait for its saved response. Reload and continue the conversation.
 2. Save a harmless memory note, send a task that uses it, then reopen Memory to verify persistence.
 3. In **Scheduled work**, authorize a short test with a one-minute interval, at most two runs and a one-hour expiry. Close the browser, return after the next run, and open its saved result.
@@ -97,7 +101,11 @@ These steps consume the pilot task allowance. The operator runtime check does no
 
 An isolated Railway volume snapshot was created through its authenticated HTTPS API at `2026-10-09T05:13:06.593Z`: backup `6a5df0d6-e428-4466-8ae3-91c6b2d9818a`. It is listed by the provider. The terminal workflow query returned **Not Authorized**, so completion and restoration are not counted as verified. No restore ran. [Railway volume backups](https://docs.railway.com/volumes/backups)
 
-The separate AES-256-GCM off-host backup and isolated restore drill remains pending. Its SSH route stopped before any remote command or maintenance operation because no provider-authenticated host key was available. Railway staff confirms that independently authenticated SSH host verification is unavailable. [Railway staff confirmation](https://station.railway.com/questions/official-ssh-host-key-fingerprints-for-s-6c2aecfc)
+The former SSH attempt stopped before any remote command or maintenance operation because no provider-authenticated host key was available. Railway staff confirms that independently authenticated SSH host verification is unavailable. This route was not weakened or bypassed. [Railway staff confirmation](https://station.railway.com/questions/official-ssh-host-key-fingerprints-for-s-6c2aecfc)
+
+The new authenticated HTTPS startup export completed at `2026-10-09T10:00:57.655Z`. It captured storage before application writers started and encrypted it using AES-256-GCM with a fresh key wrapped to an off-server RSA recipient. Isolated **storage restores in the cloud container and locally both passed**: 34 files, seven SQLite databases and five saved jobs, including the original operator result and text hash. Both copies retained the restore guard and ran no model; no live data was overwritten. The temporary cloud copy was removed. The local download matched the cloud envelope and manifest hashes. Receipts are `evidence/release/staging-startup-backup-receipt.json` and `staging-backup-restore.json`.
+
+The archive is encrypted and stored off the Railway host in a restricted local directory; its private recipient key is in a separate restricted directory on the same workstation and was never sent to the service. Independent key retention and recurring off-machine backup/retention remain unverified. These storage checks do not prove recovery of a replacement cloud service/volume or its runtime credentials and configuration. The one-shot export configuration was cleared with a skip-deployment update after download. At `2026-10-09T10:05:46.765Z`, a request using its correct independent bearer returned 404 after expiry while ordinary health remained 200/ready. The safe receipt is `evidence/release/staging-backup-expiry.json`.
 
 The temporary SSH key registration was removed and its absence verified. Automatic approval review rejected deleting its local private/public key files with **blocked by policy**, without a more specific reason. Those unregistered files remain under restrictive ACL; the rejection was not bypassed. The sanitized receipt and continuation instructions are in `evidence/release/staging-backup-pending.json` and `evidence/release/staging-backup-drill-pending.md`.
 
@@ -107,9 +115,9 @@ Provider snapshots and JEFF encrypted exports are separate recovery paths. A pro
 
 1. Verify conversation continuation after reload and memory persistence. Holder sign-in and a completed saved response have passed.
 2. Complete the holder-authorized cloud schedule and pause/cancellation checks above.
-3. Complete the stage-only encrypted backup/isolated restore drill and record its receipt.
-4. Check production capacity and continuous monitoring before a wider holder pilot. Railway deployment health checks alone are not ongoing monitoring.
+3. Verify a replacement cloud service/volume recovery and independent key retention; configure recurring off-machine backups. Cloud/local isolated storage restores and one encrypted off-host capture have passed.
+4. Check production capacity and independent always-on monitoring with a tested alert destination before a wider holder pilot. The configured workstation monitor and short public sample do not establish those gates.
 5. Approve a funded credit policy and payment configuration before enabling their corresponding features. Token relaunch and automatic token-holder distributions remain separate.
-6. Resolve or reassess the five remaining bundled npm dependency findings before widening the service or enabling additional runtime tools.
+6. Resolve the five remaining bundled npm findings before widening the service or enabling additional runtime tools. The current restricted text-only workflow has a documented finite reachability assessment, not a clean audit.
 
 Public smoke reports and screenshots are in the local ignored `evidence/staging/` folder. Provider keys and backup encryption keys are excluded. Production remains on deployment `3dbc3610-d799-4c0a-8133-ac727759559d`, source `4a0145727279d22e0db0394b0da0ea5ff3ace03e`.
