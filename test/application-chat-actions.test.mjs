@@ -68,7 +68,8 @@ async function fixture(t, { respond = async () => envelope(null, 'Fixture answer
     for (let i = 0; i < 150; i++) {
       const response = await api(`/api/jobs/${jobId}`, { session });
       assert.equal(response.status, 200, JSON.stringify(response.value));
-      if (response.value.status !== 'running') return response.value;
+      // Atomic receipt persistence may still be in flight after generation.
+      if (!['running', 'completed_unsaved'].includes(response.value.status)) return response.value;
       await delay(20);
     }
     throw new Error('Fixture chat action job did not terminate');

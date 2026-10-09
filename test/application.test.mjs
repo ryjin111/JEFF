@@ -53,7 +53,9 @@ async function fixture(t, overrides = {}) {
   const terminal = async (session, id) => {
     for (let attempt = 0; attempt < 100; attempt++) {
       const result = await api(`/api/jobs/${id}`, { session });
-      if (result.value.status !== 'running') return result;
+      // The bridge exposes completed_unsaved while atomic persistence is in
+      // flight, so it is not yet a durable terminal receipt.
+      if (!['running', 'completed_unsaved'].includes(result.value.status)) return result;
       await delay(20);
     }
     throw new Error('Fixture job did not finish');
