@@ -31,6 +31,7 @@ html[data-theme=dark] .skill-icon,html[data-theme=dark] .chart-bar{border-color:
 @media(max-width:760px){.message.user{padding-left:33px}.report-top>.pill{top:18px;right:16px;font-size:7px}.report-highlights{padding-left:29px;padding-right:16px;font-size:11px;line-height:1.8;margin:14px 0}.report-card>.work-disclosure{padding:0 16px 14px}.work-disclosure summary{font-size:10px;gap:5px}.work-summary{font-size:7px}.report-footer>.message-actions button{font-size:8px}.composer-footnote{font-size:8px;line-height:1.6;margin-top:7px}.skills-grid,.memory-grid{grid-template-columns:1fr}.stats-grid{grid-template-columns:1fr;gap:9px}.stats-grid .stat-card{padding:15px 17px}.stat-value{font-size:24px;margin:5px 0}.setting-row{gap:10px;font-size:11px}.setting-row>.field{width:155px;min-width:0}.activity-row{flex-wrap:wrap}.activity-copy{min-width:155px}.activity-row>button{margin-left:38px;padding:2px 0}.activity-row>.pill{font-size:7px}.job-card{padding:17px}.job-heading{font-size:11px;flex-wrap:wrap}.job-heading>.pill{margin-left:0}.agent-empty{padding-top:40px}.agent-empty h2{font-size:23px}.header-room{max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 
 /* Structured replies keep Markdown readable without changing the saved source. */
+.view-description,.memory-form .field-label,.agent-empty p { overflow-wrap:anywhere; }
 .live-report > .message-markdown { white-space:normal; overflow-wrap:anywhere; }
 .message-markdown > :first-child { margin-top:0; }
 .message-markdown > :last-child { margin-bottom:0; }

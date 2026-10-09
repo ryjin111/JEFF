@@ -76,6 +76,8 @@ const conversation = () => {
 };
 const running = () => S.jobs.some(job => job.status === 'running');
 const signedIn = () => Boolean(S.session && S.workspace);
+const agentName = () => S.workspace?.settings.name?.trim()
+  || (S.session && S.session.scope.kind !== 'account' ? `Room #${S.session.scope.tokenId}` : 'Your agent');
 function allowanceReason() {
   if (!S.session) return 'Connect your Agent NFT to start a conversation.';
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
@@ -377,7 +379,7 @@ function renderAgents() {
     const connect = button('Connect your Agent NFT', 'connect', 'plus', 'agent-item agent-connect');
     list.append(connect, node('p', 'sidebar-help', 'Your owned Rooms appear after your wallet is checked.'));
   } else if (S.session.scope.kind === 'account') {
-    const element = button(S.workspace?.settings.name || 'My JEFF', 'connect-account', 'spark', 'agent-item active');
+    const element = button(agentName(), 'connect-account', 'spark', 'agent-item active');
     element.append(node('small', 'agent-item-meta', 'Standalone wallet account')); list.append(element);
     list.append(button('Open an Agent NFT', 'discover-agents', 'search', 'button sidebar-discover'));
   } else {
@@ -398,12 +400,12 @@ function renderAgents() {
 function renderShell() {
   const settings = S.workspace?.settings;
   const account = S.session?.scope.kind === 'account';
-  put('#agent-title', settings?.name || 'Your JEFF');
+  put('#agent-title', agentName());
   put('#agent-subtitle', S.session ? account ? 'Wallet account' : `Room #${S.session.scope.tokenId}` : 'Agent NFT workspace');
   const status = $('#agent-status'); status.replaceChildren(node('span', `status-dot${settings?.paused ? ' is-paused' : running() ? ' is-working' : ''}`), document.createTextNode(
     !S.session ? 'Not connected' : !S.workspace ? 'Loading' : settings.paused ? 'Paused' : running() ? 'Working' : allowanceReason() ? 'Limited' : 'Ready'));
   status.classList.toggle('is-paused', Boolean(settings?.paused));
-  put('#context-agent-name', settings?.name || 'Your JEFF');
+  put('#context-agent-name', agentName());
   put('#context-agent-room', S.session ? account ? `Account · ${shortWallet(S.session.scope.owner)}` : `Clockers Room #${S.session.scope.tokenId}` : 'Connect an Agent NFT');
   $('#ownership-mark').hidden = !S.session || account;
   put('#context-owner-note', S.session ? account ? 'Private workspace controlled by your wallet' : `Holder epoch ${S.session.scope.ownerEpoch} · ${shortWallet(S.session.scope.owner)}` : 'Your wallet proves ownership');
@@ -481,7 +483,7 @@ function renderChat() {
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
   const submitting = S.submission?.conversationId === S.conversationId ? S.submission : null;
-  if (!selectedJobs.length && !submitting) feed.append(empty(selected ? 'What are we working on?' : 'Your first conversation starts here.', 'Bring an idea, a question, or material to work through. JEFF can write, analyze and plan from what you provide.'));
+  if (!selectedJobs.length && !submitting) feed.append(empty(selected ? 'What are we working on?' : 'Your first conversation starts here.', `Bring an idea, a question, or material to work through. ${agentName()} can write, analyze and plan from what you provide.`));
   for (const job of selectedJobs) {
     const user = node('article', 'message user'), body = node('div', 'message-body'), heading = node('div', 'message-header');
     heading.append(node('strong', '', 'You'), node('span', 'message-time', when(job.startedAt))); body.append(heading, node('p', 'user-bubble message-text', job.objective)); user.append(body); feed.append(user, resultMessage(job));
@@ -530,7 +532,7 @@ function renderActivity() {
   view.append(jobs, changes); return view;
 }
 function renderSkills() {
-  const view = page('Give your agent direction.', 'Choose the prompt recipes JEFF uses to approach your work. These guide its responses; they do not grant access to websites, shell commands or messaging.', 'SKILLS & TOOLS');
+  const view = page('Give your agent direction.', `Choose the prompt recipes ${agentName()} uses to approach your work. These guide its responses; they do not grant access to websites, shell commands or messaging.`, 'SKILLS & TOOLS');
   const grid = node('div', 'skills-grid');
   for (const skill of S.workspace.skills) {
     const card = node('article', 'skill-card'), top = node('div', 'skill-card-top'), glyph = node('span', 'skill-icon'); glyph.append(icon(skill.id === 'writing' ? 'book' : skill.id === 'analysis' ? 'search' : 'clock'));
@@ -541,7 +543,7 @@ function renderSkills() {
   return view;
 }
 function renderMemory() {
-  const view = page('A little context goes a long way.', 'Save the information you want this agent to remember. Memories are explicit user notes, included as untrusted context in future runs for this holder workspace.', 'MEMORY');
+  const view = page('A little context goes a long way.', `Save details you want ${agentName()} to remember for future conversations. These notes stay in your private workspace.`, 'MEMORY');
   const grid = node('div', 'memory-grid');
   for (const memory of S.workspace.memories) {
     const card = node('article', 'memory-card'), heading = node('div', 'section-title'); heading.append(node('h2', '', memory.title), pill('USER NOTE'));
@@ -552,7 +554,7 @@ function renderMemory() {
   const card = section(S.memoryDraft.id ? 'Edit a memory' : 'Add a memory');
   const form = node('form', 'memory-form'); form.id = 'memory-form';
   const title = field('Title', 'memory-title', { value: S.memoryDraft.title, maxLength: 120 });
-  const text = field('What should JEFF remember?', 'memory-text', { type: 'textarea', value: S.memoryDraft.text, maxLength: 4000, rows: 5 });
+  const text = field(`What should ${agentName()} remember?`, 'memory-text', { type: 'textarea', value: S.memoryDraft.text, maxLength: 4000, rows: 5 });
   const submit = button(S.memoryDraft.id ? 'Save changes' : 'Save memory', 'save-memory', 'check', 'button button-primary'); submit.type = 'submit'; submit.disabled = S.busy;
   form.append(title.wrap, text.wrap, submit);
   if (S.memoryDraft.id) form.append(button('Cancel edit', 'cancel-memory-edit', 'close'));
