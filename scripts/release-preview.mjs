@@ -31,7 +31,21 @@ const app = await createJeffApplication({ origin, dataRoot: resolve(root, 'data'
       const timer = setTimeout(() => { signal.removeEventListener('abort', abort); done(); }, 1400);
       signal.addEventListener('abort', abort, { once: true });
     });
-    return { text: `Local verification result\n\nRequest: ${objective}\n\nThis response was produced by the development fixture. No AI provider was called.\n\nThe service supplied ${executionContext.memories.length} saved memory notes and ${executionContext.history.length} previous conversation turns. This job and its conversation are stored through the real persistence path.`, model: 'bankr/fixture-model' };
+    const text = [
+      '# Local verification result', '', `Request: ${objective}`, '',
+      'This response was produced by the development fixture. No AI provider was called.', '',
+      '## Launch checklist', '', '**Room #35** keeps its own saved work.', '',
+      '- Verify ownership', '- Review the saved response', '  - Keep the receipt', '',
+      '1. Connect your wallet', '2. Open your Agent NFT', '',
+      'Use `roomId` when reviewing the receipt.', '', '```js', 'const room = 35;', '```', '',
+      '> Check saved work before sending another task.', '',
+      '| Check | Status |', '| --- | --- |', '| Ownership | Verified |', '| Reply | Saved |', '',
+      '[Safe HTTPS link](https://example.com/jeff-docs)', '[unsafe link](javascript:alert%281%29)', '',
+      '![Tracking image](https://qa-images.invalid/tracker.png)', '',
+      '<script>window.qaReplyInjected=true</script>', '<img src=x onerror=window.qaReplyInjected=true>', '',
+      `The service supplied ${executionContext.memories.length} saved memory notes and ${executionContext.history.length} previous conversation turns. This job and its conversation are stored through the real persistence path.`,
+    ].join('\n');
+    return { text, model: 'bankr/fixture-model' };
   },
 });
 const handler = app.server.listeners('request')[0];

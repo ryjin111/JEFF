@@ -25,6 +25,55 @@ async function fixtureUnavailable(page, route, phase) {
   report.injectedFailures.push(failure); expectedHttpErrors.get(page).push(failure);
   await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'JEFF_SERVICE_UNAVAILABLE' }) });
 }
+async function formattedReply(page, job, viewport) {
+  const reply = page.locator(`.message.assistant[data-job-id="${job.id}"] .message-markdown`).first();
+  await reply.waitFor();
+  assert.deepEqual(await reply.locator('h1').allTextContents(), ['Local verification result']);
+  assert.deepEqual(await reply.locator('h2').allTextContents(), ['Launch checklist']);
+  assert.equal(await reply.locator('strong').filter({ hasText: 'Room #35' }).count(), 1);
+  assert.ok(await reply.locator('ul > li').count() >= 3);
+  assert.ok(await reply.locator('ul li ul li').count() >= 1);
+  assert.deepEqual(await reply.locator('ol > li').allTextContents(), ['Connect your wallet', 'Open your Agent NFT']);
+  assert.equal(await reply.locator('code').filter({ hasText: /^roomId$/ }).count(), 1);
+  assert.equal((await reply.locator('pre > code').textContent()).trim(), 'const room = 35;');
+  assert.match(await reply.locator('blockquote').textContent(), /Check saved work before sending another task/);
+  assert.deepEqual(await reply.locator('th').allTextContents(), ['Check', 'Status']);
+  assert.deepEqual(await reply.locator('td').allTextContents(), ['Ownership', 'Verified', 'Reply', 'Saved']);
+  const safeLink = reply.getByRole('link', { name: 'Safe HTTPS link', exact: true });
+  assert.equal(await safeLink.getAttribute('href'), 'https://example.com/jeff-docs');
+  assert.equal(await safeLink.getAttribute('target'), '_blank');
+  const rel = (await safeLink.getAttribute('rel')).split(/\s+/);
+  assert.ok(rel.includes('noopener') && rel.includes('noreferrer'));
+  assert.equal(await safeLink.getAttribute('referrerpolicy'), 'no-referrer');
+  assert.equal(await reply.getByRole('link', { name: 'unsafe link', exact: true }).count(), 0);
+  assert.equal(await reply.locator('img,script,iframe,object,embed,svg,style,link').count(), 0);
+  const security = await reply.evaluate(element => ({
+    unsafeAttributes: [...element.querySelectorAll('*')].flatMap(child => [...child.attributes].filter(attribute => /^on/i.test(attribute.name)).map(attribute => attribute.name)),
+    unsafeLinks: [...element.querySelectorAll('a')].filter(link => !['http:', 'https:'].includes(new URL(link.href).protocol)).map(link => link.href),
+    imageAltPresent: element.textContent.includes('Tracking image'),
+    literalScriptPresent: element.textContent.includes('<script>window.qaReplyInjected=true</script>'),
+    literalImagePresent: element.textContent.includes('<img src=x onerror=window.qaReplyInjected=true>'),
+  }));
+  assert.deepEqual(security.unsafeAttributes, []); assert.deepEqual(security.unsafeLinks, []);
+  assert.equal(security.imageAltPresent, true); assert.equal(security.literalScriptPresent, true); assert.equal(security.literalImagePresent, true);
+  assert.equal(await page.evaluate(() => window.qaInjected || window.qaReplyInjected), undefined);
+  const layout = await reply.evaluate(element => {
+    const paragraph = element.querySelector('p'), heading = element.querySelector('h1'), table = element.querySelector('.markdown-table');
+    const bodyStyle = getComputedStyle(paragraph), headingStyle = getComputedStyle(heading);
+    return { pageWidth: document.documentElement.scrollWidth, viewport: innerWidth, replyWidth: element.clientWidth,
+      replyScrollWidth: element.scrollWidth, bodyFont: parseFloat(bodyStyle.fontSize), lineHeight: parseFloat(bodyStyle.lineHeight),
+      headingFont: parseFloat(headingStyle.fontSize), whiteSpace: getComputedStyle(element).whiteSpace,
+      tableOverflow: table && getComputedStyle(table).overflowX };
+  });
+  assert.ok(layout.pageWidth <= layout.viewport, JSON.stringify(layout));
+  assert.ok(layout.replyScrollWidth <= layout.replyWidth + 1, JSON.stringify(layout));
+  assert.ok(layout.bodyFont >= 12 && layout.lineHeight / layout.bodyFont >= 1.45, JSON.stringify(layout));
+  assert.ok(layout.headingFont > layout.bodyFont, JSON.stringify(layout));
+  assert.equal(layout.whiteSpace, 'normal'); assert.equal(layout.tableOverflow, 'auto');
+  report.replyFormatting ||= {}; report.replyFormatting[viewport] = { semanticMarkdown: true, unsafeHtmlLiteral: true,
+    remoteImagesSuppressed: true, unsafeLinksSuppressed: true, safeLinkProtected: true, layout };
+  return reply;
+}
 async function nav(page, view) {
   if (await page.locator('[data-action="sidebar"]').isVisible() && !await page.locator('#sidebar').evaluate(e => e.classList.contains('open'))) await page.locator('[data-action="sidebar"]').click();
   await page.locator(`#sidebar [data-view="${view}"]`).click();
@@ -222,7 +271,7 @@ async function newContext(viewport) {
     const unique = `QA ${Date.now()}`;
     assert.deepEqual(initial.value.conversations, [], 'First-send regression requires an empty isolated Room35 fixture workspace');
     await ready(page);
-    const objective = `${unique}: draft a short Agent NFT launch checklist. <script>window.qaInjected=true</script>`;
+    const objective = `${unique}: draft a short Agent NFT launch checklist. **literal user prompt** <script>window.qaInjected=true</script>`;
     const submissions = [];
     const signaturesBeforeAdmission = await signatureMessages(page), recoveryRequests = [], rejectedPostRecoveryRequests = [];
     let rejectedFirstSubmission = false, acceptedRecord, failedAcceptedRefresh = false, rejectedRefreshesRemaining = 0, conversationPosts = 0;
@@ -334,6 +383,25 @@ async function newContext(viewport) {
       conversationPostRequests: conversationPosts, injectedRefreshFailures: recoveryRequests.filter(item => item.rejected).length, jobId: job.id, conversationId,
       persistedConversationJobIds: persistedWorkspace.conversations[0].jobIds, reloadRestoredHistory: true, automaticResubmissions: 0 };
     checked('Atomic first send binds one saved job to one conversation and reload restores its history without rerunning');
+    assert.equal(await page.locator('.message.user .user-bubble strong,.message.user .user-bubble script,.message.user .user-bubble a').count(), 0);
+    const desktopReply = await formattedReply(page, job, 'desktop');
+    await page.locator('#chat-feed').evaluate(element => { element.scrollTop = 0; });
+    await capture(page, 'desktop-markdown-reply');
+    await desktopReply.locator('pre').evaluate(element => element.scrollIntoView({ block: 'start' }));
+    await capture(page, 'desktop-markdown-code-table');
+    checked('Desktop saved reply renders readable Markdown while user prompts stay literal and unsafe HTML, links and images remain inert');
+    await desktop.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+    await page.evaluate(() => {
+      const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+      window.__qaClipboardWrites = [];
+      navigator.clipboard.writeText = async text => { window.__qaClipboardWrites.push(text); return write(text); };
+    });
+    await page.locator(`[data-action="copy-result"][data-id="${job.id}"]`).click();
+    await page.waitForFunction(async expected => (await navigator.clipboard.readText()).replace(/\r\n/g, '\n') === expected.replace(/\r\n/g, '\n'), job.text);
+    const nativeClipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    assert.equal(nativeClipboardText.replace(/\r\n/g, '\n'), job.text.replace(/\r\n/g, '\n'));
+    assert.deepEqual(await page.evaluate(() => window.__qaClipboardWrites), [job.text]);
+    assert.equal(submissions.length, 2); assert.equal(conversationPosts, 0);
     await page.unroute('**/api/conversations', conversationRoute);
     await page.unroute('**/api/jobs', jobsRoute);
     await page.unroute('**/api/workspace/state', stateRoute);
@@ -347,6 +415,14 @@ async function newContext(viewport) {
     const download = await downloadPromise; await download.saveAs(path.join(output, 'fixture-receipt.json'));
     const exportedReceipt = JSON.parse(await fs.readFile(path.join(output, 'fixture-receipt.json'), 'utf8'));
     assert.equal(exportedReceipt.id, job.id); assert.equal(exportedReceipt.runtime, job.runtime); assert.equal(exportedReceipt.model, job.model);
+    assert.equal(exportedReceipt.text, job.text); assert.equal(exportedReceipt.textSha256, job.textSha256);
+    assert.equal(createHash('sha256').update(exportedReceipt.text).digest('hex'), job.textSha256);
+    const unchangedRecord = (await api(page, `/api/jobs/${job.id}`)).value;
+    assert.equal(unchangedRecord.text, job.text); assert.equal(unchangedRecord.textSha256, job.textSha256);
+    report.replyFormatting.rawSource = { copiedMarkdownPreserved: true, downloadedMarkdownPreserved: true,
+      clipboardWriteArgumentByteExact: true, nativeClipboardNormalizedLineEndings: nativeClipboardText !== job.text,
+      storedTextSha256Preserved: true, textSha256: job.textSha256, modelReruns: 0 };
+    checked('Formatting leaves raw copied and downloaded Markdown, stored response and text SHA unchanged without rerunning the task');
     checked('Receipt discloses integrity limits and downloaded record matches durable job');
     await capture(page, 'desktop-conversation');
     await ready(page); await page.locator('#composer-input').fill(`${unique}: stop this fixture run`); await page.locator('[data-action="send-task"]').click();
@@ -491,6 +567,16 @@ async function newContext(viewport) {
 
     const mobile = await newContext({ width: 390, height: 844 }); const mp = mobile.page;
     await connect(mp); await capture(mp, 'mobile-workspace');
+    const mobileJobsBeforeFormatting = (await api(mp, '/api/jobs')).value.jobs.length;
+    await nav(mp, 'activity'); await mp.locator(`[data-action="open-job"][data-id="${job.id}"]`).click();
+    await mp.locator('.receipt-dialog[open]').waitFor();
+    const mobileReply = await formattedReply(mp, job, 'mobile');
+    assert.equal((await api(mp, `/api/jobs/${job.id}`)).value.textSha256, job.textSha256);
+    assert.equal((await api(mp, '/api/jobs')).value.jobs.length, mobileJobsBeforeFormatting);
+    await capture(mp, 'mobile-markdown-reply');
+    await mobileReply.locator('pre').evaluate(element => element.scrollIntoView({ block: 'start' }));
+    await capture(mp, 'mobile-markdown-code-table'); await mp.keyboard.press('Escape'); await nav(mp, 'chat');
+    checked('The same saved Markdown renders safely in a readable mobile receipt without page overflow or a new model run');
     await mp.locator('[data-action="sidebar"]').click(); assert.equal(await mp.locator('#workspace-content').evaluate(e => e.inert), true);
     const first = mp.locator('#sidebar a[href]').first(); await first.focus(); await mp.keyboard.press('Shift+Tab');
     assert.equal(await mp.evaluate(() => document.activeElement.closest('#sidebar') !== null), true);

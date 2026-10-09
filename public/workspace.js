@@ -1,5 +1,6 @@
 import { JOB_ID, scopeKey, validSession, validateRecord, validateNftDiscovery, errorLabel } from './client.js';
 import { validateHosting, validateInvoice, formatTokenAmount, formatUsdCents, transferData } from './billing.js';
+import { renderMarkdown } from './markdown.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -421,7 +422,8 @@ function resultMessage(job) {
     card.append(node('div', 'running-indicator', 'JEFF is working on your request.'), node('p', 'preview-info', 'Your job is registered on the server. Closing this page does not resubmit or cancel it.'));
     const stop = button('Stop this run', 'stop-job', 'pause', 'button button-outline', { id: job.id }); stop.disabled = S.busy; card.append(stop);
   } else if (job.status === 'completed' || job.status === 'completed_unsaved') {
-    card.append(node('div', 'message-text', job.text));
+    const reply = node('div', 'message-text message-markdown');
+    reply.append(renderMarkdown(job.text)); card.append(reply);
     if (job.status === 'completed_unsaved') {
       card.append(node('p', 'state-notice', 'This output has not been saved. It can be lost if the server restarts. Retry save reuses this output without running the model again.'), button('Retry save', 'retry-save', 'download', 'button button-primary', { id: job.id }));
     }
