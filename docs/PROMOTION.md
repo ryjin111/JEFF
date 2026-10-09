@@ -20,7 +20,7 @@ Sanitized readback: `evidence/staging/production-promotion-metadata.json`. The r
 
 ## Gates before production changes
 
-1. Complete Room #35's holder sign-in, saved-conversation continuation, memory persistence and browser-closed schedule checks on the exact candidate. Confirm cancellation and pause/resume without replaying an earlier admitted task.
+1. Carry forward Room #35's accepted sign-in, saved-conversation reload, memory recall and holder-reported scheduling. The scheduling report does not identify an exact tested source, job or browser-closed timing. Outstanding observations are a new continuation turn, explicit Memory-view reload and pause/cancellation. Preserve completed acceptance records when assessing the production candidate.
 2. Preserve independently retained recovery keys and configure recurring encrypted off-machine backups. The actual historical checkpoint passed local recovery and a guarded replacement cloud service/volume restart, as recorded in [backup operation](BACKUP.md#replacement-cloud-recovery-9-october-2026). Provider-credential recovery, post-checkpoint reconciliation and an actual production checkpoint remain separate requirements.
 3. Resolve or explicitly assess the remaining dependency findings against the final installed artifact; record the decision before widening service or enabling tools.
 4. Validate production RPC capacity, real provider capacity and independent monitoring as described in [monitoring](MONITORING.md). Preserve current pilot limits until measured.

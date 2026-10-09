@@ -34,7 +34,7 @@ Scheduling requests produce an inline plan with its objective, first-run timing,
 
 Memory and schedule cards remain available in the conversation and Activity's run dialog. If an action reply is lost or conflicts with a newer state, **Check saved status** and refresh use GET requests to retrieve the durable outcome. They never automatically repeat the action POST or model call. Conflicting apply/dismiss requests reconcile saved state; a committed schedule cannot be hidden by dismissing a stale proposal. Cancel an authorized grant in Scheduled work. Repeated application of the same action uses its durable action ID rather than creating another note or grant.
 
-Only the current manual request can initiate these actions. Recalled memory, history, names and quoted material supply no authorization. Scheduled work cannot create further memory writes or schedule grants, including through structured model output. All existing ownership, pause, maintenance, restore and hosting checks still apply. These candidate additions require final verification and staging/holder acceptance; earlier release evidence below describes earlier candidates.
+Only the current manual request can initiate these actions. Recalled memory, history, names and quoted material supply no authorization. Scheduled work cannot create further memory writes or schedule grants, including through structured model output. All existing ownership, pause, maintenance, restore and hosting checks still apply. These additions passed automated and public staging verification; new chat-action holder acceptance remains separate. The existing schedule/run check is accepted by holder report. Earlier release evidence below describes earlier candidates.
 
 ## Run and review locally
 
