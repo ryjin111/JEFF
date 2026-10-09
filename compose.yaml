@@ -1,0 +1,21 @@
+services:
+  jeff:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 3m
+    env_file: .env
+    environment:
+      JEFF_BIND: 0.0.0.0
+      JEFF_DATA_ROOT: /data
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - jeff-data:/data
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2"
+volumes:
+  jeff-data:

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "simple-jeff",
   "version": "0.1.0",
   "private": true,
@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.mjs",
     "test": "node --test test/*.test.mjs",
+    "test:release": "node --test --test-concurrency=1 test/*.test.mjs",
+    "preview:release": "node scripts/release-preview.mjs",
     "smoke": "node --env-file-if-exists=.env scripts/runtime-smoke.mjs"
   },
   "dependencies": {

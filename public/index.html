@@ -1,59 +1,145 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#101114">
-  <meta name="description" content="JEFF. OpenClaw for Agent NFTs. Sign in with your wallet or Agent NFT, run a task, and return to your saved work.">
-  <title>JEFF | OpenClaw for Agent NFTs</title>
-  <link rel="icon" href="jeff-mark.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#181b17">
+  <meta name="description" content="JEFF. OpenClaw for Agent NFTs. Run your agent, keep its memory, and return to its saved work.">
+  <title>JEFF — Your Agent NFT workspace</title>
+  <link rel="icon" href="assets/jeff-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <script src="workspace.js" type="module"></script>
 </head>
 <body>
-  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <a class="skip-link" href="#workspace-content">Skip to workspace</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5v15M12 5C9 3 5 3 3 4v14c3-1 6-1 9 2 3-3 6-3 9-2V4c-2-1-6-1-9 1z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 3 3-1 2 2 3-1 1-3 3-1 1-4-3-1-1-3-4-1-2-2z"/><circle cx="11" cy="11" r="3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14M10 4H4v16h16v-6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6m-7 3-3 3a4 4 0 0 0 6 6l3-3m2-6 3-3a4 4 0 0 0-6-6l-3 3"/></symbol>
+    <symbol id="i-credit" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 15h4"/></symbol>
+  </svg>
+
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Workspace navigation">
-      <a class="brand" href="/" aria-label="Simple JEFF home"><img src="jeff-mark.svg" width="38" height="38" alt=""><span><strong>JEFF<span class="brand-dot">.</span></strong><small>BY CLOCKERS</small></span></a>
-      <div class="sidebar-label">YOUR WORKSPACE</div>
-      <nav class="side-nav" aria-label="Workspace sections">
-        <a class="selected" href="#workspace" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Workspace<span class="nav-indicator"></span></a>
-        <a href="#saved-results"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v17l-7-4-7 4z"/></svg>Saved results<span id="history-count" class="nav-count">0</span></a>
-        <a href="#hosting"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M16 7h2M16 17h2"/></svg>Hosting</a>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" data-action="close-sidebar" hidden></div>
+    <aside id="sidebar" class="sidebar" aria-label="Workspace navigation">
+      <a class="brand" href="#chat" aria-label="JEFF workspace">
+        <img src="assets/jeff-mark.svg" alt="" width="38" height="38">
+        <span class="brand-word">JEFF<span class="brand-period">.</span><small>BY CLOCKERS ROOM</small></span>
+        <span class="version-tag">workspace</span>
+      </a>
+      <button class="workspace-switch" data-action="connect">
+        <span class="workspace-monogram">C</span>
+        <span><strong>Clockers Room</strong><small>Personal workspace</small></span>
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+      </button>
+      <button class="search-button" data-action="command"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span>Find anything</span><kbd>⌘ K</kbd></button>
+      <div class="sidebar-section-heading"><span>YOUR AGENTS</span><button class="icon-button" data-action="connect" aria-label="Connect an Agent NFT"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button></div>
+      <div id="agent-list" class="agent-list" aria-label="Your Agent NFTs"></div>
+      <div class="sidebar-separator"></div>
+      <div class="sidebar-section-heading"><span>WORKSPACE</span></div>
+      <nav class="main-nav" aria-label="Agent workspace">
+        <button class="nav-item active" data-view="chat" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg><span>Conversation</span><span class="nav-key">1</span></button>
+        <button class="nav-item" data-view="activity"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg><span>Activity</span><span class="nav-key">2</span></button>
+        <button class="nav-item" data-view="skills"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>Skills & tools</span></button>
+        <button class="nav-item" data-view="memory"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg><span>Memory</span></button>
+        <button class="nav-item" data-view="usage"><svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg><span>Usage & credits</span></button>
+        <button class="nav-item" data-view="schedules"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Scheduled work</span></button>
+        <button class="nav-item" data-view="hosting"><svg class="icon" aria-hidden="true"><use href="#i-credit"/></svg><span>Hosting</span></button>
       </nav>
-      <div class="sidebar-note"><span class="orbit-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M5 5l14 14M5 19 19 5"/></svg></span><strong>A little space.<br>A lot of possibility.</strong><p>Your tasks and saved work,<br>in one private place.</p></div>
-      <div class="sidebar-bottom"><div class="runtime-mark"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><div><strong>JEFF by Clockers</strong><small>OpenClaw for Agent NFTs</small></div></div><div class="sidebar-version">CLOCKERS / JEFF WORKSPACE</div></div>
+      <div class="sidebar-bottom">
+        <div class="hosting-note"><span class="hosting-note-icon"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg></span><div><strong>A home for your agent.</strong><p>Managed by Simple JEFF</p></div><span class="tiny-dot"></span></div>
+        <button class="nav-item" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></button>
+        <button class="account-button" data-action="connect"><span class="account-avatar">C</span><span><strong id="account-name">Your workspace</strong><small id="account-wallet">Connect your wallet</small></span><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
+      </div>
     </aside>
-    <div class="app-content">
-      <header class="topbar"><div class="breadcrumb"><span class="breadcrumb-dot" aria-hidden="true"></span><span>Workspace</span><span class="breadcrumb-separator">/</span><strong id="workspace-type">Agent NFT</strong></div><div class="topbar-actions"><span id="stage" class="pilot">CHECKING SERVICE</span><a class="access-link" href="#access">Workspace access <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></a><button id="logout" class="secondary small" hidden>Log out</button></div></header>
-      <main id="workspace" tabindex="-1">
-        <section class="intro" aria-labelledby="product-heading"><div><p id="product-eyebrow" class="eyebrow">YOUR PRIVATE AI WORKSPACE</p><h1 id="product-heading">Good work starts here<span>.</span></h1><p id="product-lede" class="lede">A task for JEFF. A little more room for you.</p></div><nav class="product-switch" aria-label="Choose JEFF access"><button id="standalone-mode" aria-pressed="false">Simple JEFF</button><button id="holder-mode" aria-pressed="true">Agent NFT JEFF</button></nav></section>
-        <section class="readiness" aria-label="Service availability"><div class="model-readiness"><span class="service-light" aria-hidden="true"></span><div><strong id="model-status" role="status">Checking availability</strong><p id="model-copy">Loading the current service configuration.</p></div></div><div class="readiness-item"><span>Hosting</span><b id="hosting-availability">Checking</b></div><div class="readiness-item"><span>$CLOCKERS checkout</span><b id="checkout-availability">Checking</b></div></section>
-        <div id="notice" class="notice" role="status" hidden></div>
-        <div class="console-grid">
-          <aside id="access" class="panel identity" aria-labelledby="agent-name">
-            <div class="section-label"><span class="eyebrow">WORKSPACE ACCESS</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4"/></svg></div>
-            <div class="agent-profile"><div class="agent-mark" aria-hidden="true"><img src="jeff-mark.svg" width="52" height="52" alt=""></div><div><span class="agent-caption">MEET YOUR AGENT</span><h2 id="agent-name">Connect your NFT</h2></div></div>
-            <p id="identity-copy" class="muted">Sign in with the wallet that holds your Clockers Agent NFT.</p>
-            <form id="login-form"><p id="wallet-discovery-copy" class="fine" role="status" hidden></p><div id="token-field" hidden><label for="token-id">Choose your Room</label><select id="token-id" name="tokenId" disabled><option value="">Choose a Room</option></select></div><button id="login" class="primary" type="submit" disabled>Checking service</button></form>
-            <dl id="scope-details" hidden><dt id="wallet-label">Holder wallet</dt><dd id="holder-wallet"></dd><div id="epoch-field"><dt>Ownership epoch</dt><dd id="owner-epoch"></dd></div><dt>Session expires</dt><dd id="session-expiry"></dd></dl>
-            <div class="permissions"><div class="permission-heading"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span><strong>YOUR WORKSPACE. YOUR CONTROL.</strong></div><p id="login-boundary">Login proves NFT ownership. It does not approve spending.</p><p>External tools and actions are disabled in this pilot.</p></div><p id="signup-copy" class="fine">This pilot uses NFT holder access.</p>
-          </aside>
-          <div class="work-column">
-          <section class="panel task-panel" aria-labelledby="task-heading">
-            <div class="panel-top"><div><p class="eyebrow">LET'S GET TO WORK</p><h2 id="task-heading">What needs doing?</h2></div><span id="job-status" class="status" aria-live="polite">Sign in first</span></div>
-            <form id="task-form"><div class="composer"><label for="objective">Give JEFF a task</label><textarea id="objective" name="objective" rows="5" maxlength="4000" required disabled placeholder="Describe an idea, share some notes, or ask for a plan."></textarea><div class="task-actions"><span class="composer-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></svg>JEFF</span><button id="run" class="primary" type="submit" disabled>Run JEFF</button></div></div><div class="prompt-suggestions" aria-label="Task ideas"><button type="button" data-prompt="Make a practical five-step launch checklist for my project. Ask about the goal if you need more detail." disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg> Plan a launch</button><button type="button" data-prompt="Help me turn a rough idea into a clear, actionable brief. Start by asking what I have in mind." disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M5 5l14 14M5 19 19 5"/></svg> Shape an idea</button><button type="button" data-prompt="Help me summarize some notes into key points and next steps. Ask me to share the notes first." disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9"/></svg> Organize notes</button></div><p id="task-hint" class="fine">Sign in to run a task or retrieve a saved result.</p></form>
-            <div class="result-heading"><h3 id="result-heading" tabindex="-1">Your result</h3><span id="saved-state" hidden></span></div>
-            <div id="empty-result" class="empty-result"><div class="empty-orbit" aria-hidden="true"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M5 5l14 14M5 19 19 5"/></svg></span><i></i></div><p>A little help goes a long way.</p><small>Your result will appear here.<br>Saved work stays in your private workspace.</small></div>
-            <article id="result" aria-labelledby="result-heading" hidden><p id="result-objective" class="result-objective"></p><div id="result-text"></div><dl class="result-meta"><div><dt>Job ID</dt><dd id="result-id"></dd></div><div><dt>Completed</dt><dd id="result-date"></dd></div><div><dt>Model</dt><dd id="result-model"></dd></div></dl><button id="retry-save" class="primary" type="button" hidden>Retry save</button><button id="download" class="secondary" type="button">Download result <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg></button></article>
-          </section>
-          <section id="saved-results" class="panel history" aria-labelledby="history-heading"><div class="panel-top"><div><p class="eyebrow">PICK UP WHERE YOU LEFT OFF</p><h2 id="history-heading">Saved results</h2></div><button id="refresh" class="secondary small" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/></svg> Refresh history</button></div><p id="history-copy" class="muted">Sign in to retrieve results. This browser remembers job IDs, never result text.</p><div id="history-list"></div><form id="retrieve-form"><label for="job-id">Have a job ID?</label><div class="retrieve-row"><input id="job-id" placeholder="Paste your saved job ID" autocomplete="off" spellcheck="false" required disabled><button id="retrieve" class="secondary" type="submit" disabled>Retrieve result <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></button></div></form></section>
-          </div>
-          <section id="hosting" class="panel hosting" aria-labelledby="hosting-heading"><div class="panel-top"><div><p class="eyebrow">A HOME FOR YOUR AGENT</p><h2 id="hosting-heading">Your hosting</h2></div><span id="hosting-status" class="status">Sign in to view</span></div><p id="hosting-copy" class="muted">Sign in to view hosting access and the expiry for your NFT.</p><section id="free-pass-card" class="free-pass-card" aria-labelledby="free-pass-heading" hidden><span class="eyebrow">NFT BENEFIT</span><h3 id="free-pass-heading">Free 30-day pass</h3><p id="free-pass-detail">100 tasks. One use per NFT. Unused tasks expire.</p><p id="free-pass-warning">This permanently consumes this NFT&#8217;s free pass.</p><dl id="free-pass-period" class="hosting-details" hidden><div><dt>Starts</dt><dd id="free-pass-start"></dd></div><div><dt>Ends</dt><dd id="free-pass-end"></dd></div></dl><button id="use-free-pass" class="primary" type="button" disabled>Use free month</button><p id="free-pass-recovery" class="fine" role="status" hidden></p></section><p id="free-pass-schedule" class="free-pass-schedule" hidden></p><div id="plan-price-summary" class="plan-price-summary" hidden><span class="eyebrow">30-DAY HOSTING</span><p><strong id="plan-price"></strong><span> / 30 days</span></p><small id="plan-price-copy">Paid in $CLOCKERS. Review the exact token amount before payment.</small></div><dl class="hosting-details"><div><dt>Plan</dt><dd id="hosting-plan">Not loaded</dd></div><div><dt>Active until</dt><dd id="hosting-expiry">Not loaded</dd></div><div><dt>Model usage</dt><dd id="hosting-usage">Not loaded</dd></div><div><dt>Automatic renewal</dt><dd>Off</dd></div></dl><section id="monthly-allowance" class="monthly-allowance" aria-labelledby="allowance-heading" hidden><div class="allowance-heading"><h3 id="allowance-heading">Included AI usage</h3><span id="allowance-state" class="status"></span></div><p id="allowance-summary"></p><progress id="allowance-progress" max="1" value="0" aria-labelledby="allowance-heading" aria-describedby="allowance-summary allowance-policy"></progress><dl class="hosting-details"><div><dt>Remaining</dt><dd id="allowance-remaining"></dd></div><div><dt id="allowance-reset-label">Resets</dt><dd id="allowance-reset"></dd></div></dl><p id="allowance-hourly" class="fine"></p><p id="allowance-policy" class="fine"></p></section><div class="hosting-actions"><button id="refresh-hosting" class="secondary" disabled>Refresh hosting</button><button id="create-invoice" class="primary" hidden>Create 30-day invoice</button><span id="checkout-copy" class="fine">Monthly checkout is unavailable.</span></div><section id="invoice" class="invoice" aria-labelledby="invoice-heading" hidden><h3 id="invoice-heading">Review your payment</h3><dl class="hosting-details"><div id="invoice-usd-row" hidden><dt>USD reference</dt><dd id="invoice-usd"></dd></div><div><dt>Hosting term</dt><dd>30 days</dd></div><div id="invoice-tasks-row" hidden><dt>Included AI usage</dt><dd id="invoice-tasks"></dd></div><div><dt>Exact $CLOCKERS amount</dt><dd id="invoice-amount"></dd></div><div><dt>Network</dt><dd id="invoice-network"></dd></div><div><dt>Token contract</dt><dd id="invoice-token"></dd></div><div><dt>Treasury</dt><dd id="invoice-recipient"></dd></div><div><dt>Quote valid until</dt><dd id="invoice-expiry"></dd></div></dl><p id="invoice-source-copy" class="fine" hidden></p><p id="payment-copy" class="fine">Pay this invoice to the treasury once. Network fees are shown by your wallet.</p><button id="pay-invoice" class="primary" disabled>Loading token amount</button><form id="activate-form"><label for="transaction-hash">Payment transaction hash</label><div class="retrieve-row"><input id="transaction-hash" placeholder="0x..." autocomplete="off" spellcheck="false" required><button id="activate" class="secondary" type="submit">Verify payment & activate</button></div></form><p class="fine">If you already paid, verify that transaction instead of sending another payment.</p></section></section>
+
+    <div class="workspace-shell">
+      <div id="runtime-banner" class="preview-bar"><span><span class="preview-dot"></span><span id="runtime-label">JEFF WORKSPACE</span></span><p id="runtime-copy">Connecting to the OpenClaw runtime…</p><button data-action="connect">Connect an Agent NFT <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
+      <header class="workspace-header">
+        <div class="header-identity">
+          <button class="icon-button mobile-menu" data-action="sidebar" aria-label="Open navigation"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg></button>
+          <span class="header-breadcrumb">Your agents <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></span>
+          <strong id="agent-title">Your JEFF</strong>
+          <span id="agent-subtitle" class="header-room">Agent NFT workspace</span>
+          <span id="agent-status" class="status-pill">Not connected</span>
         </div>
-        <footer><span><strong>JEFF.</strong> A little more room for you.</span><span id="footer-status">Checking hosting availability.</span></footer>
-      </main>
+        <div class="header-actions">
+          <button class="button button-subtle new-session-button" data-action="new-session"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New conversation</button>
+          <button class="icon-button" data-action="theme" aria-label="Toggle color theme" title="Toggle color theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+          <button class="icon-button inspector-button" data-action="toggle-inspector" aria-label="Toggle agent details" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
+        </div>
+      </header>
+      <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
+      <div class="workspace-columns">
+        <main id="workspace-content" class="workspace-content" tabindex="-1" aria-label="Agent workspace"></main>
+        <aside id="context-panel" class="context-panel" aria-label="Selected agent details">
+          <div class="context-heading"><span>YOUR AGENT</span><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg></div>
+          <div class="agent-scene">
+            <div class="scene-grid"></div>
+            <span class="scene-label">CLOCKERS ROOM</span>
+            <img id="selected-agent-img" src="assets/room-01.png" alt="Clockers Room illustration; not this NFT’s metadata image">
+            <span class="scene-stamp">ROOM ILLUSTRATION</span>
+          </div>
+          <div class="context-identity"><div><h2 id="context-agent-name">Your JEFF</h2><p id="context-agent-room">Connect an Agent NFT</p></div><span id="ownership-mark" class="verified-mark" title="Current holder verified" hidden><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span></div>
+          <p class="agent-purpose">A little space. A capable agent.<br>Ready for the work you give it.</p>
+          <div class="owner-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="context-owner-note">Your wallet proves ownership</span></div>
+          <div class="context-section">
+            <div class="section-line"><h3>Runtime</h3><span id="runtime-mode" class="micro-label">CONNECTING</span></div>
+            <dl class="context-facts"><div><dt>Host</dt><dd id="context-host">Simple JEFF</dd></div><div><dt>Engine</dt><dd id="context-engine">OpenClaw</dd></div><div><dt>Model</dt><dd id="context-model">—</dd></div><div><dt>Last run</dt><dd id="context-last-run">No runs yet</dd></div></dl>
+            <button id="pause-agent" class="button button-outline full-width" data-action="pause" disabled><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause future runs</span></button>
+          </div>
+          <div class="context-section credit-section">
+            <div class="section-line"><h3 id="context-credit-heading">Task allowance</h3><button class="text-button" data-view="usage" aria-label="View usage"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
+            <div class="credit-value"><span id="context-credit">—</span><small id="context-credit-unit">Sign in to view</small></div>
+            <div class="progress-bar" aria-hidden="true"><span id="credit-progress"></span></div>
+            <div class="credit-caption"><span id="context-budget">Usage stays visible</span><span id="context-credit-caption"></span></div>
+          </div>
+          <div class="context-footer"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><p>Your private work stays yours.<br>NFT transfers start a fresh owner workspace.</p></div>
+        </aside>
+      </div>
     </div>
   </div>
-  <script type="module" src="app.js"></script>
+
+  <dialog id="command-dialog" class="command-dialog" aria-labelledby="command-heading">
+    <div class="command-input-wrap"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><label id="command-heading" class="sr-only" for="command-search">Find agents and workspace pages</label><input id="command-search" placeholder="Find an agent or jump to a page…" autocomplete="off"><button class="icon-button" data-action="close-dialog" aria-label="Close search"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div id="command-results" class="command-results"></div><div class="command-footer"><span>Jump straight into your workspace</span><kbd>ESC to close</kbd></div>
+  </dialog>
+  <dialog id="connect-dialog" class="connect-dialog" aria-labelledby="connect-heading">
+    <button class="icon-button dialog-close" data-action="close-dialog" aria-label="Close wallet connection"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+    <div class="dialog-emblem"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg></div><span class="eyebrow">MAKE IT YOURS</span><h2 id="connect-heading">Your NFT. Your agent.</h2><p id="connect-copy">Connect the wallet holding your Clockers Room. Sign the login message to open its private workspace.</p>
+    <div class="dialog-preview-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span>Login requests a signature only. It grants no token spending or external actions.</span></div>
+    <p id="connect-status" class="connection-status" role="status" aria-live="polite"></p>
+    <form id="connect-form">
+      <label class="field-label" for="connect-mode">Workspace type</label><select id="connect-mode" class="field"><option value="nft">Agent NFT · Clockers Room</option><option id="account-mode-option" value="account" disabled>Simple JEFF · wallet account</option></select>
+      <div id="token-picker" hidden><label class="field-label" for="connect-token">Choose a Room you hold</label><select id="connect-token" class="field"></select></div>
+      <button id="connect-submit" class="button button-primary full-width" type="submit">Connect wallet <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+      <button id="switch-network" class="button button-outline full-width" type="button" data-action="switch-network" hidden>Switch wallet network</button>
+      <button id="disconnect-wallet" class="button button-outline full-width" type="button" data-action="logout" hidden>Sign out of this workspace</button>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>

@@ -6,6 +6,11 @@ import { normalizeJeffOpenClawScope, normalizeJeffOpenClawAccountScope } from 'j
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 
+// The worker and its out-of-process backup reader must observe the same marker.
+export function resolveMaintenanceMarkerPath({ env = process.env, dataRoot = env.JEFF_DATA_ROOT || 'data' } = {}) {
+  return resolve(env.JEFF_MAINTENANCE_MARKER || resolve(dataRoot, 'maintenance.json'));
+}
+
 // Internal drain observation only. HTTP access still uses the authorized bridge.
 export function createDurableJobReader({ dataRoot, scope, id }) {
   const normalize = scope?.kind === 'account' ? normalizeJeffOpenClawAccountScope : normalizeJeffOpenClawScope;

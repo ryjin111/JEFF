@@ -39,10 +39,12 @@ async function processes() {
 const servers=(await processes()).filter(p=>p.args.some(a=>/^(?:\\/app\\/)?src\\/server\\.mjs$/.test(a)));
 if (servers.length!==1) throw new Error('BACKUP_SINGLE_SERVER_REQUIRED');
 const server=servers[0];
-await readFile('/app/src/maintenance.mjs');
+if (!process.env.JEFF_DATA_ROOT || process.env.JEFF_DATA_ROOT!=='/data') throw new Error('BACKUP_DATA_ROOT_UNEXPECTED');
+const { resolveMaintenanceMarkerPath } = await import('/app/src/maintenance.mjs');
+const markerPath = resolveMaintenanceMarkerPath();
 const status=await readFile('/proc/'+server.pid+'/status','utf8');
 if(!(BigInt('0x'+status.match(/^SigCgt:\\s+(\\w+)/m)[1]) & (1n<<11n))) throw new Error('BACKUP_MAINTENANCE_HANDLER_REQUIRED');
-try { await readFile('/tmp/simple-jeff-maintenance.json'); throw new Error('BACKUP_ALREADY_IN_MAINTENANCE'); }
+try { await readFile(markerPath); throw new Error('BACKUP_ALREADY_IN_MAINTENANCE'); }
 catch(error) { if(error.code!=='ENOENT') throw error; }
 const watchdog=spawn(process.execPath,['-e','setTimeout(()=>{try{process.kill('+server.pid+',"SIGCONT")}catch{}},30000)'],{detached:true,stdio:'ignore'});
 watchdog.unref();
@@ -51,14 +53,13 @@ try {
   process.kill(server.pid,'SIGUSR2'); pausedAt=new Date().toISOString();
   let ready=false;
   for(let attempt=0;attempt<100;attempt++) {
-    try { ready=JSON.parse(await readFile('/tmp/simple-jeff-maintenance.json','utf8')).status==='ready'; } catch {}
+    try { ready=JSON.parse(await readFile(markerPath,'utf8')).status==='ready'; } catch {}
     if(ready) break;
     await new Promise(resolve=>setTimeout(resolve,100));
   }
   if(!ready) throw new Error('BACKUP_MAINTENANCE_NOT_READY');
   const procs=await processes();
   if (procs.some(p=>p.state!=='Z' && (p.parent===server.pid || p.args.some(a=>a.includes('openclaw.mjs'))))) throw new Error('BACKUP_RUNTIME_WRITER_ACTIVE');
-  if (!process.env.JEFF_DATA_ROOT || process.env.JEFF_DATA_ROOT!=='/data') throw new Error('BACKUP_DATA_ROOT_UNEXPECTED');
   snapshot=await backup.captureBackup({dataRoot:'/data',writersQuiesced:true});
   if(Date.now()-Date.parse(pausedAt)>25000) throw new Error('BACKUP_WINDOW_EXCEEDED');
 } finally {

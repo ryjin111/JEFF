@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createJeffOpenClawAccountBridge } from 'jeff-agent-nft/openclaw';
-import { createDurableJobReader, createMaintenanceGate, waitForDurableJob } from '../src/maintenance.mjs';
+import { createDurableJobReader, createMaintenanceGate, waitForDurableJob, resolveMaintenanceMarkerPath } from '../src/maintenance.mjs';
 
 const scope = { kind: 'account', chainId: 4663, owner: '0x' + '11'.repeat(20) };
 const id = 'maintenance-job';
@@ -34,6 +34,30 @@ function track(gate, promise, label) {
   if (tracked?.catch) tracked.catch(() => {});
   return tracked;
 }
+
+test('backup reader and maintenance writer share data-root defaults and explicit marker overrides', async t => {
+  const { root } = await fixture(t, { open: false });
+  for (const env of [{ JEFF_DATA_ROOT: root }, { JEFF_DATA_ROOT: root, JEFF_MAINTENANCE_MARKER: resolve(root, 'custom-ready.json') }]) {
+    const writerPath = resolveMaintenanceMarkerPath({ env, dataRoot: root });
+    const readerPath = resolveMaintenanceMarkerPath({ env });
+    assert.equal(writerPath, readerPath);
+    assert.equal(writerPath, env.JEFF_MAINTENANCE_MARKER || resolve(root, 'maintenance.json'));
+    const gate = createMaintenanceGate({ markerPath: writerPath, pid: 12345 });
+    await gate.resume();
+    const requestDone = gate.beginRequest();
+    const paused = gate.pause();
+    await noMarker(readerPath);
+    requestDone();
+    await paused;
+    const marker = JSON.parse(await readFile(readerPath, 'utf8'));
+    assert.equal(marker.status, 'ready');
+    assert.equal(marker.pid, 12345);
+    await gate.resume();
+    await noMarker(readerPath);
+  }
+  assert.notEqual(resolveMaintenanceMarkerPath({ env: {}, dataRoot: resolve(root, 'one') }),
+    resolveMaintenanceMarkerPath({ env: {}, dataRoot: resolve(root, 'two') }));
+});
 
 test('startup keeps requests blocked until resume removes stale readiness', async t => {
   const { gate, markerPath } = await fixture(t, { open: false });
