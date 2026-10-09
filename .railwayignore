@@ -1,8 +1,9 @@
 node_modules/
 tools/
 .private/
-.env
-.git/
+.env*
+!.env.example
+.git
 data/
 evidence/
 test/

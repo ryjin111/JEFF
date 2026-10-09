@@ -131,6 +131,14 @@ docker compose logs --tail=100 jeff
 
 For remote access, put the loopback service behind an HTTPS reverse proxy and set `JEFF_PUBLIC_ORIGIN` to the exact public origin. Set `JEFF_CONTINUOUS_HOSTING=true` when running the managed service; this flag labels the host and does not provision infrastructure. Keep a single application writer for the hosting/workspace/scheduler volume. The compose resource settings are initial configuration, not measured production capacity. Docker is unavailable in this workspace, so the container build and compose startup have not been executed here.
 
+### Railway staging configuration
+
+Create an empty JEFF staging environment and attach its own persistent volume at `/data`. Keep production storage separate. The checked-in `railway.json` starts `node src/server.mjs` directly, requires the `/data` mount, uses one replica, disables Serverless/App Sleeping, and gives shutdown 180 seconds to drain before forced termination. Deployment overlap is zero. These settings protect the single writer and allow scheduled work while the browser is closed. [Railway deployment configuration](https://docs.railway.com/config-as-code/reference), [Serverless](https://docs.railway.com/deployments/serverless)
+
+Set `JEFF_BIND=0.0.0.0`, `JEFF_DATA_ROOT=/data`, `JEFF_PUBLIC_ORIGIN` to the exact generated HTTPS origin, `JEFF_CONTINUOUS_HOSTING=true` and `JEFF_RELEASE_SHA` to the deployed commit. Preserve the configured chain, collection, RPC and model allowlist; supply the provider credential through private service variables. Configure the intended pilot NFT IDs and expiry explicitly. Keep paid checkout, free passes and prepaid credits disabled for the initial deployment.
+
+Railway supplies `PORT`; the server uses it for listening and health checks. `/health` gates deployment but does not continuously monitor runtime health. A volume-backed deployment has a brief interruption because Railway prevents two deployments from writing the same volume. Verify the actual deployment settings, HTTPS sign-in origin, installed OpenClaw turn and saved-result retrieval after restart before holder acceptance. [Railway health checks](https://docs.railway.com/deployments/healthchecks), [Volume limitations](https://docs.railway.com/volumes/reference)
+
 ## Maintenance, backup and restore
 
 On Linux, `SIGUSR2` enters maintenance and `SIGCONT` resumes it. Maintenance blocks new HTTP work and scheduled admissions, then waits for admitted requests, durable jobs, scheduler writes and gateway requests to finish. Graceful shutdown aborts owned children, drains the worker and gateway, and checkpoints the inference SQLite ledger.

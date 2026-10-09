@@ -1,7 +1,8 @@
 node_modules
 tools
 .private
-.env
+.env*
+!.env.example
 .git
 data
 evidence
