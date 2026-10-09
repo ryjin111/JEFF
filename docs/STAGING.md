@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `8a8dd4b1ebe4893a38bfe5db0b3cc3cc2c1d43cd` |
+| Application source | `e87fd9365e9f42803a61d8e3d5cdc13688a07d60` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `9c78d7ed-aa9e-4b45-8cdd-19b7ab338894` |
+| Current deployment | `240b6c0c-5577-4008-bf67-591e0a3a46f6` |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
@@ -20,7 +20,7 @@ Provider credentials are stored in Railway service variables and omitted from al
 
 ## Verified
 
-- Backend validation passed 266 automated tests. Six frontend integrity tests were rerun successfully. The updated frontend passed 41 fixture browser checks. Coverage includes restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission, private-memory isolation, first-task admission, automatic recovery after repeated refresh failures, and safe formatted replies on desktop and mobile.
+- The full automated suite passed 271 tests. Six frontend integrity tests were also rerun successfully. The updated frontend passed 43 fixture browser checks. Coverage includes restored account sessions, explicit account/NFT selection, fresh Room #35 signatures, hosting admission, private-memory isolation, first-task admission, automatic recovery after repeated refresh failures, safe formatted replies on desktop and mobile, scoped agent identity and editable drafts during admission and execution.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
 - Railway built the pinned Linux Dockerfile successfully and started it with the separate `/data` volume.
 - Seven public HTTPS checks passed: health, exact source revision, live hosted configuration, unsigned private-route rejection, no fixture wallet, strict CSP and reachable application assets.
@@ -38,7 +38,7 @@ The task-flow deployment retrieved the same result at `2026-10-09T05:51:07.518Z`
 
 The RPC configuration deployment retrieved the same result at `2026-10-09T05:58:36.208Z`, again without a model rerun.
 
-The JEFF wording deployment retrieved the same operator result at `2026-10-09T06:21:05.168Z`, reporting persistence source `fc3deb5ff0d1c3046f169269cbddaf0fa7079fd9` and `modelRerun: false`. The current formatted-reply deployment retrieved it again at `2026-10-09T06:46:42.456Z`, reporting persistence source `8a8dd4b1ebe4893a38bfe5db0b3cc3cc2c1d43cd` without a model rerun. These remain operator proofs outside holder workspaces.
+The JEFF wording deployment retrieved the same operator result at `2026-10-09T06:21:05.168Z`, reporting persistence source `fc3deb5ff0d1c3046f169269cbddaf0fa7079fd9` and `modelRerun: false`. The formatted-reply deployment retrieved it again at `2026-10-09T06:46:42.456Z`, reporting persistence source `8a8dd4b1ebe4893a38bfe5db0b3cc3cc2c1d43cd` without a model rerun. These remain operator proofs outside holder workspaces.
 
 The initial upload recognized `railway.json` field mappings but did not persist its deployment settings. A deploy-only environment configuration patch applied the settings explicitly; the replacement deployment metadata proves their effective values. The volume is attached and restart persistence is verified. Provider metadata still does not report a separate `requiredMountPath` guard, so that field is not counted as verified.
 
@@ -65,6 +65,14 @@ Release `fc3deb5` changes normal app status, runtime presentation and legacy mar
 Release `8a8dd4b` renders saved replies as structured Markdown: headings, emphasis, nested lists, code, quotes, tables and protected HTTP/HTTPS links. It uses an unchanged locally vendored Marked lexer and builds an allowlisted DOM tree; HTML remains literal, remote images are suppressed, unsafe URLs are excluded, and input/render complexity is bounded. Existing replies receive the same presentation without another model call. Copy and downloaded receipts preserve the original Markdown; stored text and content hashes remain unchanged. All 41 fixture browser checks passed, including actual Windows clipboard behavior, downloaded/stored integrity, desktop/mobile formatting, and unsafe-content cases. The renderer does not change model instructions or personality.
 
 The formatted-reply deployment passed 12 live public checks at **14:47 Asia/Taipei**: exact source and health, matching frontend and four renderer/parser/license/source-map assets, strict CSP, unsigned private-route rejection, public Room #35 discovery/challenge, and safe desktop/mobile canary rendering with no browser errors, external requests or overflow. No holder session, private workspace or inference call was used. Before deployment, the last task admission was 864 seconds old and the holder had shown its Saved response; no newer task admission was observed.
+
+Release `e87fd93` separates the agent's configured name from the JEFF application and OpenClaw execution runtime. Every new run receives scoped identity instructions; Room #35 is the NFT default, and Settings can supply another name. Owner-editable names remain escaped JSON data, while canonical SOUL bytes, limits and the verified bundle hash are preserved. Canonical STYLE instructions now reach the model. Two tests using the actual installed OpenClaw CLI verified the provider instructions against a local fixture endpoint; no live inference was needed for these tests. Existing saved replies are unchanged.
+
+The same release removes the composer lock during message admission and workspace refresh. Sanitized HTTP metadata showed sequential admission/refresh waits of 2,074 and 1,866 ms; this explains the UI lock but does not establish a browser main-thread freeze or measure model generation time. Send now displays the submitted message immediately, keeps the next draft editable, and displays the validated admitted job before waiting for workspace refresh. Duplicate submission guards remain active. The browser regression held acknowledgement for 1,519 ms and refresh for 1,248 ms, then verified draft text, focus, selection, saved output hash and exactly one task POST. A second regression verifies that a suggestion chosen during a rejected send survives the error and GET recovery without creating or replaying a job.
+
+The identity/send deployment began only after checking HTTP admission metadata: the last accepted task was 989 seconds old and the holder had shown its Saved response. The precheck is recorded in `evidence/staging/identity-send-deploy-precheck.json`; latency metadata is in `evidence/staging/send-latency-metadata.json`. This update changes presentation and new-run instructions; it does not shorten provider generation time or verify holder scheduling.
+
+The replacement process retrieved the original operator result at `2026-10-09T08:08:53.417Z`, reporting persistence source `e87fd9365e9f42803a61d8e3d5cdc13688a07d60`, `retrievedAfterProcessRestart: true` and `modelRerun: false`. All 12 live public checks passed at **16:09 Asia/Taipei**, including exact source and asset hashes, health, public Room #35 discovery/challenge, unsigned private-route rejection and safe desktop/mobile rendering. There were no browser errors, external requests or overflow. These checks used no holder session, private workspace or inference call; the new identity's real-provider response has not yet been confirmed by a holder.
 
 For a broader production service, provision and validate a dedicated RPC endpoint with sufficient capacity. Robinhood's official guide describes its original public endpoint as rate-limited and recommends provider-backed access for production. [Robinhood connection guide](https://docs.robinhood.com/chain/connecting/)
 
