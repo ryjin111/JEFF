@@ -1,4 +1,4 @@
-# JEFF staging acceptance — 9 October 2026
+# JEFF staging acceptance - 9 October 2026
 
 Staging: https://jeff-staging-jeff-staging.up.railway.app
 
@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `8dd2f573b7e5652b46022d95c5ea4b3db15a54fc` |
+| Application source | `6c07af2a3ab996c04df3c1dbfcc04881e27e09fd` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `9c7b4ddf-df56-4326-ba63-e31be320279c` |
+| Current deployment | `b1f7eaba-067f-479f-8b3b-bcbf376bb6c9` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
@@ -103,14 +103,17 @@ Release `8dd2f57` removes Run receipt and Download receipt from conversation rep
 
 The receipt-UI deployment passed **12/12 live public checks at 18:59 Asia/Taipei**, with exact source/asset hashes, healthy service, public ownership/discovery, denied unsigned private access and safe desktop/mobile rendering. The original operator result was retrieved at `2026-10-09T10:59:30.269Z` with `modelRerun: false`; public monitoring was repinned and passed at `2026-10-09T10:59:51.400Z`. Reports are `evidence/staging/receipt-ui-live-smoke.json`, `receipt-ui-restart-persistence.json` and `receipt-ui-release.json`. These checks used no holder signature, private holder workspace or new inference.
 
+Release `6c07af2` adds scoped memory and schedule actions to conversations. Explicit literal memory instructions can save the requested note; other proposals show their exact contents before confirmation. Schedule drafts disclose timing, timezone, run limit, expiry and workspace delivery, and require explicit authorization. Confirmations are idempotent, preserved across reload and isolated by signed workspace; rejected or uncertain responses recover through GET without replay. The saved-envelope client also supports guarded offline recovery after download expiry. All **371/371 automated tests**, **49/49 broad browser checks** and **17/17 chat-action browser checks** passed.
+
+The chat-action deployment passed **12/12 live public checks at 21:36 Asia/Taipei**. Startup retrieved the original operator result at `2026-10-09T13:36:21.424Z` with `modelRerun: false`; the monitor passed against the exact source. Reports are `evidence/staging/chat-actions-live-smoke.json`, `chat-actions-restart-persistence.json` and `chat-actions-release.json`. These checks used no holder signature, private holder workspace or new inference. Existing holder acceptance remains recorded separately; browser-closed scheduling and pause/cancellation still require holder confirmation. Production and disabled payment, free-pass, credits and external-tool flags are unchanged.
+
 The [five-minute public workstation monitor](MONITORING.md) is registered under the current user's limited interactive principal, and its pin was updated for each successful release. Its initial backup-release sample passed at `2026-10-09T10:01:49.437Z`. It needs the workstation on and user logged in; there is no outside alert delivery or independently hosted monitor. A bounded 12-request sample passed but does not establish production throughput. The [production migration/rollback procedure](PROMOTION.md) preserves the existing production volume and records the legacy maintenance-marker incompatibility. Production has not been changed.
 
-1. Send one task and wait for its saved response. Reload and continue the conversation.
-2. Save a harmless memory note, send a task that uses it, then reopen Memory to verify persistence.
-3. In **Scheduled work**, authorize a short test with a one-minute interval, at most two runs and a one-hour expiry. Close the browser, return after the next run, and open its saved result.
-4. Cancel any remaining test schedule. Check the pause setting, then resume before normal use.
+1. Inspect the existing holder-created schedule and its saved result after the browser has been closed through a due run.
+2. Cancel any remaining run and verify pause/resume.
+3. Explicit Memory-view reload and a new conversation continuation turn remain unconfirmed.
 
-These steps consume the pilot task allowance. The operator runtime check does not substitute for this holder acceptance.
+Any remaining scheduled run consumes the pilot task allowance. The operator runtime check does not substitute for this holder acceptance.
 
 ## Backup status
 
@@ -126,11 +129,19 @@ The temporary SSH key registration was removed and its absence verified. Automat
 
 Provider snapshots and JEFF encrypted exports are separate recovery paths. A provider volume restore does not establish JEFF's application restore guard or financial reconciliation; those controls must be applied before restored storage resumes scheduled work or spending.
 
+Resu independently attested deployment `b1f7eaba` at `2026-10-09T13:40:06Z`: all 26 public files matched the reviewed checkout, including `styles.css`, and the runtime matched reviewed source `b13fbac` after test-only polling corrections. Health, strict CSP, unsigned private-route denial, absent fixture routes and disabled payment/credits/free-pass/tool flags passed. The copied receipt is `evidence/staging/independent-chat-actions-attestation.json`.
+
+## Guarded replacement recovery
+
+The subsequent replacement recovery drill used a new project `7ebd597e-c845-4ca6-bfb5-a285fee4b617`, service `941ed1a3-800b-4e7d-aeb7-dbcae1157436` and volume `3bc5bfde-a5c0-494c-a405-0251c782b1c4`. Source `6c07af2` restored the actual historical checkpoint: 34 files, seven SQLite databases and five saved jobs. After an independent process restart, the original operator result retained its text hash and all seven databases passed again. The guard stayed active, provider credentials were absent and no model or holder session ran. The AES service variable was cleared before restart; the original RSA private key remained local. This proves guarded replacement runtime recovery, while credential recovery and reconciliation remain separate. Reports are `evidence/release/cloud-recovery-first.json` and `cloud-recovery-restart.json`.
+
+The temporary recovery deployment was stopped with provider confirmation `deploymentStopped: true`. Its separate volume remains retained, and the AES variable is absent from current service configuration. Final receipt: `evidence/release/cloud-recovery-drill.json`.
+
 ## Remaining acceptance
 
-1. Verify memory persistence after an explicit reload and a new conversation continuation turn. Memory recall has passed by holder screenshot evidence. Holder sign-in, a completed saved response and saved-conversation reload have passed; the conversation reload was confirmed by the holder on candidate `124c6f4`.
+1. Confirm an explicit Memory-view reload and one new conversation continuation turn. Memory recall has passed by holder screenshot evidence. Holder sign-in, a completed saved response and saved-conversation reload have passed; the conversation reload was confirmed by the holder on candidate `124c6f4`.
 2. Complete the holder-authorized cloud schedule and pause/cancellation checks above.
-3. Verify a replacement cloud service/volume recovery and independent key retention; configure recurring off-machine backups. Cloud/local isolated storage restores and one encrypted off-host capture have passed.
+3. Complete independent key retention and configure recurring off-machine backups. Guarded replacement cloud service/volume recovery and restart, isolated storage restores and one encrypted off-host capture have passed. Provider-credential recovery and post-checkpoint reconciliation remain separate.
 4. Check production capacity and independent always-on monitoring with a tested alert destination before a wider holder pilot. The configured workstation monitor and short public sample do not establish those gates.
 5. Approve a funded credit policy and payment configuration before enabling their corresponding features. Token relaunch and automatic token-holder distributions remain separate.
 6. Resolve the five remaining bundled npm findings before widening the service or enabling additional runtime tools. The current restricted text-only workflow has a documented finite reachability assessment, not a clean audit.

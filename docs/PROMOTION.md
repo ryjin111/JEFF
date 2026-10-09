@@ -21,7 +21,7 @@ Sanitized readback: `evidence/staging/production-promotion-metadata.json`. The r
 ## Gates before production changes
 
 1. Complete Room #35's holder sign-in, saved-conversation continuation, memory persistence and browser-closed schedule checks on the exact candidate. Confirm cancellation and pause/resume without replaying an earlier admitted task.
-2. Complete a verified encrypted off-host backup and isolated restore drill. A listed snapshot, unverified snapshot workflow or local fixture restore alone is insufficient. Preserve the key separately from the encrypted archive.
+2. Preserve independently retained recovery keys and configure recurring encrypted off-machine backups. The actual historical checkpoint passed local recovery and a guarded replacement cloud service/volume restart, as recorded in [backup operation](BACKUP.md#replacement-cloud-recovery-9-october-2026). Provider-credential recovery, post-checkpoint reconciliation and an actual production checkpoint remain separate requirements.
 3. Resolve or explicitly assess the remaining dependency findings against the final installed artifact; record the decision before widening service or enabling tools.
 4. Validate production RPC capacity, real provider capacity and independent monitoring as described in [monitoring](MONITORING.md). Preserve current pilot limits until measured.
 5. Build the exact candidate source and pin the tested dependency lockfile. Preserve a reproducible copy of the old image/source, private variables and configuration for rollback. Confirm provider image retention rather than assuming a two-day-old image will remain available indefinitely.
@@ -37,6 +37,14 @@ The whole-tree checkpoint must retain saved bridge jobs and results, NFT/account
 The original pilot's maintenance marker defaults to `/tmp/simple-jeff-maintenance.json`; the candidate defaults to `/data/maintenance.json`. Read the actual `JEFF_MAINTENANCE_MARKER` override and use the matching path for each version. The current `scripts/backup-production.mjs` expects the candidate's remote `resolveMaintenanceMarkerPath` export; that export is absent in source `4a014572`. Do not run the current helper unchanged against the old pilot. Prepare and test the appropriate legacy-compatible capture path before the production checkpoint.
 
 New workspace conversations and schedules are additive. Existing unbound legacy jobs remain in the bridge history and should open through Activity's receipt view; they must not be assigned silently to a newly created conversation or another owner epoch. Validate a synthetic legacy dataset before promotion and an authorized existing receipt after promotion. Do not infer migration success from an empty new conversation list.
+
+## Synthetic migration and code rollback evidence
+
+The 9 October Windows fixture passed the exact old source `4a014572` with OpenClaw `2026.9.8` → candidate `b13fbac0407e57d62540b386447878bd5412fdc4` with OpenClaw `2026.9.9` → exact old source sequence, retaining the **same current data tree** for code rollback. All nine legacy files, comprising the hosting ledger and eight saved receipts, stayed byte-identical. Invoices, consumed payments/free passes, hosting terms and task/hourly counters were preserved. Signed HTTP history and the candidate Activity backend exposed the expected saved jobs while preserving owner/epoch isolation and idempotent payment/pass retries.
+
+One new future schedule was explicitly cancelled with zero runs before rollback. Its cancellation receipt and all ten candidate-added files remained byte-identical afterward. The old binary cannot operate candidate workspace, memory or schedule endpoints; preserved files support a later re-upgrade, not those capabilities in the old application. Cancel active candidate grants and retain their receipts before a real return to old code.
+
+Evidence: `evidence/release/legacy-migration-rollback-20261009.json`. This synthetic source/data compatibility exercise accessed no production data, secrets, live chain or real provider. It proves neither an actual production checkpoint/rollback nor Linux signal draining. The legacy maintenance-marker and missing `resolveMaintenanceMarkerPath` incompatibility above remains unresolved by this fixture; a tested legacy-compatible capture path is still required before the production checkpoint.
 
 ## Execution window
 
