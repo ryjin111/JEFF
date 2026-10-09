@@ -31,6 +31,21 @@ const app = await createJeffApplication({ origin, dataRoot: resolve(root, 'data'
       const timer = setTimeout(() => { signal.removeEventListener('abort', abort); done(); }, 1400);
       signal.addEventListener('abort', abort, { once: true });
     });
+    // These explicit prompts exercise the real chat-action parser and persistence
+    // without calling an AI provider. Normal preview responses stay unchanged.
+    if (executionContext.chatActions?.enabled && objective.startsWith('Fixture action: ')) {
+      const now = Date.parse(executionContext.chatActions.now);
+      if (objective === 'Fixture action: recall memory') return { text: JSON.stringify({ schema: 'jeff-chat-response-v1',
+        text: executionContext.memories.map(note => `${note.title}: ${note.text}`).join('\n\n') || 'No saved notes.', action: null }), model: 'bankr/fixture-model' };
+      const actions = {
+        'Fixture action: memory draft': { type: 'memory.save', title: 'A saved preference', text: 'Use short replies.\n<img src=x onerror=window.qaActionInjected=true>' },
+        'Fixture action: schedule draft': { type: 'schedule.create', objective: 'Prepare a brief project update.\n<img src=x onerror=window.qaActionInjected=true>', intervalMinutes: 60, maxRuns: 2,
+          expiresAt: new Date(now + 3600000).toISOString(), firstRunAt: new Date(now + 600000).toISOString() },
+        'Fixture action: one-off draft': { type: 'schedule.create', objective: 'Reply only: Scheduled once.', intervalMinutes: 10, maxRuns: 1,
+          expiresAt: new Date(now + 3600000).toISOString() },
+      };
+      if (actions[objective]) return { text: JSON.stringify({ schema: 'jeff-chat-response-v1', text: 'This draft is ready for your review.', action: actions[objective] }), model: 'bankr/fixture-model' };
+    }
     const text = [
       '# Local verification result', '', `Request: ${objective}`, '',
       'This response was produced by the development fixture. No AI provider was called.', '',

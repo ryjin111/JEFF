@@ -21,4 +21,18 @@ First verify the intended service and volume, effective single-writer/zero-overl
 
 The local client writes aggregate verification receipts. Its isolated restore preserves the execution guard; it never launches OpenClaw or overwrites the live volume. Service credentials/configuration require their own secure recovery procedure.
 
+## Offline recovery of a saved export
+
+The current candidate adds recovery from an already downloaded `.jeffenvelope` and the matching private recipient JSON file created by `prepare`:
+
+```sh
+node scripts/backup-export-client.mjs restore SAVED_ENVELOPE KEY_FILE EXISTING_ISOLATED_PARENT NEW_RECEIPT_FILE
+```
+
+The destination parent must already exist outside the original `/data` source tree. The command creates a new restricted recovery directory, refuses to overwrite an existing receipt, authenticates the envelope and captured identity, and checks file hashes, SQLite integrity and saved-result retrieval. It makes no network requests, starts no model and leaves live data untouched. Keep the recipient file private; it contains the decryption key material.
+
+The export's expiry closes its live download route. It does not expire a saved authenticated archive, so this offline command accepts a matching recipient file after that download window ends. The receipt records whether the export had expired at recovery.
+
+The restored tree retains `hosting/restore-guard.json`. All new model execution, schedule admissions, credit funding/grants/spending and fresh free-pass claims stay blocked until post-checkpoint records are reconciled. Offline storage verification does not remove that guard or prove runtime recovery on a replacement server. This candidate command still needs final release verification; it does not mark another cloud restore drill complete.
+
 The temporary cloud and local storage restores do not establish that a replacement cloud service can recover and run correctly. A replacement service/volume drill, recurring off-machine capture/retention, independent key retention and post-checkpoint financial/schedule reconciliation remain separate gates. The guard must stay until those surviving records have been reconciled. See [production recovery](PROMOTION.md).

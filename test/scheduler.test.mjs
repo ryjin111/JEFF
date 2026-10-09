@@ -67,9 +67,9 @@ test('ownership is rechecked after the durable occurrence claim', async t => {
 });
 
 test('pause and maintenance block future work without consuming an occurrence', async t => {
-  let paused = true, enabled = true;
+  let paused = false, enabled = true;
   const f = await fixture(t, { isPaused: async () => paused, canRun: () => enabled });
-  await f.scheduler.create(scope, options); f.advance(); await f.scheduler.tick();
+  await f.scheduler.create(scope, options); paused = true; f.advance(); await f.scheduler.tick();
   assert.equal((await f.scheduler.list(scope))[0].runs.length, 0);
   paused = false; enabled = false; await f.scheduler.tick(); assert.equal(f.calls.length, 0);
   enabled = true; await f.scheduler.tick(); assert.equal(f.calls.length, 1);
@@ -141,14 +141,15 @@ test('list and cancel stay responsive during execution and cancellation survives
 });
 
 test('cancellation during the final asynchronous pause check prevents execution', async t => {
-  let pauseChecks = 0, entered, release;
+  let pauseChecks = 0, grantCreated = false, entered, release;
   const finalCheck = new Promise(done => { entered = done; });
   const gate = new Promise(done => { release = done; });
   const f = await fixture(t, { isPaused: async () => {
-    if (++pauseChecks === 2) { entered(); await gate; }
+    if (grantCreated && ++pauseChecks === 2) { entered(); await gate; }
     return false;
   } });
   const record = await f.scheduler.create(scope, options);
+  grantCreated = true;
   f.advance();
   const ticking = f.scheduler.tick();
   await finalCheck;
@@ -215,7 +216,7 @@ test('a grant expiring after its durable claim is interrupted without execution 
 test('expiry after the final pause check preserves concurrent cancellation and never starts the claimed run', async t => {
   let pauseChecks = 0, f, grant;
   f = await fixture(t, { isPaused: async () => {
-    if (++pauseChecks === 2) {
+    if (grant && ++pauseChecks === 2) {
       await f.scheduler.cancel(scope, grant.id);
       f.advance(60000);
     }

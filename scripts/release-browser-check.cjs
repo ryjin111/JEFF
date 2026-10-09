@@ -696,7 +696,8 @@ async function walletCallbackIsolation() {
       await page.locator('#composer-input').fill(pendingDraft);
       await page.keyboard.press('Enter');
       assert.equal(admissionPosts.length, 1);
-      assert.deepEqual(admissionPosts[0], { objective: admissionObjective, conversationId });
+      assert.deepEqual(admissionPosts[0], { objective: admissionObjective, conversationId,
+        timeZone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) });
       assert.equal(await page.locator('#composer-input').inputValue(), pendingDraft);
       await page.waitForTimeout(1500);
       postReleasedAt = Date.now(); releasePost();
@@ -772,7 +773,8 @@ async function walletCallbackIsolation() {
       assert.equal(await page.locator('#composer-input').inputValue(), suggestedDraft);
       assert.equal(await page.locator('[data-pending-message="unconfirmed"] .user-bubble').textContent(), rejectedSuggestionObjective);
       assert.equal(suggestionFailurePosts.length, 1);
-      assert.deepEqual(suggestionFailurePosts[0], { objective: rejectedSuggestionObjective, conversationId });
+      assert.deepEqual(suggestionFailurePosts[0], { objective: rejectedSuggestionObjective, conversationId,
+        timeZone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) });
       assert.equal((await api(page, '/api/jobs')).value.jobs.length, suggestionJobsBefore);
       assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.objective === rejectedSuggestionObjective), false);
       assert.deepEqual(await signatureMessages(page), suggestionSignaturesBefore);

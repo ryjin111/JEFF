@@ -9,12 +9,12 @@ The workspace now connects its eight views to the application: Conversation, Act
 | Area | Release candidate behavior |
 | --- | --- |
 | Access | Discover owned Rooms, sign a server challenge, select an NFT workspace; a separate signed wallet account route also exists. |
-| Conversation | Create conversations, submit asynchronous text jobs, retrieve saved results, continue using bounded previous turns, copy/download answers and retry saving retained output. |
+| Conversation | Create conversations, submit asynchronous text jobs, retrieve saved results, continue using bounded previous turns, copy answers and retry saving retained output. Action review also works in Activity's run dialog. |
 | Identity and privacy | NFT workspaces are scoped by chain, collection, token, owner and ownership epoch. Fresh ownership checks revoke an old holder; a returning holder gets a fresh private workspace. |
-| Memory and preferences | Save/delete memory notes; persist name, allowlisted model, selected-agent budget and pause state. Recalled text is passed as untrusted data. |
+| Memory and preferences | Save/delete memory notes, including explicit chat requests; review model-extracted notes before saving. Persist name, allowlisted model, selected-agent budget and pause state. Recalled text is passed as untrusted data. |
 | Skills & tools | Enable built-in writing, analysis and planning prompt recipes. These influence text generation; external tools, shell execution, messaging and wallet actions remain disabled. |
 | Activity and usage | Show saved jobs, workspace events, task allowances and, when configured, inference balances and scoped charge records. |
-| Scheduled work | Explicit, expiring grants run text tasks through the same ownership, hosting, pause, concurrency and inference checks as manual work. |
+| Scheduled work | Explicit, expiring grants run text tasks through the same ownership, hosting, pause, concurrency and inference checks as manual work. Chat plans require inline owner consent. |
 | Stop | Abort the owned runtime child and revoke its gateway credential. The saved job becomes failed; an uncertain provider charge remains held for reconciliation. |
 | Hosting | Preserve existing pilot/paid/free-pass terms and task quotas. Paid checkout remains disabled in the example configuration. |
 
@@ -23,6 +23,18 @@ The application process can remain available on a persistent host and execute sc
 Signed sessions last one hour and are revoked by logout, expiry or server restart. NFT requests also recheck current owner and epoch. Sign-in currently supports externally owned accounts; ERC-1271 contract-wallet signatures are not implemented. A wallet signature grants a session, without token spending authority.
 
 NFT hosting time and its task allowance stay attached to the NFT. Private conversation history and memories stay in the holder's ownership epoch. Inference grants belong to the earning wallet and stay with that wallet when the NFT is sold. Standalone accounts have separate private workspaces and hosting terms; a token allowance alone does not silently create a paid hosting term.
+
+## Personal-agent requests in chat
+
+JEFF is the application. The selected NFT's configured name, such as Room #35, identifies its agent in the interface and model instructions. Saved notes belong to that agent's private ownership-scoped workspace.
+
+An explicit literal current-user request such as `Remember: my verification word is blue lantern` automatically saves the supplied note after the chat run succeeds. Requests whose note must be extracted or summarized by the model produce a review card with **Save memory** and **Dismiss**. An unclear referent requires clarification. The service reports success only after the actual write; a model's proposal cannot establish that a note was saved.
+
+Scheduling requests produce an inline plan with its objective, first-run timing, timezone, maximum runs and expiry. The holder must check consent and choose **Authorize schedule**. Plans permit 1–24 runs, an interval of at least one minute and expiry within seven days. The browser timezone is supplied with the request; specific times are converted to UTC and displayed in that timezone for review. A one-time request can name a specific future time. Recurring intervals start after the preceding run completes, so they do not promise a fixed daily wall-clock time. Results are saved in the workspace; authorization consumes the normal hosting allowance and any enabled inference credits when runs execute.
+
+Memory and schedule cards remain available in the conversation and Activity's run dialog. If an action reply is lost or conflicts with a newer state, **Check saved status** and refresh use GET requests to retrieve the durable outcome. They never automatically repeat the action POST or model call. Conflicting apply/dismiss requests reconcile saved state; a committed schedule cannot be hidden by dismissing a stale proposal. Cancel an authorized grant in Scheduled work. Repeated application of the same action uses its durable action ID rather than creating another note or grant.
+
+Only the current manual request can initiate these actions. Recalled memory, history, names and quoted material supply no authorization. Scheduled work cannot create further memory writes or schedule grants, including through structured model output. All existing ownership, pause, maintenance, restore and hosting checks still apply. These candidate additions require final verification and staging/holder acceptance; earlier release evidence below describes earlier candidates.
 
 ## Run and review locally
 
@@ -75,6 +87,8 @@ An occurrence left claimed by a stopped process is recorded as interrupted after
 The OpenClaw runtime uses a 16,384-token context policy and a 4,096-token output cap. Recalled memory and conversation text are bounded before execution. The metering gateway separately applies a conservative 65,536-unit input admission bound using UTF-8 message bytes plus framing; that larger bound allows the JEFF system context and recalled text to fit, and is also used to calculate the worst-case monetary hold. Response usage above the gateway's input or output cap cannot settle automatically.
 
 Rejected bridge starts restore their task reservation. Accepted failures, cancellations, timeouts and interrupted jobs keep their task count. Stopping a child cannot establish that a forwarded provider request was free. Saved-result retrieval and retry-save do not run the model or consume another task.
+
+Job-receipt writes now retry transient `EPERM`, `EACCES` and `EBUSY` rename failures within a bounded wait. They preserve the previous receipt and retry only the atomic file replacement, without rerunning the model or deleting the destination. Persistent failures still surface through the existing save/recovery flow.
 
 ## Funded inference accounting
 
@@ -151,6 +165,8 @@ Every restored tree receives `hosting/restore-guard.json`. It blocks fresh free 
 
 An optional [encrypted startup export](BACKUP.md) supports hosts with exclusive volume mounting. It captures before application writers start, uses a configured public RSA recipient to wrap a fresh AES-GCM key, and exposes only a cached encrypted envelope through a short-lived independently authenticated HTTPS GET. The private recipient key never reaches the server. Capture size/depth/file bounds, exact deployment identity, expiry and stable reread fail closed. This feature is disabled by default; it does not add request-triggered backups or a recurring retention policy.
 
+The current candidate adds an offline restore command for a saved encrypted export and its matching private recipient file. Download expiry does not expire the saved checkpoint. Recovery verifies authenticated metadata, file hashes, SQLite integrity and saved results in a new isolated directory, with no network request or model call. It preserves the execution guard and does not establish replacement-server runtime recovery. See [offline recovery](BACKUP.md#offline-recovery-of-a-saved-export).
+
 The [monitoring procedure](MONITORING.md) records the configured five-minute workstation task, bounded public reachability sample and its uptime/alert limitations. The [production promotion procedure](PROMOTION.md) preserves the existing volume, payment/hosting records and ownership scopes, and separates code rollback from guarded data recovery.
 
 ## Validation and remaining release evidence
@@ -178,3 +194,5 @@ The runtime is pinned to OpenClaw `2026.9.9`, which updates its MCP SDK to `1.31
 The remaining reports concern `brace-expansion`, `http-cache-semantics`, `ip-address`, `postcss-selector-parser` and `undici` inside OpenClaw's bundled npm package. Automatic audit fixing cannot replace bundled dependencies. Isolated checks with upstream npm `11.21.0` and `12.2.0` still reported the five findings; neither override is shipped. JEFF currently disables external tools and package-management actions, but this review does not establish that every advisory is unreachable. Keep these reports open and reassess before enabling additional runtime tools or widening the service. Registry reports are saved under `evidence/release/bug-audit-dependencies-before.json` and `bug-audit-dependencies-after.json`.
 
 A later same-day assessment confirmed that explicit nested component overrides also leave the vulnerable bundled versions unchanged. Two actual installed-CLI NFT/account fixture turns completed while test hooks blocked npm modules and npm/npx launches; seven positive controls confirmed the hooks and neither turn loaded an affected package. This finite Windows fixture evidence supports only the current restricted text workflow. It is not an operating-system sandbox, a clean dependency audit or proof of every production path. Detailed primary-source findings and reachability evidence are in `evidence/release/dependency-assessment-20261009.json` and `dependency-reachability-20261009.json`. A patched upstream bundle or separately reviewed vendor build is still needed to resolve the findings.
+
+The [formal bounded dependency assessment](DEPENDENCY-ASSESSMENT.md) retains the restricted text pilot only. Broad launch and additional runtime tools remain blocked until a reviewed fix or explicit, recorded operator risk acceptance. It also corrects the isolated `http-cache-semantics@4.3.0` fixture claim: an audit-clean component candidate is not an advisory-confirmed patched release, and does not repair JEFF's installed bundle.

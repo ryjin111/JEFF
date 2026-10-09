@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, lstat, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { normalizeScope, scopeId, scopeDirectory } from './scope.mjs';
+import { chatTimeZone, validateChatAction } from './chat-actions.mjs';
 
 const SCHEMA = 'jeff-workspace-v1';
 const REGISTRY_SCHEMA = 'jeff-workspace-registry-v1';
@@ -27,6 +28,31 @@ const text = (value, max, empty = false) => typeof value === 'string' && value.l
 const timestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const id = value => typeof value === 'string' && UUID.test(value);
 const clone = value => structuredClone(value);
+const validTimeZone = value => {
+  if (typeof value !== 'string' || value.length > 80 || !/^[A-Za-z][A-Za-z0-9._+-]*(?:\/[A-Za-z0-9._+-]+)*$/.test(value)) return false;
+  try { chatTimeZone(value); return true; } catch { return false; }
+};
+const actionParameters = action => action.type === 'memory.save'
+  ? { title: action.title, text: action.text }
+  : { objective: action.objective, intervalMinutes: action.intervalMinutes, maxRuns: action.maxRuns,
+    expiresAt: action.expiresAt, ...(Object.hasOwn(action, 'firstRunAt') ? { firstRunAt: action.firstRunAt } : {}) };
+function validChatActionRecord(action, jobId, binding) {
+  if (!record(action) || action.schema !== 'jeff-chat-action-v1' || action.id !== jobId
+    || !['memory.save', 'schedule.create'].includes(action.type) || !record(action.parameters)
+    || !timestamp(action.createdAt) || Date.parse(action.createdAt) < Date.parse(binding.createdAt)
+    || !validTimeZone(action.timeZone)) return false;
+  try { validateChatAction({ type: action.type, ...action.parameters }); } catch { return false; }
+  // The discriminator belongs to the host record, never to the parameters.
+  if (Object.hasOwn(action.parameters, 'type')) return false;
+  const base = ['schema', 'id', 'type', 'parameters', 'status', 'createdAt', 'timeZone'];
+  if (action.status === 'pending') return all(action, base);
+  if (action.status === 'dismissed') return all(action, [...base, 'dismissedAt'])
+    && timestamp(action.dismissedAt) && Date.parse(action.dismissedAt) >= Date.parse(action.createdAt);
+  const resultKey = action.type === 'memory.save' ? 'memoryId' : 'scheduleId';
+  return action.status === 'applied' && all(action, [...base, 'appliedAt', 'result'])
+    && timestamp(action.appliedAt) && Date.parse(action.appliedAt) >= Date.parse(action.createdAt)
+    && all(action.result, [resultKey]) && id(action.result[resultKey]);
+}
 
 export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = ['bankr/gpt-5.4-mini'], now = () => Date.now() }) {
   if (!dataRoot || !Array.isArray(allowedModels) || !allowedModels.length || allowedModels.length > 32
@@ -86,9 +112,11 @@ export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = [
     if (!record(state.jobBindings) || Object.keys(state.jobBindings).length > LIMITS.jobs) unavailable();
     const conversations = new Map(state.conversations.map(item => [item.id, item]));
     for (const [jobId, binding] of Object.entries(state.jobBindings)) {
-      if (!id(jobId) || !all(binding, ['jobId', 'conversationId', 'objective', 'source', 'createdAt']) || binding.jobId !== jobId
+      const required = ['jobId', 'conversationId', 'objective', 'source', 'createdAt'];
+      if (!id(jobId) || !exact(binding, [...required, 'action']) || !required.every(key => Object.hasOwn(binding, key)) || binding.jobId !== jobId
         || !id(binding.conversationId) || !text(binding.objective, 4000) || !SOURCES.includes(binding.source) || !timestamp(binding.createdAt)
-        || !conversations.get(binding.conversationId)?.jobIds.includes(jobId)) unavailable();
+        || !conversations.get(binding.conversationId)?.jobIds.includes(jobId)
+        || (Object.hasOwn(binding, 'action') && (binding.source !== 'manual' || !validChatActionRecord(binding.action, jobId, binding)))) unavailable();
     }
     for (const conversation of state.conversations) {
       if (conversation.jobIds.some(jobId => state.jobBindings[jobId]?.conversationId !== conversation.id)) unavailable();
@@ -107,15 +135,19 @@ export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = [
       unavailable();
     }
   }
-  async function writeJson(file, value) {
+  async function writeJson(file, value, beforeCommit = () => {}) {
     const raw = JSON.stringify(value);
     if (Buffer.byteLength(raw) > LIMITS.bytes) fail('JEFF_WORKSPACE_FULL');
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await mkdir(dirname(file), { recursive: true, mode: 0o700 });
       await writeFile(temporary, raw, { mode: 0o600, flag: 'wx' });
+      beforeCommit();
       await rename(temporary, file);
-    } catch { unavailable(); }
+    } catch (error) {
+      if (['JEFF_OPENCLAW_CANCELLED', 'JEFF_SERVICE_MAINTENANCE', 'JEFF_RESTORE_GUARDED'].includes(error.message)) throw error;
+      unavailable();
+    }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
   async function registry() {
@@ -159,9 +191,11 @@ export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = [
       return clone(result);
     });
   }
-  async function mutate(input, operation) {
+  async function mutate(input, operation, beforeCommit = () => {}) {
+    if (typeof beforeCommit !== 'function') invalid();
     return serialize(async () => {
       const scope = await authorize(input);
+      beforeCommit();
       const state = await load(scope);
       const result = operation(state);
       if (state.revision >= Number.MAX_SAFE_INTEGER) unavailable();
@@ -169,7 +203,8 @@ export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = [
       state.updatedAt = time();
       validateState(state, scope);
       await authorize(scope);
-      await writeJson(stateFile(scope), state);
+      beforeCommit();
+      await writeJson(stateFile(scope), state, beforeCommit);
       await authorize(scope);
       return clone(result ?? state);
     });
@@ -259,6 +294,77 @@ export function createWorkspaceStore({ dataRoot, resolveOwner, allowedModels = [
     getJobBinding(scope, jobId) {
       if (!id(jobId)) invalid();
       return inspect(scope, state => state.jobBindings[jobId] || null);
+    },
+    proposeChatAction(scope, jobId, input, { timeZone = 'UTC', beforeCommit } = {}) {
+      if (!id(jobId)) invalid();
+      validateChatAction(input);
+      if (!validTimeZone(timeZone)) fail('JEFF_CHAT_ACTION_INVALID');
+      const canonicalTimeZone = chatTimeZone(timeZone);
+      // Copy before the queued mutation so callers cannot change a validated plan.
+      const type = input.type, parameters = clone(actionParameters(input));
+      return mutate(scope, state => {
+        if (state.settings.paused) fail('JEFF_AGENT_PAUSED');
+        const binding = state.jobBindings[jobId];
+        if (!binding) fail('JEFF_WORKSPACE_NOT_FOUND');
+        if (binding.source !== 'manual') fail('JEFF_CHAT_ACTION_DENIED');
+        if (binding.action) {
+          if (binding.action.type !== type || chatTimeZone(binding.action.timeZone) !== canonicalTimeZone
+            || JSON.stringify(actionParameters({ type: binding.action.type, ...binding.action.parameters })) !== JSON.stringify(parameters)) fail('JEFF_WORKSPACE_CONFLICT');
+          return binding.action;
+        }
+        binding.action = { schema: 'jeff-chat-action-v1', id: jobId, type, parameters, status: 'pending', createdAt: time(), timeZone: canonicalTimeZone };
+        event(state, 'chat.action.proposed', type === 'memory.save' ? 'A memory draft is ready to review.' : 'A schedule draft is ready to review.');
+        return binding.action;
+      }, beforeCommit);
+    },
+    applyChatMemory(scope, jobId, { beforeCommit } = {}) {
+      if (!id(jobId)) invalid();
+      return mutate(scope, state => {
+        if (state.settings.paused) fail('JEFF_AGENT_PAUSED');
+        const binding = state.jobBindings[jobId], action = binding?.action;
+        if (!action) fail('JEFF_WORKSPACE_NOT_FOUND');
+        if (binding.source !== 'manual') fail('JEFF_CHAT_ACTION_DENIED');
+        if (action.type !== 'memory.save' || action.status === 'dismissed') fail('JEFF_WORKSPACE_CONFLICT');
+        if (action.status === 'applied') return action;
+        if (state.memories.length >= LIMITS.memories) fail('JEFF_WORKSPACE_FULL');
+        const at = time(), memoryId = randomUUID();
+        state.memories.push({ id: memoryId, title: action.parameters.title.trim(), text: action.parameters.text, createdAt: at, updatedAt: at });
+        Object.assign(action, { status: 'applied', appliedAt: at, result: { memoryId } });
+        event(state, 'memory.created', 'A requested chat memory was saved.');
+        // The memory and applied receipt share this one atomic workspace write.
+        return action;
+      }, beforeCommit);
+    },
+    finishChatSchedule(scope, jobId, scheduleId) {
+      if (!id(jobId) || !id(scheduleId)) invalid();
+      return mutate(scope, state => {
+        const binding = state.jobBindings[jobId], action = binding?.action;
+        if (!action) fail('JEFF_WORKSPACE_NOT_FOUND');
+        if (binding.source !== 'manual') fail('JEFF_CHAT_ACTION_DENIED');
+        if (action.type !== 'schedule.create' || action.status === 'dismissed') fail('JEFF_WORKSPACE_CONFLICT');
+        if (action.status === 'applied') {
+          if (action.result.scheduleId !== scheduleId) fail('JEFF_WORKSPACE_CONFLICT');
+          return action;
+        }
+        // Admission already happened in the scheduler. Persist its outcome even
+        // if the owner has paused future runs in the meantime.
+        Object.assign(action, { status: 'applied', appliedAt: time(), result: { scheduleId } });
+        event(state, 'chat.action.applied', 'A requested chat schedule was authorized.');
+        return action;
+      });
+    },
+    dismissChatAction(scope, jobId) {
+      if (!id(jobId)) invalid();
+      return mutate(scope, state => {
+        const binding = state.jobBindings[jobId], action = binding?.action;
+        if (!action) fail('JEFF_WORKSPACE_NOT_FOUND');
+        if (binding.source !== 'manual') fail('JEFF_CHAT_ACTION_DENIED');
+        if (action.status === 'applied') fail('JEFF_WORKSPACE_CONFLICT');
+        if (action.status === 'dismissed') return action;
+        Object.assign(action, { status: 'dismissed', dismissedAt: time() });
+        event(state, 'chat.action.dismissed', 'A chat action draft was dismissed.');
+        return action;
+      });
     },
     executionContext(scope, conversationId) {
       if (!id(conversationId)) invalid();

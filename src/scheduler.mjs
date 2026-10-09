@@ -15,6 +15,8 @@ const date = value => {
   if (!Number.isFinite(parsed)) throw fail('CLOCK_INVALID');
   return parsed;
 };
+const isoDate = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
+  && new Date(value).toISOString() === value;
 
 // One service writer per volume. The queue serializes all index and record writes.
 // A persisted claim is never automatically replayed, including after a crash.
@@ -65,7 +67,9 @@ export function createScheduler({ dataRoot, resolveOwner, execute, isPaused = as
       || !Number.isSafeInteger(value.maxRuns) || value.maxRuns < 1 || value.maxRuns > 24
       || !Array.isArray(value.runs) || value.runs.length > value.maxRuns
       || !['active', 'completed', 'cancelled', 'revoked', 'expired', 'interrupted', 'failed'].includes(value.status)
-      || date(value.expiresAt) <= date(value.createdAt) || date(value.expiresAt) - date(value.createdAt) > WEEK) {
+      || date(value.expiresAt) <= date(value.createdAt) || date(value.expiresAt) - date(value.createdAt) > WEEK
+      || (Object.hasOwn(value, 'firstRunAt') && (!isoDate(value.firstRunAt)
+        || date(value.firstRunAt) <= date(value.createdAt) || date(value.firstRunAt) >= date(value.expiresAt)))) {
       throw fail('STORE_INVALID');
     }
     date(value.nextRunAt);
@@ -256,25 +260,54 @@ export function createScheduler({ dataRoot, resolveOwner, execute, isPaused = as
         return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       });
     },
-    async create(input, options = {}) {
+    async create(input, options = {}, hostOptions = {}) {
       const scope = normalizeScope(input);
+      if (!hostOptions || typeof hostOptions !== 'object' || Array.isArray(hostOptions)
+        || Object.keys(hostOptions).some(key => key !== 'idempotencyKey')
+        || (Object.hasOwn(hostOptions, 'idempotencyKey') && (typeof hostOptions.idempotencyKey !== 'string'
+          || !UUID.test(hostOptions.idempotencyKey)))) throw fail('INVALID');
+      const idempotencyKey = hostOptions.idempotencyKey;
       return serial(async () => {
         if (!await owns(scope)) throw fail('OWNER_REVOKED');
         if (await canRun() !== true || stopping) throw fail('MAINTENANCE');
-        const { objective, conversationId, intervalMinutes, maxRuns = 24 } = options;
+        const { objective, conversationId, intervalMinutes, maxRuns = 24, firstRunAt } = options;
         if (typeof objective !== 'string' || !objective.trim() || objective.length > 4000
           || typeof conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(conversationId)
           || !Number.isSafeInteger(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 10080
-          || !Number.isSafeInteger(maxRuns) || maxRuns < 1 || maxRuns > 24) throw fail('INVALID');
+          || !Number.isSafeInteger(maxRuns) || maxRuns < 1 || maxRuns > 24
+          || (Object.hasOwn(options, 'firstRunAt') && !isoDate(firstRunAt))) throw fail('INVALID');
+        let entries = await index();
+        if (idempotencyKey) {
+          const entry = entries.find(item => item.id === idempotencyKey);
+          if (entry && scopeId(entry.scope) !== scopeId(scope)) throw fail('CONFLICT');
+          const existing = await read({ id: idempotencyKey, scope }, !entry);
+          if (existing) {
+            // A record written before its index commit is an unknown admission.
+            // Never repair that partial write or create a second grant on retry.
+            if ((existing.status === 'active' || existing.runs.some(run => run.status === 'claimed')) && !entry) throw fail('STORE_INVALID');
+            const expires = options.expiresAt === undefined ? date(existing.createdAt) + WEEK : date(options.expiresAt);
+            if (existing.objective !== objective.trim() || existing.conversationId !== conversationId
+              || existing.intervalMinutes !== intervalMinutes || existing.maxRuns !== maxRuns
+              || date(existing.expiresAt) !== expires || existing.firstRunAt !== firstRunAt) throw fail('CONFLICT');
+            if (!await owns(scope)) throw fail('OWNER_REVOKED');
+            if (await canRun() !== true || stopping) throw fail('MAINTENANCE');
+            return structuredClone(existing);
+          }
+        }
+        if (await isPaused(scope) === true) throw fail('PAUSED');
         const created = timestamp(), expires = options.expiresAt === undefined ? created + WEEK : date(options.expiresAt);
-        if (expires <= created || expires - created > WEEK || created + intervalMinutes * 60000 >= expires) throw fail('INVALID');
-        const entries = await compact();
+        const first = firstRunAt === undefined ? created + intervalMinutes * 60000 : date(firstRunAt);
+        if (expires <= created || expires - created > WEEK || first <= created || first >= expires) throw fail('INVALID');
+        entries = await compact(entries);
         if (entries.length >= MAX_SCHEDULES
           || entries.filter(entry => scopeId(entry.scope) === scopeId(scope)).length >= MAX_SCHEDULES_PER_SCOPE) throw fail('LIMIT_REACHED');
-        const record = { schema: SCHEMA, id: randomUUID(), scope, objective: objective.trim(), conversationId,
+        const record = { schema: SCHEMA, id: idempotencyKey ?? randomUUID(), scope, objective: objective.trim(), conversationId,
           intervalMinutes, maxRuns, createdAt: new Date(created).toISOString(), expiresAt: new Date(expires).toISOString(),
-          nextRunAt: new Date(created + intervalMinutes * 60000).toISOString(), status: 'active', runs: [] };
+          ...(firstRunAt === undefined ? {} : { firstRunAt }), nextRunAt: new Date(first).toISOString(), status: 'active', runs: [] };
         if (!await owns(scope)) throw fail('OWNER_REVOKED');
+        if (await canRun() !== true || stopping) throw fail('MAINTENANCE');
+        if (await isPaused(scope) === true) throw fail('PAUSED');
+        if (timestamp() >= expires || (firstRunAt !== undefined && timestamp() >= first)) throw fail('INVALID');
         await save(record);
         entries.push({ id: record.id, scope });
         await atomic(indexPath, { schema: 'jeff-schedule-index-v1', entries });

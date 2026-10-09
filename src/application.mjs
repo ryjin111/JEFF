@@ -17,6 +17,8 @@ import { createScheduler } from './scheduler.mjs';
 import { createInferenceLedger } from './inference-ledger.mjs';
 import { createInferenceGateway } from './inference-gateway.mjs';
 import { scopeId } from './scope.mjs';
+import { chatTimeZone, decodeChatResponse, directMemoryRequest, validateScheduleProposal } from './chat-actions.mjs';
+import { createJobRecordPersister } from './job-records.mjs';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const strict = (input, fields) => {
@@ -97,6 +99,10 @@ export async function createJeffApplication(options = {}) {
     const binding = pending.get(scopeId(args.scope));
     if (!binding) throw new Error('JEFF_WORKSPACE_BINDING_INVALID');
     const controller = new AbortController();
+    const beforeCommit = () => {
+      if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+      requireExecution();
+    };
     controllers.set(args.jobId, { controller, scope: scopeId(args.scope) });
     try {
       await workspace.bindJob(args.scope, { jobId: args.jobId, conversationId: binding.conversationId, objective: args.objective, source: binding.source });
@@ -112,15 +118,38 @@ export async function createJeffApplication(options = {}) {
       requireExecution();
       const inferenceGateway = gateway?.issue({ jobId: args.jobId, scope: args.scope, model: context.settings.model.slice(6),
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
-      return await runner({ ...args, signal: controller.signal, executionContext: { ...context, history }, inferenceGateway });
+      const manual = binding.source === 'manual';
+      const result = await runner({ ...args, signal: controller.signal, executionContext: { ...context, history,
+        chatActions: { enabled: manual, now: new Date().toISOString(), timeZone: binding.timeZone } }, inferenceGateway });
+      if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+      requireExecution();
+      const decoded = decodeChatResponse(result.text);
+      if (!manual) return { ...result, text: decoded.action
+        ? 'Scheduled work cannot create additional memory notes or schedules. No new action was applied.' : decoded.text };
+      const direct = directMemoryRequest(args.objective);
+      const action = direct || decoded.action;
+      if (!action) return { ...result, text: decoded.text };
+      if (action.type === 'schedule.create') validateScheduleProposal(action);
+      await workspace.proposeChatAction(args.scope, args.jobId, action, { timeZone: binding.timeZone, beforeCommit });
+      if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+      requireExecution();
+      if (direct) {
+        await workspace.applyChatMemory(args.scope, args.jobId, { beforeCommit });
+        return { ...result, text: 'Saved to memory. I’ll use this note in future conversations.' };
+      }
+      return { ...result, text: action.type === 'memory.save'
+        ? 'I’ve prepared a memory note. Review it below and choose Save memory to keep it.'
+        : 'Here’s the schedule I’ve prepared. Review its timing and run limit below, then authorize it to start.' };
     } finally { gateway?.revoke(args.jobId); controllers.delete(args.jobId); }
   };
-  bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent });
-  accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent });
+  const persistRecord = createJobRecordPersister();
+  bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent, persistRecord });
+  accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent, persistRecord });
 
   async function submit(scope, input) {
     requireExecution();
-    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId']);
+    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone']);
+    const timeZone = chatTimeZone(input.timeZone);
     if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) throw new Error('JEFF_OBJECTIVE_INVALID');
     if (!modelConfigured) throw new Error('JEFF_MODEL_NOT_CONFIGURED');
     const key = scopeId(scope);
@@ -142,7 +171,7 @@ export async function createJeffApplication(options = {}) {
       await hosting.requireActive(scope);
       requireExecution();
       if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
-      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual' });
+      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone });
       const record = await hosting.startJob(scope, () => {
         requireExecution();
         return activeBridge(scope).start(scope, input.objective.trim());
@@ -164,6 +193,59 @@ export async function createJeffApplication(options = {}) {
       finally { finish(); }
     },
   });
+  const actionOperations = new Map();
+  async function changeChatAction(scope, jobId, operation) {
+    const key = `${scopeId(scope)}:${jobId}`;
+    if (actionOperations.has(key)) throw new Error('JEFF_CHAT_ACTION_BUSY');
+    const work = (async () => {
+      requireAdmission();
+      const binding = await workspace.getJobBinding(scope, jobId), action = binding?.action;
+      if (!action) throw new Error('JEFF_WORKSPACE_NOT_FOUND');
+      if (binding.source !== 'manual') throw new Error('JEFF_CHAT_ACTION_DENIED');
+      if (action.status === 'dismissed') {
+        if (operation === 'dismiss') return action;
+        throw new Error('JEFF_WORKSPACE_CONFLICT');
+      }
+      // Applied receipts are immutable and safe to retrieve after a lost reply.
+      if (action.status === 'applied') {
+        if (operation === 'dismiss') throw new Error('JEFF_WORKSPACE_CONFLICT');
+        return action;
+      }
+      if (action.type === 'schedule.create') {
+        // A grant may have committed before its workspace receipt failed. This
+        // path only records that existing result; it never admits new work.
+        const existing = (await scheduler.list(scope)).find(item => item.id === jobId);
+        if (existing) {
+          const p = action.parameters;
+          if (existing.objective !== p.objective.trim() || existing.conversationId !== binding.conversationId
+            || existing.intervalMinutes !== p.intervalMinutes || existing.maxRuns !== p.maxRuns
+            || Date.parse(existing.expiresAt) !== Date.parse(p.expiresAt) || existing.firstRunAt !== p.firstRunAt) {
+            throw new Error('JEFF_WORKSPACE_CONFLICT');
+          }
+          const recovered = await workspace.finishChatSchedule(scope, jobId, existing.id);
+          // Dismissing a stale proposal must never hide an authorized grant.
+          // Repair its receipt first; cancellation remains in Scheduled work.
+          if (operation === 'dismiss') throw new Error('JEFF_WORKSPACE_CONFLICT');
+          return recovered;
+        }
+      }
+      if (operation === 'dismiss') return await workspace.dismissChatAction(scope, jobId);
+      const job = await activeBridge(scope).retrieve(scope, jobId);
+      if (job.status !== 'completed') throw new Error('JEFF_CHAT_ACTION_NOT_READY');
+      requireExecution();
+      if ((await workspace.get(scope)).settings.paused) throw new Error('JEFF_AGENT_PAUSED');
+      if (action.type === 'memory.save') return await workspace.applyChatMemory(scope, jobId, { beforeCommit: requireExecution });
+      if (action.type !== 'schedule.create') throw new Error('JEFF_CHAT_ACTION_DENIED');
+      await hosting.requireActive(scope);
+      requireExecution();
+      if ((await workspace.get(scope)).settings.paused) throw new Error('JEFF_AGENT_PAUSED');
+      const schedule = await scheduler.create(scope, { ...action.parameters, conversationId: binding.conversationId }, { idempotencyKey: jobId });
+      return await workspace.finishChatSchedule(scope, jobId, schedule.id);
+    })();
+    actionOperations.set(key, work);
+    try { return await work; }
+    finally { if (actionOperations.get(key) === work) actionOperations.delete(key); }
+  }
   const send = (response, status, value) => {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify(value));
@@ -192,6 +274,7 @@ export async function createJeffApplication(options = {}) {
       if (request.headers.origin && request.headers.origin !== origin) return send(response, 403, { error: 'JEFF_ORIGIN_DENIED' });
       const url = new URL(request.url, origin), route = url.pathname, method = request.method;
       if (/^\/api\/(?:auth\/(?:nfts|challenge|verify|logout)|account\/auth\/(?:challenge|verify|logout)|workspace(?:\/(?:state|settings|skills))?|conversations|memory|activity|inference|schedules|jobs)$/.test(route)) diagnosticRoute = route;
+      if (/^\/api\/chat\/actions\/[a-f0-9-]{36}\/(?:apply|dismiss)$/.test(route)) diagnosticRoute = '/api/chat/actions';
       if (method === 'GET' && route === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw', scheduler: scheduler.status() });
       if (method === 'GET' && route === '/api/config') return send(response, 200, config());
       const bearer = request.headers.authorization?.replace(/^Bearer /, '');
@@ -227,7 +310,7 @@ export async function createJeffApplication(options = {}) {
         if (method === 'GET' && route === '/api/schedules') return send(response, 200, { schedules: await scheduler.list(scope) });
         if (method === 'POST' && route === '/api/schedules') {
           if (restoreBlocked()) throw new Error('JEFF_RESTORE_GUARDED');
-          const input = strict(await body(request), ['objective', 'conversationId', 'intervalMinutes', 'maxRuns', 'expiresAt']);
+          const input = strict(await body(request), ['objective', 'conversationId', 'intervalMinutes', 'maxRuns', 'expiresAt', 'firstRunAt']);
           const state = await workspace.get(scope);
           if (state.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
           if (!state.conversations.some(item => item.id === input.conversationId)) throw new Error('JEFF_CONVERSATION_NOT_FOUND');
@@ -236,8 +319,14 @@ export async function createJeffApplication(options = {}) {
         }
         if (method === 'DELETE' && /^\/api\/schedules\//.test(route)) return send(response, 200, await scheduler.cancel(scope, route.split('/').at(-1)));
         if (method === 'POST' && route === '/api/jobs') {
-          const input = strict(await body(request), ['objective', 'conversationId']);
+          const input = strict(await body(request), ['objective', 'conversationId', 'timeZone']);
           return send(response, 202, (await submit(scope, input)).record);
+        }
+        const chatActionMatch = route.match(/^\/api\/chat\/actions\/([a-f0-9-]{36})\/(apply|dismiss)$/);
+        if (method === 'POST' && chatActionMatch && uuid.test(chatActionMatch[1])) {
+          const input = strict(await body(request), []);
+          if (Object.keys(input).length) throw new Error('JEFF_REQUEST_INVALID');
+          return send(response, 200, await changeChatAction(scope, chatActionMatch[1], chatActionMatch[2]));
         }
         const jobMatch = route.match(/^\/api\/jobs\/([a-f0-9-]{36})(?:\/(retry-save|stop))?$/);
         if (jobMatch && uuid.test(jobMatch[1])) {
@@ -263,7 +352,7 @@ export async function createJeffApplication(options = {}) {
     } catch (error) {
       const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : error.code === 'ENOENT' ? 'JEFF_ROUTE_NOT_FOUND' : 'JEFF_SERVICE_UNAVAILABLE';
       const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400
-        : /CONFLICT|BUSY|PAUSED/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED/.test(message) ? 403 : 503;
+        : /CONFLICT|BUSY|PAUSED|CHAT_ACTION_(?:NOT_READY|EXPIRED)/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED|CHAT_ACTION_DENIED/.test(message) ? 403 : 503;
       if (status >= 500) {
         const event = { event: 'JEFF_REQUEST_FAILED', method: ['GET', 'POST', 'PATCH', 'DELETE', 'HEAD'].includes(request.method) ? request.method : 'OTHER',
           route: diagnosticRoute, status, error: message, ...failureDetails(error) };

@@ -15,7 +15,8 @@ const pages = [
 const S = { config: null, session: null, workspace: null, jobs: [], hosting: null, schedules: [], usage: null,
   inventory: null, wallet: null, mode: 'nft', view: 'chat', conversationId: null, draft: '', draftVersion: 0, submission: null, admitted: null, busy: false, authBusy: false,
   memoryDraft: { title: '', text: '' }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
-  paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [] };
+  paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [],
+  actionConsent: new Set(), actionRequests: new Map() };
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
@@ -78,6 +79,7 @@ const running = () => S.jobs.some(job => job.status === 'running');
 const signedIn = () => Boolean(S.session && S.workspace);
 const agentName = () => S.workspace?.settings.name?.trim()
   || (S.session && S.session.scope.kind !== 'account' ? `Room #${S.session.scope.tokenId}` : 'Your agent');
+const browserTimeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 function allowanceReason() {
   if (!S.session) return 'Connect your Agent NFT to start a conversation.';
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
@@ -141,6 +143,13 @@ function friendly(error) {
     JEFF_INFERENCE_DAILY_LIMIT_EXCEEDED: 'This run would exceed the daily inference budget.',
     JEFF_SCHEDULE_INVALID: 'Check the task, interval, run count and expiry. Schedules allow at most 24 runs over seven days.',
     JEFF_SCHEDULE_LIMIT: 'The schedule limit was reached. Cancel an unused schedule first.',
+    JEFF_CHAT_ACTION_INVALID: 'This action could not be verified. Refresh and review the saved request.',
+    JEFF_CHAT_ACTION_DENIED: 'This action cannot be performed from this conversation. Refresh and review the saved request.',
+    JEFF_CHAT_ACTION_NOT_READY: 'The response is still being saved. Refresh before confirming this action.',
+    JEFF_CHAT_RESPONSE_INVALID: 'The agent’s action draft could not be verified. Nothing was authorized.',
+    JEFF_CHAT_ACTION_NOT_FOUND: 'This action is no longer available. Refresh the conversation.',
+    JEFF_CHAT_ACTION_CONFLICT: 'This action has already changed. Refresh to check its saved status.',
+    JEFF_CHAT_ACTION_EXPIRED: 'This schedule proposal has expired. Ask your agent for a new schedule.',
     JEFF_ROUTE_NOT_FOUND: 'This feature is unavailable on the connected runtime. Refresh after the service is updated.',
     JEFF_WALLET_NETWORK_MISMATCH: 'Switch your wallet to the workspace network, then connect again.',
   };
@@ -159,6 +168,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.session = null; S.workspace = null; S.jobs = []; S.hosting = null; S.schedules = []; S.usage = null;
   S.conversationId = null; S.draft = ''; S.draftVersion++; S.submission = null; S.admitted = null; S.memoryDraft = { title: '', text: '' }; S.settingsDraft = null; S.scheduleDraft = null;
   S.invoice = null; S.decimals = null; S.paymentHash = ''; S.paymentSubmitted = false; S.busy = false; S.authBusy = false; S.runNotice = null;
+  S.actionConsent.clear(); S.actionRequests.clear();
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
   saveSession();
@@ -207,6 +217,19 @@ function validateWorkspace(value, scope) {
   }
   for (const memory of value.memories) if (!JOB_ID.test(memory?.id) || typeof memory.title !== 'string' || typeof memory.text !== 'string') throw new Error('JEFF_WORKSPACE_STORAGE_UNAVAILABLE');
   for (const skill of value.skills) if (!['writing', 'analysis', 'planning'].includes(skill?.id) || typeof skill.enabled !== 'boolean') throw new Error('JEFF_WORKSPACE_STORAGE_UNAVAILABLE');
+  for (const [jobId, binding] of Object.entries(value.jobBindings || {})) {
+    const action = binding?.action;
+    if (action && (!JOB_ID.test(jobId) || action.schema !== 'jeff-chat-action-v1' || action.id !== jobId
+      || !['memory.save', 'schedule.create'].includes(action.type) || !['pending', 'applied', 'dismissed'].includes(action.status)
+      || !action.parameters || typeof action.parameters !== 'object' || !Number.isFinite(Date.parse(action.createdAt))
+      || typeof action.timeZone !== 'string')) throw new Error('JEFF_WORKSPACE_STORAGE_UNAVAILABLE');
+    if (!action) continue;
+    const p = action.parameters;
+    if (action.type === 'memory.save' ? typeof p.title !== 'string' || typeof p.text !== 'string' || p.title.length > 120 || p.text.length > 4000
+      : typeof p.objective !== 'string' || p.objective.length > 4000 || !Number.isInteger(p.intervalMinutes) || p.intervalMinutes < 1
+        || !Number.isInteger(p.maxRuns) || p.maxRuns < 1 || p.maxRuns > 24 || !Number.isFinite(Date.parse(p.expiresAt))
+        || (p.firstRunAt !== undefined && !Number.isFinite(Date.parse(p.firstRunAt)))) throw new Error('JEFF_WORKSPACE_STORAGE_UNAVAILABLE');
+  }
   return value;
 }
 function validateUsage(value) {
@@ -244,6 +267,11 @@ async function refresh({ quiet = false } = {}) {
     }
     reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
+    for (const [jobId, request] of S.actionRequests) {
+      const action = workspace.jobBindings?.[jobId]?.action;
+      if (!action || action.status !== 'pending' || request === 'uncertain') S.actionRequests.delete(jobId);
+    }
+    for (const jobId of S.actionConsent) if (workspace.jobBindings?.[jobId]?.action?.status !== 'pending') S.actionConsent.delete(jobId);
     refreshFailures = 0;
     const recovered = refreshNotice && refreshNotice.scope === scopeKey(scope) && S.noticeError && S.notice === refreshNotice.message ? refreshNotice : null;
     const trackedRun = S.runNotice;
@@ -436,9 +464,84 @@ function renderShell() {
   renderAgents();
 }
 
+const chatActionExpired = action => action?.type === 'schedule.create' && (Date.parse(action.parameters.expiresAt) <= Date.now()
+  || (action.parameters.firstRunAt ? Date.parse(action.parameters.firstRunAt) <= Date.now()
+    : Date.now() + action.parameters.intervalMinutes * 60000 >= Date.parse(action.parameters.expiresAt)));
+const chatActionViewState = jobId => {
+  const action = S.workspace.jobBindings?.[jobId]?.action;
+  return action ? `${action.status}:${S.actionConsent.has(jobId)}:${S.actionRequests.get(jobId) || ''}:${chatActionExpired(action)}:${chatActionBlockedReason(action)}` : '';
+};
+function chatActionBlockedReason(action) {
+  if (S.config?.restoreBlocked) return 'Saving actions is paused while restored storage is verified.';
+  if (S.workspace?.settings.paused) return 'This agent is paused. Resume it in Settings before applying this action.';
+  if (action.type === 'schedule.create') {
+    if (!S.config?.modelConfigured) return 'The model connection is unavailable. Scheduling will reopen when it is restored.';
+    if (!S.hosting?.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return 'Active hosting is required. Open Hosting before authorizing this schedule.';
+    if (S.config.schedulesEnabled === false) return 'Scheduled work is currently unavailable. Check saved work again later.';
+  }
+  return '';
+}
+function chatActionOutcome(jobId) {
+  const action = S.workspace?.jobBindings?.[jobId]?.action;
+  if (action?.status === 'applied') return action.type === 'memory.save' ? 'Memory saved.' : 'Scheduled work is authorized. Open Scheduled work to review or cancel it.';
+  if (action?.status === 'dismissed') return 'Suggestion dismissed.';
+  return 'Saved status checked. This suggestion is still pending; review it before applying it.';
+}
+function chatActionCard(job, inDialog = false) {
+  const binding = S.workspace.jobBindings?.[job.id], action = binding?.action;
+  if (!action || (action.status === 'pending' && (job.status !== 'completed' || binding.source !== 'manual'))) return;
+  const memory = action.type === 'memory.save', p = action.parameters;
+  const card = node('section', 'chat-action-card'); card.dataset.chatAction = action.type; card.dataset.actionStatus = action.status;
+  card.dataset.jobId = job.id;
+  const heading = node('div', 'chat-action-heading');
+  heading.append(icon(memory ? 'book' : 'clock'), node('h3', '', action.status === 'applied' ? memory ? 'Saved to memory' : 'Scheduled'
+    : action.status === 'dismissed' ? memory ? 'Memory suggestion dismissed' : 'Schedule suggestion dismissed'
+      : memory ? 'Save this memory?' : 'Review this schedule'));
+  card.append(heading);
+  if (action.status === 'dismissed') return card;
+  if (memory) card.append(node('strong', 'chat-action-title', p.title), node('p', 'chat-action-content', p.text));
+  else {
+    card.append(node('p', 'chat-action-content', p.objective));
+    const facts = node('dl', 'chat-action-facts');
+    const at = value => { try { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: action.timeZone }).format(new Date(value)); } catch { return when(value); } };
+    const minute = `${p.intervalMinutes} minute${p.intervalMinutes === 1 ? '' : 's'}`;
+    for (const [label, value] of [
+      ['Timing', p.maxRuns === 1 ? 'One run' : `Every ${minute} after the previous run completes`],
+      ['First run', p.firstRunAt ? at(p.firstRunAt) : `${minute} after authorization`],
+      ['Maximum runs', String(p.maxRuns)], ['Expires', at(p.expiresAt)], ['Time zone', action.timeZone], ['Delivery', 'Saved in this workspace'],
+    ]) { const row = node('div'); row.append(node('dt', '', label), node('dd', '', value)); facts.append(row); }
+    card.append(facts);
+  }
+  const actions = node('div', 'chat-action-buttons');
+  if (action.status === 'applied') actions.append(button(memory ? 'Open Memory' : 'Open Scheduled work', 'open-chat-action', memory ? 'book' : 'clock', 'button button-outline', { target: memory ? 'memory' : 'schedules' }));
+  else {
+    const checking = S.actionRequests.has(job.id), expired = chatActionExpired(action), blockedReason = chatActionBlockedReason(action);
+    if (!memory && !expired) {
+      const consent = node('label', 'checkbox-row chat-action-consent'), checkbox = node('input');
+      checkbox.type = 'checkbox'; checkbox.id = `${inDialog ? 'dialog-' : ''}chat-action-consent-${job.id}`; checkbox.dataset.chatActionConsent = job.id;
+      checkbox.checked = S.actionConsent.has(job.id); checkbox.disabled = S.busy || checking;
+      consent.append(checkbox, node('span', '', `I authorize ${p.maxRuns === 1 ? 'this model run' : 'these model runs'} while my browser is closed, using my hosting allowance and any active prepaid credits.`));
+      card.append(consent);
+    }
+    if (checking) card.append(node('p', 'preview-info', 'Check the saved action status before trying again. This does not submit the action again.'));
+    if (expired) card.append(node('p', 'preview-info', 'This schedule proposal has expired. Ask your agent for a new schedule.'));
+    const apply = button(memory ? 'Save memory' : 'Authorize schedule', 'apply-chat-action', memory ? 'check' : 'clock', 'button button-primary', { id: job.id });
+    apply.disabled = S.busy || checking || expired || Boolean(blockedReason)
+      || (!memory && !S.actionConsent.has(job.id));
+    const dismiss = button('Dismiss', 'dismiss-chat-action', 'close', 'button button-subtle', { id: job.id }); dismiss.disabled = S.busy || checking;
+    actions.append(apply, dismiss);
+    if (blockedReason) card.append(node('p', 'preview-info', blockedReason));
+    if (checking) {
+      const check = button('Check saved status', 'check-chat-action', 'refresh', 'button button-outline', { id: job.id });
+      check.disabled = S.busy; actions.append(check);
+    }
+  }
+  card.append(actions); return card;
+}
 function resultMessage(job, showReceipt = false) {
   const message = node('article', 'message assistant'); message.dataset.jobId = job.id;
   message.dataset.jobStatus = job.status; message.dataset.busy = String(S.busy);
+  message.dataset.chatActionState = chatActionViewState(job.id);
   const avatar = node('span', 'message-avatar'); avatar.append(icon('spark'));
   const body = node('div', 'message-body'), heading = node('div', 'message-header');
   heading.append(node('strong', '', S.workspace.settings.name), node('span', 'message-time', when(job.finishedAt || job.startedAt)));
@@ -465,6 +568,7 @@ function resultMessage(job, showReceipt = false) {
     receipt.append(summary, facts, node('p', 'preview-info', 'The content hash checks saved text integrity. It is not a signed proof of provider execution.'));
     card.append(receipt);
   }
+  const chatAction = chatActionCard(job, showReceipt); if (chatAction) card.append(chatAction);
   const actions = node('div', 'message-actions');
   if (job.text) actions.append(button('Copy answer', 'copy-result', 'copy', 'text-button', { id: job.id }));
   if (showReceipt) actions.append(button('Download receipt', 'download-result', 'download', 'text-button', { id: job.id }));
@@ -547,7 +651,7 @@ function renderSkills() {
   return view;
 }
 function renderMemory() {
-  const view = page('A little context goes a long way.', `Save details you want ${agentName()} to remember for future conversations. These notes stay in your private workspace.`, 'MEMORY');
+  const view = page('A little context goes a long way.', `Ask ${agentName()} to remember something in Conversation, or add a note here. These memories stay in your private workspace.`, 'MEMORY');
   const grid = node('div', 'memory-grid');
   for (const memory of S.workspace.memories) {
     const card = node('article', 'memory-card'), heading = node('div', 'section-title'); heading.append(node('h2', '', memory.title), pill('USER NOTE'));
@@ -686,7 +790,8 @@ function render() {
   for (const dialog of $$('.receipt-dialog[open]')) {
     const current = $('.message.assistant', dialog), job = S.jobs.find(item => item.id === current?.dataset.jobId);
     if (!signedIn() || !job) { dialog.close(); continue; }
-    if (current.dataset.jobStatus !== job.status || current.dataset.busy !== String(S.busy)) current.replaceWith(resultMessage(job, true));
+    if (current.dataset.jobStatus !== job.status || current.dataset.busy !== String(S.busy)
+      || current.dataset.chatActionState !== chatActionViewState(job.id)) current.replaceWith(resultMessage(job, true));
   }
   if (S.busy) $$('form input, form textarea, form select', content).forEach(element => { if (element.id !== 'composer-input') element.disabled = true; });
   if (focus && $(`#${focus}`, content)) {
@@ -798,7 +903,7 @@ async function sendTask(event) {
   S.draft = ''; notify('Sending your message…');
   await mutate(async () => {
     try {
-      const record = await api('/api/jobs', { method: 'POST', body: { objective, ...(selected ? { conversationId: selected.id } : {}) } });
+      const record = await api('/api/jobs', { method: 'POST', body: { objective, timeZone: browserTimeZone(), ...(selected ? { conversationId: selected.id } : {}) } });
       await validateRecord(record, scope);
       if (version !== S.version) throw new Error('JEFF_REQUEST_SUPERSEDED');
       if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
@@ -814,6 +919,36 @@ async function sendTask(event) {
     }
   });
   $('#chat-feed')?.scrollTo({ top: $('#chat-feed').scrollHeight });
+}
+async function resolveChatAction(jobId, intent) {
+  const action = S.workspace?.jobBindings?.[jobId]?.action;
+  if (S.busy || !action || action.status !== 'pending' || S.actionRequests.has(jobId)) return;
+  if (intent === 'apply' && action.type === 'schedule.create' && !S.actionConsent.has(jobId)) {
+    notify('Review the schedule and check consent before authorizing it.', true); return;
+  }
+  const version = S.version; let accepted = false;
+  await mutate(async () => {
+    try {
+      await api(`/api/chat/actions/${jobId}/${intent}`, { method: 'POST', body: {} });
+      accepted = true; S.actionRequests.set(jobId, 'accepted'); S.actionConsent.delete(jobId);
+    } catch (error) {
+      if (version === S.version && ['JEFF_WORKSPACE_CONFLICT', 'JEFF_CHAT_ACTION_BUSY'].includes(error.message)) {
+        S.actionRequests.set(jobId, 'uncertain'); S.actionConsent.delete(jobId);
+        const reconciled = await refresh({ quiet: true });
+        if (reconciled && version === S.version) notify(chatActionOutcome(jobId));
+        error.refreshHandled = true;
+      }
+      if (version === S.version && temporaryConnectionError(error)) {
+        S.actionRequests.set(jobId, 'uncertain'); S.actionConsent.delete(jobId);
+        notify('The action’s saved status could not be confirmed. Use Refresh to check it before trying again.', true);
+        error.refreshHandled = true;
+      }
+      throw error;
+    }
+  }, intent === 'dismiss' ? 'Suggestion dismissed.' : action.type === 'memory.save' ? 'Memory saved.' : 'Scheduled work authorized.');
+  if (version === S.version && accepted && S.actionRequests.has(jobId)) {
+    notify('Your request was accepted, but its saved status could not refresh. Use Refresh to check it; do not submit it again.', true);
+  }
 }
 function renderCommands() {
   const query = $('#command-search').value.trim().toLowerCase();
@@ -899,6 +1034,14 @@ document.addEventListener('click', async event => {
     catch (error) { put('#connect-status', friendly(error)); } return;
   }
   if (!signedIn()) return;
+  if (action === 'apply-chat-action' || action === 'dismiss-chat-action') { await resolveChatAction(element.dataset.id, action === 'apply-chat-action' ? 'apply' : 'dismiss'); return; }
+  if (action === 'check-chat-action') {
+    if (S.busy) return;
+    const version = S.version, jobId = element.dataset.id;
+    if (await refresh({ quiet: true }) && version === S.version) notify(chatActionOutcome(jobId));
+    return;
+  }
+  if (action === 'open-chat-action') { if (['memory', 'schedules'].includes(element.dataset.target)) go(element.dataset.target); return; }
   if (action === 'new-session') { if (S.busy) return; S.draft = ''; S.draftVersion++; await mutate(() => newConversation(), 'New conversation created.'); go('chat'); return; }
   if (action === 'suggestion') { S.draft = element.dataset.prompt; S.draftVersion++; render(); $('#composer-input')?.focus(); return; }
   if (action === 'reset-settings-draft') { if (S.busy) return; S.settingsDraft = null; render(); notify('Latest saved settings loaded.'); return; }
@@ -966,6 +1109,11 @@ document.addEventListener('input', event => {
   if (element.closest('#schedule-form')) S.scheduleDraft = { objective: $('#schedule-objective').value, interval: $('#schedule-interval').value, maxRuns: $('#schedule-max-runs').value, expiry: $('#schedule-expiry').value, consent: $('#schedule-consent').checked };
 });
 document.addEventListener('change', event => {
+  if (event.target.dataset.chatActionConsent) {
+    const jobId = event.target.dataset.chatActionConsent;
+    event.target.checked ? S.actionConsent.add(jobId) : S.actionConsent.delete(jobId);
+    render(); return;
+  }
   if (event.target.id === 'conversation-select') { S.conversationId = event.target.value; S.draft = ''; S.draftVersion++; render(); }
   if (event.target.closest('#settings-form') || event.target.closest('#schedule-form')) event.target.dispatchEvent(new Event('input', { bubbles: true }));
 });

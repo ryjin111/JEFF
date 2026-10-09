@@ -95,7 +95,9 @@ async function fixture(t, { actualCli = false, mode = 'complete', funds = 100000
   const terminal = async (session, id) => {
     for (let count = 0; count < 600; count++) {
       const result = await api(`/api/jobs/${id}`, { session });
-      if (result.value.status !== 'running') return result.value;
+      // completed_unsaved is also exposed while the bridge's atomic save is
+      // still in flight. Wait for a durable terminal receipt before asserting.
+      if (!['running', 'completed_unsaved'].includes(result.value.status)) return result.value;
       await delay(100);
     }
     throw new Error('Fixture exceeded its one minute job deadline');

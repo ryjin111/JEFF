@@ -1,12 +1,14 @@
 ﻿# Simple JEFF
 
-## Local release candidate — 7–9 October 2026
+## Local release candidate, 7–9 October 2026
 
 This folder contains the connected JEFF workspace release candidate: eight application views, durable conversations and memory, NFT owner-epoch privacy, bounded scheduled work, hosting controls, and optional funded inference accounting. It has not been deployed over the existing hosted pilot.
 
+The current candidate adds personal-agent requests in chat. An explicit literal request such as `Remember: my verification word is blue lantern` saves that note automatically; model-extracted notes require review. Scheduling requests produce an inline plan showing the timezone, timing, 1–24 runs and an expiry within seven days, with explicit consent before authorization. JEFF is the app; the selected NFT's configured name identifies the agent. See [personal-agent behavior](docs/RELEASE.md#personal-agent-requests-in-chat) for recovery and authorization rules. These additions still need final candidate verification and staging acceptance.
+
 Use Node 24.21.0 and `npm run preview:release` for the isolated local fixture, or follow [the release guide](docs/RELEASE.md) for configured operation, credit administration, deployment and restore behavior. Run `npm run test:release` for the release checks.
 
-An isolated [JEFF staging service](https://jeff-staging-jeff-staging.up.railway.app) now runs the release with real OpenClaw. [Staging acceptance](docs/STAGING.md) records its build, live provider and restart checks, plus the remaining holder-wallet checks.
+An isolated [JEFF staging service](https://jeff-staging-jeff-staging.up.railway.app) runs an earlier candidate with real OpenClaw. [Staging acceptance](docs/STAGING.md) records the deployed source, build, live provider and restart checks, plus the remaining holder-wallet checks. The current candidate also adds [offline recovery of saved encrypted exports](docs/BACKUP.md#offline-recovery-of-a-saved-export), including expired download windows, while preserving the execution guard.
 
 The sections below preserve the earlier hosted pilot record. Their capability and deployment statements describe that pilot; the release guide describes this candidate.
 
