@@ -36,7 +36,29 @@ export function researchRequest(input) {
 
 function pageText(body, html) {
   let text = body;
-  if (html) text = text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<(script|style|noscript|svg|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<[^>]*>/g, ' ');
+  if (html) {
+    const parts = []; let cursor = 0, hidden = null;
+    while (cursor < body.length) {
+      const opening = body.indexOf('<', cursor);
+      if (opening < 0) { if (!hidden) parts.push(body.slice(cursor)); break; }
+      if (!hidden) parts.push(body.slice(cursor, opening), ' ');
+      if (body.startsWith('<!--', opening)) {
+        const end = body.indexOf('-->', opening + 4);
+        if (end < 0) break;
+        cursor = end + 3; continue;
+      }
+      const closing = body.indexOf('>', opening + 1);
+      if (closing < 0) break;
+      const tag = /^\s*(\/?)\s*([a-z0-9]+)/i.exec(body.slice(opening + 1, Math.min(closing, opening + 256)));
+      if (tag) {
+        const name = tag[2].toLowerCase();
+        if (hidden && tag[1] && name === hidden) hidden = null;
+        else if (!hidden && !tag[1] && ['script', 'style', 'noscript', 'svg', 'template'].includes(name)) hidden = name;
+      }
+      cursor = closing + 1;
+    }
+    text = parts.join('');
+  }
   text = text.replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' })[name]);
   return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
 }

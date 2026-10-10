@@ -45,6 +45,14 @@ test('mixed/public-private DNS results fail before any connection', async () => 
   assert.equal(t.calls.length, 0);
 });
 
+test('large malformed HTML is scanned without revealing script text or executing markup', async () => {
+  const t = transport({ body: '<script>'.repeat(12000) + 'hidden content</script><p>Visible evidence</p><!-- unfinished' });
+  const page = await readPublicPage('https://example.com/', { lookup, request: t.request });
+  assert.equal(page.excerpt, 'Visible evidence');
+  const broken = transport({ body: '<'.repeat(120000) });
+  await assert.rejects(readPublicPage('https://example.com/', { lookup, request: broken.request }), /EMPTY_PAGE/);
+});
+
 test('redirects, compressed/binary bodies and oversized pages are not followed or consumed', async () => {
   for (const options of [{ statusCode: 302, headers: { location: 'http://169.254.169.254/' } }, { headers: { 'content-encoding': 'gzip' } }, { headers: { 'content-type': 'application/pdf' } }, { headers: { 'content-length': WEB_RESEARCH_LIMITS.maxBytes + 1 } }, { body: 'x'.repeat(WEB_RESEARCH_LIMITS.maxBytes + 1) }]) {
     const t = transport(options); await assert.rejects(readPublicPage('https://example.com/', { lookup, request: t.request }), /RESEARCH/); assert.equal(t.calls.length, 1);
