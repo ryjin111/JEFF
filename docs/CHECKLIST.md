@@ -24,7 +24,7 @@ Builder owns activation, integration and promotion. Destination/access inputs an
 ## Complete the broader product
 
 - [x] Since your last visit: saved/failed outcomes, result links and explicit holder-scoped review state. Implemented in staging candidate `4846aba`; five fixture browser checks and three unit checks pass. Independent UX and reviewer served-delta sign-off passed on 4846aba; both findings closed.
-- [ ] First public-web research capability: supplied-page reader implemented locally with explicit per-run consent, source-linked saved results, Stop and deliberate retry. Independent final review and staging verification pending. Search discovery is not included. See WEB-RESEARCH.md.
+- [ ] First public-web research capability: supplied-page reader implemented locally with explicit per-run consent, source-linked saved results, Stop and deliberate retry. Candidate c6a3a94 is staged with the capability OFF pending independent final review. Local real-provider/durable-reload verification and the 401-test suite pass; eight reader checks pass after a narrow parser hardening delta. Search discovery is not included. See WEB-RESEARCH.md.
 - [ ] Expand useful skills/tools and connected-app workflows after that first capability passes acceptance.
 
 External tools, connected apps, package installation and self-updates are disabled in the current release. Paid checkout/free passes/inference funding have separate activation and accounting gates. They are not enabled by production promotion or by a simulated demo.
