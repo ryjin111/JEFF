@@ -1,6 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {checkGithubConfiguration} from '../scripts/github-config-check.mjs';
 const configured={JEFF_PUBLIC_ORIGIN:'https://jeff.test',JEFF_GITHUB_APP_ID:'123',JEFF_GITHUB_CLIENT_ID:'Iv123456789',JEFF_GITHUB_CLIENT_SECRET:'private-secret-value-123456789',JEFF_GITHUB_ENCRYPTION_KEY:'ab'.repeat(32)};
+
+test('trailing-slash origin fails preflight rather than producing a runtime double-slash callback',()=>{
+ const value=checkGithubConfiguration({...configured,JEFF_PUBLIC_ORIGIN:'https://jeff.test/'});
+ assert.equal(value.configurationValid,false);assert.ok(value.invalid.includes('JEFF_PUBLIC_ORIGIN'));assert.equal(value.callbackUrl,null);
+});
 test('preflight reports missing names without claiming real acceptance',()=>{
  const value=checkGithubConfiguration({});assert.equal(value.configurationValid,false);assert.equal(value.missing.length,5);assert.equal(value.providerContacted,false);assert.equal(value.realAuthorizationVerified,false);assert.equal(value.independentKeyRetentionVerified,false);
 });

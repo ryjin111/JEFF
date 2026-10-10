@@ -8,7 +8,7 @@ export function checkGithubConfiguration(env){
   const invalid=[];let callbackUrl=null;
   if(!missing.includes('JEFF_GITHUB_ENCRYPTION_KEY')&&!/^[a-fA-F0-9]{64}$/.test(env.JEFF_GITHUB_ENCRYPTION_KEY))invalid.push('JEFF_GITHUB_ENCRYPTION_KEY');
   if(!missing.includes('JEFF_PUBLIC_ORIGIN')){
-    try{const origin=new URL(env.JEFF_PUBLIC_ORIGIN);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error();callbackUrl=origin.origin+'/api/connectors/github/callback';}
+    try{const origin=new URL(env.JEFF_PUBLIC_ORIGIN);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash||env.JEFF_PUBLIC_ORIGIN.endsWith('/'))throw Error();callbackUrl=env.JEFF_PUBLIC_ORIGIN+'/api/connectors/github/callback';}
     catch{invalid.push('JEFF_PUBLIC_ORIGIN');}
   }
   if(!missing.includes('JEFF_GITHUB_APP_ID')&&!/^[0-9]{1,16}$/.test(env.JEFF_GITHUB_APP_ID))invalid.push('JEFF_GITHUB_APP_ID');
