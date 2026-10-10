@@ -4,6 +4,8 @@ Live staging: https://jeff-staging-jeff-staging.up.railway.app . Application sou
 
 The conversation shows ongoing responsibilities and saved context above the chat. Existing schedules provide the task, next check-in, run cap, expiry and latest outcome. Saved results open through the existing private run view. The starter prepares a chat request; creating a schedule still requires the existing explicit consent.
 
+Independent deployed review passed: Resu attested the exact deployment, provider/live source pin, all 26 public files, ready health, running scheduler, strict CSP, unsigned private-route denial and disabled fixture route. Jester matched served UI bytes and checked signed-out layouts at 390px and 1440px. Direct container source hashing was not completed, so runtime attestation rests on reviewed source and the provider/live pin. Evidence: `D:\agentmanagerworks\jeff-independent-review-20261009\personal-staging-attestation.json`. Neither review used a holder session or model call.
+
 Effective live grants appear before terminal history. Ongoing work opens by default when a live grant exists. Explicit expansion choices survive refresh within the tab and reset with private workspace state. Saved context is presented separately without asserting that a particular run used every note.
 
 Manual model turns receive a bounded, owner-authorized schedule snapshot alongside existing memory and conversation history. Live grants take priority over newer terminal receipts, then the current conversation takes priority. Objectives are untrusted recalled data and cannot authorize writes. Scheduled turns receive no responsibility snapshot and cannot propose additional actions.
