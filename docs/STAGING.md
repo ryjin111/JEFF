@@ -19,7 +19,7 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. Prepaid inference accounting, paid checkout, free passes and external tools remain disabled. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
 
-Return-summary update: all 27 public files match source; health/source/CSP/private-route checks and monitor pass. Five local fixture browser checks and three filtering/storage/scope tests pass. Jester?s local UX review passed after displayed-ID binding and readability fixes; independent served-delta review remains pending. Review markers contain only job IDs, are local to this browser, and are separated by NFT/holder/ownership epoch. They are not synchronized across devices.
+Return-summary update: all 27 public files match source; health/source/CSP/private-route checks and monitor pass. Five local fixture browser checks and three filtering/storage/scope tests pass. Independent UX and reviewer served-delta review passed for the displayed-ID binding and readability fixes on 4846aba. Review markers contain only job IDs, are local to this browser, and are separated by NFT/holder/ownership epoch. They are not synchronized across devices.
 
 ## Verified
 
