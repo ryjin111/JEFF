@@ -640,13 +640,16 @@ function returnSummary() {
   const panel = node('section', 'personal-context-section return-summary');
   panel.setAttribute('aria-label', 'Since your last visit');
   panel.append(node('h2', '', 'Since your last visit'), node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
-  for (const job of outcomes.slice(0, 5)) {
+  const shown = outcomes.slice(0, 5);
+  for (const job of shown) {
     const item = node('div', 'personal-responsibility');
     item.append(node('strong', '', job.objective), pill(job.status === 'completed' ? 'Saved' : job.status === 'interrupted' ? 'Interrupted' : 'Failed', job.status === 'completed' ? 'success' : ''), button('Open result', 'open-job', 'arrow', 'text-button', { id: job.id }));
     panel.append(item);
   }
   if (outcomes.length > 5) panel.append(button('View all runs', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }));
-  panel.append(button('Mark these reviewed', 'review-outcomes', 'check', 'button button-subtle'));
+  panel.append(button('Mark these reviewed', 'review-outcomes', 'check', 'button button-subtle', {
+    ids: JSON.stringify(shown.map(job => job.id)), scope: scopeKey(S.session.scope),
+  }));
   return panel;
 }
 function renderChat() {
@@ -1086,8 +1089,9 @@ document.addEventListener('click', async event => {
   const element = event.target.closest('button'); if (!element || element.disabled) return;
   const action = element.dataset.action;
   if (action === 'review-outcomes') {
-    if (!signedIn()) return;
-    const next = new Set([...reviewedOutcomes, ...unseenOutcomes(S.jobs, reviewedOutcomes).slice(0, 5).map(job => job.id)].slice(-5000));
+    if (!signedIn() || element.dataset.scope !== scopeKey(S.session.scope)) return;
+    const shown = parseReviewed(element.dataset.ids);
+    const next = new Set([...reviewedOutcomes, ...shown].slice(-5000));
     try { localStorage.setItem(reviewedKey(S.session.scope), JSON.stringify([...next])); }
     catch { notify('Review status could not be saved in this browser. Your saved work is unchanged.', true); return; }
     reviewedOutcomes = next; render(); notify('Runs marked reviewed in this browser.'); return;
