@@ -3,17 +3,19 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 const mac = (key, value) => createHmac('sha256', key).update(value).digest();
 const encode = value => encodeURIComponent(value).replace(/[!'()*]/g, value => '%' + value.charCodeAt(0).toString(16).toUpperCase());
 
-// Path-style S3/R2 SigV4. Only encrypted objects cross this boundary.
-export function createBackupObjectStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, prefix = 'jeff' }, { fetchImpl = fetch, now = () => new Date() } = {}) {
+// S3/R2 SigV4. Only encrypted objects cross this boundary.
+export function createBackupObjectStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, prefix = 'jeff', urlStyle = 'path' }, { fetchImpl = fetch, now = () => new Date() } = {}) {
   let base;
   try { base = new URL(endpoint); } catch { throw new Error('JEFF_BACKUP_STORE_CONFIG_INVALID'); }
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/'
     || !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket || '') || !/^[a-z0-9-]{1,40}$/.test(region || '')
     || !/^[A-Za-z0-9_-]{8,128}$/.test(accessKeyId || '') || typeof secretAccessKey !== 'string' || secretAccessKey.length < 16
-    || /[\r\n]/.test(secretAccessKey) || !/^[a-zA-Z0-9/_-]{1,120}$/.test(prefix)) throw new Error('JEFF_BACKUP_STORE_CONFIG_INVALID');
+    || /[\r\n]/.test(secretAccessKey) || !/^[a-zA-Z0-9/_-]{1,120}$/.test(prefix)
+    || !['path', 'virtual-host'].includes(urlStyle) || (urlStyle === 'virtual-host' && bucket.includes('.'))) throw new Error('JEFF_BACKUP_STORE_CONFIG_INVALID');
+  if (urlStyle === 'virtual-host') base.hostname = bucket + '.' + base.hostname;
   async function request(method, key, bytes = Buffer.alloc(0)) {
     if (!/^[a-zA-Z0-9._-]{1,160}$/.test(key)) throw new Error('JEFF_BACKUP_OBJECT_INVALID');
-    const path = '/' + [bucket, ...prefix.split('/'), key].map(encode).join('/');
+    const path = '/' + [...(urlStyle === 'path' ? [bucket] : []), ...prefix.split('/'), key].map(encode).join('/');
     const at = now().toISOString().replace(/[:-]|\.\d{3}/g, ''), day = at.slice(0, 8), digest = sha(bytes);
     const headers = { host: base.host, 'x-amz-content-sha256': digest, 'x-amz-date': at };
     const signed = 'host;x-amz-content-sha256;x-amz-date';

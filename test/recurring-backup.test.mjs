@@ -95,3 +95,16 @@ test('S3 upload/readback failures and oversized or modified bodies fail closed',
   }
   assert.throws(() => createBackupObjectStore({ ...storeConfig, endpoint: 'http://objects.example' }), /CONFIG_INVALID/);
 });
+
+test('virtual-host buckets sign the bucket host and omit bucket from the object path', async () => {
+  let saved;
+  const store = createBackupObjectStore({ ...storeConfig, urlStyle: 'virtual-host' }, { fetchImpl: async (url, options) => {
+    assert.equal(url, 'https://jeff-backups.objects.example/jeff/fixture.json');
+    assert.equal(options.headers.host, 'jeff-backups.objects.example');
+    if (options.method === 'PUT') { saved = options.body; return new Response(''); }
+    return new Response(saved);
+  } });
+  assert.equal((await store.putVerified('fixture.json', Buffer.from('ciphertext'))).readbackVerified, true);
+  assert.throws(() => createBackupObjectStore({ ...storeConfig, urlStyle: 'arbitrary' }), /CONFIG_INVALID/);
+  assert.throws(() => createBackupObjectStore({ ...storeConfig, bucket: 'dotted.bucket', urlStyle: 'virtual-host' }), /CONFIG_INVALID/);
+});

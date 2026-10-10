@@ -39,7 +39,7 @@ export function createRecurringBackup({ env = process.env, maintenance, canResum
   if (!env.JEFF_RECURRING_BACKUP) return { start() {}, isCapturing() { return false; }, async stop() {}, async run() { return null; } };
   let config;
   try { config = JSON.parse(env.JEFF_RECURRING_BACKUP); } catch { throw new Error('JEFF_BACKUP_CONFIG_INVALID'); }
-  if (!config || Object.keys(config).some(key => !['publicKey', 'endpoint', 'bucket', 'region', 'prefix', 'intervalHours'].includes(key))
+  if (!config || Object.keys(config).some(key => !['publicKey', 'endpoint', 'bucket', 'region', 'prefix', 'intervalHours', 'urlStyle'].includes(key))
     || !Number.isInteger(config.intervalHours) || config.intervalHours < 1 || config.intervalHours > 24
     || !/^[a-f0-9]{40}$/.test(env.JEFF_RELEASE_SHA || '')) throw new Error('JEFF_BACKUP_CONFIG_INVALID');
   recurringRecipient(config.publicKey);
