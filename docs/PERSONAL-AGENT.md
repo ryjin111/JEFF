@@ -1,5 +1,7 @@
 # Personal-agent slice
 
+Live staging: https://jeff-staging-jeff-staging.up.railway.app . Application source `8e8574c670ba76959f2ba87a9593736b810151d1`, deployment `07cb719e-4c1c-4356-8c2f-29440f86b323`, verified 10 October 2026. All 373 unit tests, 49 general browser checks and 18 action browser checks pass. All 26 served public files match source bytes; health, source pin, CSP, unsigned private-route checks and the repinned public monitor pass. Local independent UX review passed; independent deployed attestation was requested. Production is unchanged.
+
 The conversation shows ongoing responsibilities and saved context above the chat. Existing schedules provide the task, next check-in, run cap, expiry and latest outcome. Saved results open through the existing private run view. The starter prepares a chat request; creating a schedule still requires the existing explicit consent.
 
 Effective live grants appear before terminal history. Ongoing work opens by default when a live grant exists. Explicit expansion choices survive refresh within the tab and reset with private workspace state. Saved context is presented separately without asserting that a particular run used every note.
