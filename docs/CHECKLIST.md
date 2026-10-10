@@ -13,7 +13,7 @@ Updated 10 October 2026. Production remains on the original pilot; the reviewed 
 
 ## Launch this release
 
-- [ ] Configure the actual S3/R2 backup bucket/endpoint and separate credentials; verify encrypted upload, readback and restore.
+- [x] Configure actual backup storage and separate credentials; verify encrypted upload, readback and restore. Railway staging daily backups are active on `81f22b8`; the first automatic object's isolated restore verified 86 files, 18 SQLite databases, 12 saved jobs and preserved the hosting ledger. See `evidence/operations/automatic-backup-proof.json`. Production backup scheduling still requires activation during promotion.
 - [ ] Retain recovery keys independently of the host and this workstation; verify recovery access.
 - [ ] Configure an external alert webhook and verify failure/recovery delivery.
 - [ ] Record four remaining live holder observations: action cards, Memory reload, continuation and pause/cancel. Completed login, saved-conversation reload, memory recall and schedule/run checks remain accepted.
