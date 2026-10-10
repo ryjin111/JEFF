@@ -2,6 +2,8 @@
 
 This is the prepared procedure, not a record of a production deployment. Production remains on its existing pilot. Read-only metadata was checked on 9 October 2026, at approximately **17:46 Asia/Taipei**; no production restart, variable change, volume operation or private workspace read was performed.
 
+Update, 10 October 2026: actual production checkpoint/isolated restore, encrypted provider-configuration recovery, rollback source retention, restricted dependency removal, bounded two-job staging capacity, an always-on monitor and independent exact-container review are complete. The temporary inspection key is revoked. Recurring remote backup activation, independent key retention, external alert delivery and remaining holder observations are still pending. See [current operations evidence](OPERATIONS-20261010.md) for the current status; the dated inventory below remains historical and must be refreshed before promotion.
+
 ## Existing production target
 
 | Item | Existing value |

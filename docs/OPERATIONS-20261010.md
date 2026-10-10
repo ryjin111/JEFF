@@ -4,6 +4,8 @@ The personal-agent release is being hardened on staging. Production remains on `
 
 Application candidate: `cd44f8d` on staging deployment `7a08eb36-712e-4ea3-8b96-80624546817b`. The operations suite passed 386/386 before the narrow startup/shutdown delta; 47 application/maintenance/recurring checks passed after the final correction, including held-child cancellation and durable terminal persistence.
 
+Independent source/container review passed for `cd44f8d48be8258a8a0f8050429e05ef39bac8c1`, deployed image `sha256:f7323c3958850c82b9a1719b5566d3aaf0b70c8ef645f28772671af0ef3c14ea`. Review checked the server process root, all 27 source hashes, six global manager paths, the local disabled package and seven shutdown/failure tests. The dedicated inspection SSH key was revoked after review. Sanitized proof is archived in the delivery folder as `independent-container-proof.json`.
+
 ## Completed evidence
 
 - Actual legacy production capture and isolated restore: 16 files, three SQLite databases and the saved operator result verified. Maintenance drain/capture/resume took 177 ms. Encrypted archive is restricted under `.private/backups`; sanitized proof is `evidence/production-backup-restore.json`.
@@ -27,4 +29,4 @@ The monitor accepts `JEFF_ALERT_WEBHOOK` and optional `JEFF_ALERT_BEARER` throug
 
 Supply the S3/R2 destination, separate recovery-key destination and alert webhook/contact. Neither mocked object storage nor mocked alert tests count as live activation. Documented dedicated RPC/provider quotas and broader capacity remain necessary before wider launch. Existing pilot limits stay unchanged.
 
-Holder evidence still does not record new chat-action cards, explicit Memory-page reload, a new continuation turn or pause/cancel. Login, saved-conversation reload, memory recall and schedule/run acceptance remain complete. Do not request those completed checks again. Production promotion still needs the configured recovery/alert gates, final artifact review and a fresh checkpoint immediately before the change.
+Holder evidence still does not record new chat-action cards, explicit Memory-page reload, a new continuation turn or pause/cancel. Login, saved-conversation reload, memory recall and schedule/run acceptance remain complete. Do not request those completed checks again. Production promotion still needs the configured recovery/alert gates, remaining holder observations and a fresh checkpoint immediately before the change.
