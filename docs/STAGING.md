@@ -8,18 +8,18 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `275fae7be2bce2e9bde404c059e5aee0b81d7a17` |
+| Application source | `587d4a09b63f94208075896ce2e100cfb3de355e` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `5fda4a12-6d21-4d2d-b0cc-f05311473787` |
+| Current deployment | `efb35c9c-ff3e-4e3b-a41d-0fd979cfc32f` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
-Current evidence: the reviewed GitHub implementation is deployed with GitHub unconfigured. All 28 public files and 31 container source modules matched this candidate; its temporary verification key was revoked. The recorded implementation suite passed 434 tests, with 41 focused connector checks and a signed-route fixture browser check included in independent review. A read-only public recheck on 10 October matched all 28 served files and confirmed 401 responses for unsigned workspace and connector requests. Real GitHub authorization, repository reading, saved-result reload and disconnect have not been accepted.
+Current evidence: comprehensive audit runtime `587d4a0` is deployed with GitHub disabled. All 28 public files and 31 container source modules match, private routes return 401 without a session, and the temporary verification key is revoked. Final validation revision `06d8e79` changes only the maintenance fixture and audit documentation; 469/469 tests pass. Fresh fixture browser checks pass: 51 workspace, 18 chat actions, 16 configured GitHub and 11 final design checks. Real GitHub authorization/read/reload/disconnect remains unverified. See [the audit](AUDIT-20261010.md).
 
-Daily encrypted staging backups and the separate always-on Railway monitor are active. The monitor runs source `df094c7`, deployment `db2cf73b-3d31-4480-b4f7-4f3fa13ea7c1`, and checks the application source above with a 28-hour backup freshness limit. Live health at `2026-10-10T12:49Z` reported a healthy target and no alert destination. Independent key retention, tested external alert delivery, four holder observations and production promotion remain open. The monitor, application and bucket share Railway. See [current operations](OPERATIONS-20261010.md) and [release checklist](CHECKLIST.md).
+Daily encrypted backups and the separate Railway monitor remain active. Monitor runtime source `587d4a09b63f94208075896ce2e100cfb3de355e`, deployment `f4d49a65-4e48-460c-b609-a249dd101ee3`, is pinned to the application above with a 28-hour backup freshness limit. Verification at `2026-10-10T13:21:56.121Z` reports a healthy target and no configured alert destination. Independent key retention, tested external alerts, four holder observations and production promotion remain open. The monitor, application and bucket share Railway. See [current operations](OPERATIONS-20261010.md) and [release checklist](CHECKLIST.md).
 
 Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. On staging, prepaid inference accounting, paid checkout, free passes and general execution tools remain disabled. The supplied HTML/JSON reader is enabled; GitHub remains unconfigured. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
 
