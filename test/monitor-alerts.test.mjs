@@ -27,3 +27,18 @@ test('outage alerts retry until accepted, deduplicate success and deliver recove
   state = await deliverMonitorTransition(state, { alertActive: false }, observation, alerts); assert.equal(state.deliveredAlert, 'recovery');
   await deliverMonitorTransition(state, { alertActive: false }, observation, alerts); assert.equal(calls, 3);
 });
+test('synthetic alerts do not claim observed application health', async () => {
+  const messages = [];
+  const alerts = createMonitorAlerts({ url: 'https://alerts.example/test', fetchImpl: async (url, options) => {
+    messages.push(JSON.parse(options.body)); return new Response(null, { status: 204 });
+  } });
+  for (const event of ['test-failure', 'test-recovery', 'recovery']) {
+    await alerts.send({ event, origin: 'https://jeff.example', observedAt: '2026-10-10T12:00:00Z' });
+  }
+  for (const message of messages.slice(0, 2)) {
+    assert.match(message.text, /Synthetic delivery test; no application health change implied\./);
+    assert.doesNotMatch(message.text, /Checks healthy/);
+    assert.equal(message.content, message.text);
+  }
+  assert.match(messages[2].text, /Checks healthy\./);
+});

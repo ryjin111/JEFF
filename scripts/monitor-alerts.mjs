@@ -6,7 +6,9 @@ export function createMonitorAlerts({ url, bearer, fetchImpl = fetch } = {}) {
     || bearer && (typeof bearer !== 'string' || /[\r\n]/.test(bearer))) throw new Error('JEFF_ALERT_CONFIG_INVALID');
   return { configured: true, async send({ event, origin, failedChecks = [], observedAt }) {
     if (!['failure', 'recovery', 'test-failure', 'test-recovery'].includes(event)) throw new Error('JEFF_ALERT_EVENT_INVALID');
-    const text = `JEFF ${event}: ${origin} at ${observedAt}. ${failedChecks.length ? 'Failed checks: ' + failedChecks.join(', ') : 'Checks healthy.'}`;
+    const detail = event.startsWith('test-') ? 'Synthetic delivery test; no application health change implied.'
+      : failedChecks.length ? 'Failed checks: ' + failedChecks.join(', ') : 'Checks healthy.';
+    const text = `JEFF ${event}: ${origin} at ${observedAt}. ${detail}`;
     const response = await fetchImpl(destination.href, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
       headers: { 'content-type': 'application/json', ...(bearer ? { authorization: 'Bearer ' + bearer } : {}) },
       body: JSON.stringify({ text, content: text }) });
