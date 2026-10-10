@@ -1,6 +1,7 @@
 ﻿import { createJeffApplication } from './application.mjs';
 
 import { createRecurringBackup } from './recurring-backup.mjs';
+if (process.env.JEFF_HOSTED_HARDENING === 'true') await import('./runtime-hardening.mjs');
 const { prepareStartupBackup } = await import('./startup-backup.mjs');
 let backupExport;
 try { backupExport = await prepareStartupBackup(); }
@@ -24,8 +25,9 @@ recurringBackup.start();
 const shutdown = () => {
   if (closing) return;
   closing = true;
+  const drained = app.maintenance.pause();
   backupExport?.dispose();
-  recurringBackup.stop().then(() => app.close()).then(() => process.exit(0)).catch(() => process.exit(1));
+  Promise.all([drained, recurringBackup.stop()]).then(() => app.close()).then(() => process.exit(0)).catch(() => process.exit(1));
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

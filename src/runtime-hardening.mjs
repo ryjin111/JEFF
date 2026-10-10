@@ -1,8 +1,8 @@
 import { rm, readdir, lstat, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-// Build-time only. Fixed paths in the disposable Linux image, never the host.
-if (process.platform !== 'linux' || process.env.JEFF_IMAGE_BUILD !== 'true') throw new Error('IMAGE_BUILD_ONLY');
+// Fixed paths in the hosted Linux container, never the workstation.
+if (process.platform !== 'linux' || !['true'].includes(process.env.JEFF_IMAGE_BUILD || process.env.JEFF_HOSTED_HARDENING)) throw new Error('HOSTED_CONTAINER_ONLY');
 for (const name of ['npm', 'corepack']) await rm(`/usr/local/lib/node_modules/${name}`, { recursive: true, force: true });
 for (const name of ['npm', 'npx', 'corepack', 'yarn', 'yarnpkg', 'pnpm', 'pnpx']) await rm(`/usr/local/bin/${name}`, { force: true });
 for (const name of await readdir('/opt')) if (/^yarn-v\d/.test(name)) await rm(resolve('/opt', name), { recursive: true, force: true });
