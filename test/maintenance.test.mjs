@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createJeffOpenClawAccountBridge } from 'jeff-agent-nft/openclaw';
 import { createDurableJobReader, createMaintenanceGate, waitForDurableJob, resolveMaintenanceMarkerPath } from '../src/maintenance.mjs';
+import { createJobRecordPersister } from '../src/job-records.mjs';
 
 const scope = { kind: 'account', chainId: 4663, owner: '0x' + '11'.repeat(20) };
 const id = 'maintenance-job';
@@ -255,19 +256,17 @@ test('disk polling waits for real bridge atomic terminal persistence without add
   const run = deferred(), allowSave = deferred(), terminalSave = deferred(), pollDuringSave = deferred();
   t.after(() => { run.resolve({ text: 'Disk tracked output' }); allowSave.resolve(); });
   let authorizations = 0, savingTerminal = false;
+  const saveRecord=createJobRecordPersister();
   const bridge = createJeffOpenClawAccountBridge({ dataRoot,
     resolveAccount: async () => { authorizations++; return true; },
     runAgent: () => run.promise,
     async persistRecord(directory, record) {
-      await mkdir(directory, { recursive: true });
-      const file = resolve(directory, `${record.id}.json`);
       if (record.status === 'completed') {
         savingTerminal = true;
         terminalSave.resolve();
         await allowSave.promise;
       }
-      await writeFile(`${file}.tmp`, JSON.stringify(record));
-      await rename(`${file}.tmp`, file);
+      await saveRecord(directory,record);
     } });
   const finishRequest = gate.beginRequest();
   const started = await bridge.start(scope, 'Produce disk tracked output');
@@ -276,7 +275,7 @@ test('disk polling waits for real bridge atomic terminal persistence without add
     const record = await readRecord();
     if (savingTerminal && record.status === 'running') pollDuringSave.resolve();
     return record;
-    }, pollMs: 1, timeoutMs: 5000 });
+    }, timeoutMs: 5000 });
   track(gate, durable, 'disk tracked completion');
   finishRequest();
   const paused = gate.pause();
