@@ -119,7 +119,19 @@ export async function createJeffApplication(options = {}) {
       const inferenceGateway = gateway?.issue({ jobId: args.jobId, scope: args.scope, model: context.settings.model.slice(6),
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
       const manual = binding.source === 'manual';
+      const liveResponsibility = item => item.status === 'active' && Date.parse(item.expiresAt) > Date.now() && item.runs.length < item.maxRuns;
+      const responsibilities = manual ? (await scheduler.list(args.scope))
+        .sort((a, b) => Number(liveResponsibility(b)) - Number(liveResponsibility(a))
+          || Number(b.conversationId === binding.conversationId) - Number(a.conversationId === binding.conversationId))
+        .slice(0, 16).map(item => ({
+        objective: item.objective, status: item.status, nextRunAt: item.status === 'active' && !context.settings.paused
+          && Date.parse(item.expiresAt) > Date.now() && item.runs.length < item.maxRuns
+          && item.runs.at(-1)?.status !== 'claimed' ? item.nextRunAt : null,
+        expiresAt: item.expiresAt, maxRuns: item.maxRuns, runsUsed: item.runs.length,
+        lastRun: item.runs.length ? { status: item.runs.at(-1).status, finishedAt: item.runs.at(-1).finishedAt } : null,
+      })) : [];
       const result = await runner({ ...args, signal: controller.signal, executionContext: { ...context, history,
+        responsibilities,
         chatActions: { enabled: manual, now: new Date().toISOString(), timeZone: binding.timeZone } }, inferenceGateway });
       if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
       requireExecution();

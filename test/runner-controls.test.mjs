@@ -7,6 +7,22 @@ import { resolve } from 'node:path';
 import { createOpenClawRunner } from '../src/openclaw-runner.mjs';
 
 const scope = { chainId: 4663, collection: '0x' + '11'.repeat(20), tokenId: '35', owner: '0x' + '22'.repeat(20), ownerEpoch: 4 };
+test('responsibility context is bounded data and excludes private schedule fields', async t => {
+  const f = await fixture(t);
+  await createOpenClawRunner(f.factory)({ ...f.input, executionContext: { responsibilities: [{
+    objective: 'Draft my project update', status: 'active', nextRunAt: '2026-10-11T08:00:00.000Z',
+    maxRuns: 3, runsUsed: 1, scope: { owner: 'private-owner-field' },
+    lastRun: { status: 'completed', finishedAt: '2026-10-10T08:00:00.000Z', text: 'unprovided-result-secret' },
+  }] } });
+  const args = f.spawned[0].args, message = args[args.indexOf('--message') + 1];
+  assert.match(message, /untrusted recalled data/);
+  assert.match(message, /Draft my project update/);
+  assert.match(message, /2026-10-11T08:00:00.000Z/);
+  assert.equal(message.includes('private-owner-field'), false);
+  assert.equal(message.includes('unprovided-result-secret'), false);
+  const policy = await readFile(resolve(f.input.workspace, 'AGENTS.md'), 'utf8');
+  assert.match(policy, /Never create duplicate schedules/);
+});
 async function fixture(t, behavior = child => { child.stdout.emit('data', Buffer.from(JSON.stringify({ payloads: [{ text: 'Test result' }] }))); child.emit('close', 0); }) {
   const stateRoot = await mkdtemp(resolve(tmpdir(), 'jeff-runner-'));
   t.after(() => rm(stateRoot, { recursive: true, force: true }));

@@ -169,6 +169,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.conversationId = null; S.draft = ''; S.draftVersion++; S.submission = null; S.admitted = null; S.memoryDraft = { title: '', text: '' }; S.settingsDraft = null; S.scheduleDraft = null;
   S.invoice = null; S.decimals = null; S.paymentHash = ''; S.paymentSubmitted = false; S.busy = false; S.authBusy = false; S.runNotice = null;
   S.actionConsent.clear(); S.actionRequests.clear();
+  personalPanels.clear();
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
   saveSession();
@@ -446,7 +447,7 @@ function renderShell() {
   put('#runtime-copy', !S.config ? 'Connecting to JEFF…' : S.config.fixture ? 'Explicit test runtime. Responses and funding are fixtures, not live AI or payments.' : !S.config.modelConfigured ? 'JEFF’s model connection is unavailable. Sign in to reopen saved work.' : S.config.continuousHosting ? 'Hosted by Simple JEFF. Your Agent NFT’s private workspace.' : 'Your local JEFF workspace for Agent NFTs.');
   $('#runtime-banner').classList.toggle('fixture-banner', S.config?.fixture === true);
   const pause = $('#pause-agent'); pause.disabled = !signedIn() || S.busy;
-  $('span', pause).textContent = settings?.paused ? 'Resume future runs' : 'Pause future runs';
+  $('span', pause).textContent = settings?.paused ? 'Resume all future runs' : 'Pause all future runs';
   $('use', pause).setAttribute('href', settings?.paused ? '#i-play' : '#i-pause');
   const quota = S.hosting?.usage;
   put('#context-credit-heading', prepaid() ? 'Inference credits' : 'Task allowance');
@@ -575,6 +576,55 @@ function resultMessage(job, showReceipt = false) {
   if (actions.childElementCount) card.append(actions);
   body.append(card); message.append(avatar, body); return message;
 }
+const personalPanels = new Map();
+function personalContext(selected) {
+  const panel = node('aside', 'personal-context');
+  panel.setAttribute('aria-label', 'Agent responsibilities and saved preferences');
+  const work = node('details', 'personal-context-section');
+  const workHeading = node('summary', '', 'What I’m working on'); work.append(workHeading);
+  const live = item => item.status === 'active' && Date.parse(item.expiresAt) > Date.now() && item.runs.length < item.maxRuns;
+  const schedules = S.schedules.filter(item => selected && item.conversationId === selected.id)
+    .sort((a, b) => Number(live(b)) - Number(live(a)));
+  const key = selected?.id || 'new';
+  const choices = personalPanels.get(key) || {};
+  work.open = choices.work ?? schedules.some(live);
+  workHeading.addEventListener('click', () => { personalPanels.set(key, { ...personalPanels.get(key), work: !work.open }); });
+  for (const schedule of schedules.slice(0, 3)) {
+    const card = node('div', 'personal-responsibility');
+    const expired = Date.parse(schedule.expiresAt) <= Date.now();
+    const active = schedule.status === 'active' && !expired && schedule.runs.length < schedule.maxRuns;
+    const paused = active && S.workspace.settings.paused;
+    const latest = schedule.runs.at(-1), job = latest && S.jobs.find(item => item.id === latest.jobId);
+    card.append(node('strong', '', schedule.objective), node('p', 'preview-info',
+      paused ? 'Future runs paused' : active && latest?.status === 'claimed' ? 'Current run admitted. Next check-in follows completion.'
+        : active ? `Next check-in: ${when(schedule.nextRunAt)} (${browserTimeZone()})`
+        : expired && schedule.status === 'active' ? 'Expired' : schedule.status === 'active' ? 'Run limit reached' : schedule.status));
+    card.append(node('p', 'preview-info', `${schedule.runs.length}/${schedule.maxRuns} runs used · Ends ${when(schedule.expiresAt)} · Saved in this workspace`));
+    if (latest) {
+      const saved = job?.status === 'completed' && typeof job.text === 'string';
+      const outcome = saved ? 'Saved' : job?.status ? job.status.replaceAll('_', ' ') : latest.status === 'claimed' ? 'Working' : latest.status;
+      card.append(node('p', 'preview-info', `Latest run: ${outcome}`));
+      if (saved) card.append(button('Open saved result', 'open-job', 'arrow', 'text-button', { id: job.id }));
+      if (latest.error || ['failed', 'interrupted'].includes(latest.status)) card.append(node('p', 'preview-info', 'This run was not automatically replayed.'));
+    }
+    work.append(card);
+  }
+  if (!schedules.length) {
+    work.append(node('p', 'preview-info', 'Give me something to follow through on.'));
+    work.append(button('Prepare a check-in', 'suggestion', 'clock', 'text-button', {
+      prompt: 'Every 60 minutes, review the notes in this conversation and save a short next-step summary. Stop after 3 runs.',
+    }));
+  }
+  work.append(button('Manage scheduled work', 'open-chat-action', 'clock', 'text-button', { target: 'schedules' }));
+  const memory = node('details', 'personal-context-section');
+  const memoryHeading = node('summary', '', 'Saved context I remember'); memory.append(memoryHeading);
+  memory.open = choices.memory ?? false;
+  memoryHeading.addEventListener('click', () => { personalPanels.set(key, { ...personalPanels.get(key), memory: !memory.open }); });
+  for (const note of S.workspace.memories.slice(0, 3)) memory.append(node('p', 'preview-info', `${note.title}: ${note.text}`));
+  if (!S.workspace.memories.length) memory.append(node('p', 'preview-info', 'No saved context yet. Ask me to remember a preference.'));
+  memory.append(button('Open Memory', 'open-chat-action', 'book', 'text-button', { target: 'memory' }));
+  panel.append(work, memory); return panel;
+}
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
   if (!signedIn()) { view.append(empty(S.session ? 'Opening your workspace…' : 'A home for your Agent NFT.', S.session ? 'Checking ownership and loading saved work.' : 'Give your agent useful work. Keep conversations and memories together, and return to the results whenever you need them.', S.session ? null : ['Connect an Agent NFT', 'connect'])); return view; }
@@ -588,6 +638,7 @@ function renderChat() {
   toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
   if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
   view.append(toolbar);
+  view.append(personalContext(selected));
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
   const submitting = S.submission?.conversationId === S.conversationId ? S.submission : null;

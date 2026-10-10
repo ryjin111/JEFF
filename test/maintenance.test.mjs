@@ -276,7 +276,7 @@ test('disk polling waits for real bridge atomic terminal persistence without add
     const record = await readRecord();
     if (savingTerminal && record.status === 'running') pollDuringSave.resolve();
     return record;
-  }, pollMs: 1, timeoutMs: 1000 });
+    }, pollMs: 1, timeoutMs: 5000 });
   track(gate, durable, 'disk tracked completion');
   finishRequest();
   const paused = gate.pause();

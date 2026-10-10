@@ -1,0 +1,11 @@
+# Personal-agent slice
+
+The conversation shows ongoing responsibilities and saved context above the chat. Existing schedules provide the task, next check-in, run cap, expiry and latest outcome. Saved results open through the existing private run view. The starter prepares a chat request; creating a schedule still requires the existing explicit consent.
+
+Effective live grants appear before terminal history. Ongoing work opens by default when a live grant exists. Explicit expansion choices survive refresh within the tab and reset with private workspace state. Saved context is presented separately without asserting that a particular run used every note.
+
+Manual model turns receive a bounded, owner-authorized schedule snapshot alongside existing memory and conversation history. Live grants take priority over newer terminal receipts, then the current conversation takes priority. Objectives are untrusted recalled data and cannot authorize writes. Scheduled turns receive no responsibility snapshot and cannot propose additional actions.
+
+Paused, expired, exhausted and terminal grants do not promise an imminent check-in. An admitted occurrence suppresses the old next-run timestamp until completion. No automatic renewal, extra model runs, connected-app access or notifications are added. Existing limits remain at most 24 runs and seven days, followed by fresh consent.
+
+Verification includes signed restart and owner-isolation tests, a live grant followed by 17 newer cancelled grants, runtime context field filtering, browser refresh retention and a 390px layout check. The independent UI review used disposable fixtures only. Product references informing the scope: [Muse](https://introducing.muse.ai/) and [dots](https://openai.com/index/introducing-dots/). The user's “Bot” reference remains ambiguous.

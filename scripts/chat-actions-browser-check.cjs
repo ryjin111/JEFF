@@ -163,6 +163,23 @@ async function geometry(page) {
     await page.locator('.schedule-card').filter({ hasText: 'Prepare a brief project update.' }).waitFor();
     await nav(page, 'chat');
     check('Explicit schedule authorization creates exactly one immutable schedule and opens Scheduled work without losing draft');
+    let responsibility = page.locator('.personal-context-section').first();
+    assert.equal(await responsibility.evaluate(el => el.open), true);
+    assert.match(await responsibility.textContent(), /Next check-in:.*Asia\/Taipei/);
+    assert.match(await responsibility.textContent(), /0\/2 runs used/);
+    assert.equal(await responsibility.locator('img').count(), 0);
+    await responsibility.locator('summary').click();
+    await refresh(page);
+    responsibility = page.locator('.personal-context-section').first();
+    assert.equal(await responsibility.evaluate(el => el.open), false);
+    await responsibility.locator('summary').click();
+    await refresh(page);
+    assert.equal(await page.locator('.personal-context-section').first().evaluate(el => el.open), true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await geometry(page);
+    await page.screenshot({ path: path.join(output, 'personal-context-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    check('Responsibility shows safe task text, local next check-in and run cap; explicit expansion survives refresh and fits mobile');
 
     const dismissed = await send(page, 'Fixture action: one-off draft');
     assert.match(await dismissed.card.textContent(), /One run/);

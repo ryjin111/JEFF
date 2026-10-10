@@ -64,3 +64,12 @@ html[data-theme=dark] .skill-icon,html[data-theme=dark] .chart-bar{border-color:
 .message-markdown .align-center { text-align:center; }
 .message-markdown .align-right { text-align:right; }
 .message-markdown .markdown-plain { white-space:pre-wrap; }
+.personal-context { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 16px; }
+.personal-context-section { min-width:0; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:var(--surface-soft); }
+.personal-context-section summary { cursor:pointer; font-size:13px; font-weight:650; line-height:1.6; }
+.personal-context-section .preview-info { font-size:13px; line-height:1.6; overflow-wrap:anywhere; white-space:pre-wrap; }
+.personal-responsibility { padding:12px 0; border-bottom:1px solid var(--line); }
+.personal-responsibility strong { display:block; font-size:14px; overflow-wrap:anywhere; }
+.personal-context .text-button { min-height:36px; font-size:13px; }
+.personal-context .preview-info,.personal-context .text-button { color:var(--subtle); }
+@media(max-width:600px) { .personal-context { grid-template-columns:1fr; gap:8px; } }

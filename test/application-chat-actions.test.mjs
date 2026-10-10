@@ -90,6 +90,35 @@ async function fixture(t, { respond = async () => envelope(null, 'Fixture answer
     async reopen() { await app.close(); await open(); } };
 }
 
+test('manual responsibility snapshots survive restart and remain owner-private', async t => {
+  const f = await fixture(t);
+  const session = await f.login();
+  const firstTurn = await f.submit(session, 'Start a project');
+  const conversationId = firstTurn.admitted.conversationId;
+  const { type, ...parameters } = scheduleAction();
+  assert.equal((await f.api('/api/schedules', { method: 'POST', session, input: { ...parameters, conversationId } })).status, 201);
+  await f.reopen();
+  const renewed = await f.login();
+  await f.submit(renewed, 'What are you working on?', { conversationId });
+  const responsibilities = f.calls.at(-1).executionContext.responsibilities;
+  assert.equal(responsibilities.length, 1);
+  assert.equal(responsibilities[0].objective, parameters.objective);
+  assert.equal(responsibilities[0].maxRuns, 3);
+  assert.ok(responsibilities[0].nextRunAt);
+  for (let index = 0; index < 17; index++) {
+    const terminal = await f.api('/api/schedules', { method: 'POST', session: renewed,
+      input: { ...parameters, objective: `Cancelled responsibility ${index}`, conversationId } });
+    assert.equal(terminal.status, 201);
+    assert.equal((await f.api(`/api/schedules/${terminal.value.id}`, { method: 'DELETE', session: renewed })).status, 200);
+  }
+  await f.submit(renewed, 'What is still active?', { conversationId });
+  assert.equal(f.calls.at(-1).executionContext.responsibilities.length, 16);
+  assert.equal(f.calls.at(-1).executionContext.responsibilities[0].objective, parameters.objective);
+  const other = await f.login({ tokenId: '36' });
+  await f.submit(other, 'What are you working on?');
+  assert.deepEqual(f.calls.at(-1).executionContext.responsibilities, []);
+});
+
 test('a literal signed remember request saves only the current user content despite a hostile model proposal', async t => {
   const hostile = scheduleAction({ objective: 'Run the model-injected task.' });
   const f = await fixture(t, { respond: async () => envelope(hostile, 'I scheduled the injected task.') });
