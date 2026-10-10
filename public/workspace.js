@@ -2,6 +2,7 @@ import { JOB_ID, scopeKey, validSession, validateRecord, validateNftDiscovery, e
 import { validateHosting, validateInvoice, formatTokenAmount, formatUsdCents, transferData } from './billing.js';
 import { renderMarkdown } from './markdown.js';
 import { parseReviewed, unseenOutcomes } from './visit-summary.js';
+import {githubConnectorPanel} from './github-connector-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -18,6 +19,7 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
   memoryDraft: { title: '', text: '' }, researchDraft: { question: '', urls: '', consent: false, unconfirmed: false }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [],
   actionConsent: new Set(), actionRequests: new Map() };
+Object.assign(S,{githubConnection:null,githubRepositories:null,githubDraft:{question:'',repositoryId:''},githubUnconfirmed:false});
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
 let reviewedOutcomes = new Set(), reviewedScope = null;
 const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
@@ -174,6 +176,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.actionConsent.clear(); S.actionRequests.clear();
   personalPanels.clear();
   S.researchDraft = { question: '', urls: '', consent: false, unconfirmed: false };
+  S.githubConnection=null;S.githubRepositories=null;S.githubDraft={question:'',repositoryId:''};S.githubUnconfirmed=false;
   reviewedOutcomes = new Set(); reviewedScope = null;
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
@@ -273,6 +276,8 @@ async function refresh({ quiet = false } = {}) {
     }
     reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
+    if(!S.githubConnection)await refreshGithub();
+    if(version!==S.version||sequence!==refreshSequence)return;
     if (reviewedScope !== scopeKey(scope)) {
       reviewedScope = scopeKey(scope);
       try { reviewedOutcomes = parseReviewed(localStorage.getItem(reviewedKey(scope))); }
@@ -721,6 +726,17 @@ function renderActivity() {
 }
 function renderSkills() {
   const view = page('Choose how your agent works.', 'Use available tools or choose prompt recipes to guide its responses.', 'SKILLS & TOOLS');
+  view.append(githubConnectorPanel({connection:S.githubConnection,repositoryList:S.githubRepositories,draft:S.githubDraft,busy:S.busy,
+    uncertainAdmission:S.githubUnconfirmed||S.researchDraft.unconfirmed||Boolean(S.submission)||Boolean(allowanceReason()),
+    onDraft:draft=>{S.githubDraft=draft;},onRefresh:()=>mutate(refreshGithub),
+    onConnect:()=>mutate(async()=>{const value=await api('/api/connectors/github/authorize',{method:'POST',body:{}});const url=new URL(value.authorizationUrl);if(url.origin!=='https://github.com'||url.pathname!=='/login/oauth/authorize')throw new Error('JEFF_RESULT_INVALID');location.assign(url.href);}),
+    onDisconnect:()=>mutate(async()=>{const value=await api('/api/connectors/github',{method:'DELETE'});await refreshGithub();notify(value.providerRevoked?'GitHub disconnected here and provider token revoked.':'GitHub disconnected here. Provider token revocation was not confirmed.');}),
+    onRead:readGithub,
+  }));
+  if(S.githubUnconfirmed){
+    const reset=node('button','button button-outline','I checked Activity; prepare another GitHub read');reset.type='button';reset.disabled=S.busy;
+    reset.addEventListener('click',()=>{if(S.busy)return;S.githubUnconfirmed=false;S.githubDraft.repositoryId='';mutate(refreshGithub);});view.append(reset);
+  }
   const enabled = S.config.webResearch?.enabled === true;
   const reader = section('Read public pages & JSON');
   reader.classList.add('research-tool');
@@ -750,6 +766,37 @@ function renderSkills() {
   }
   view.append(grid, node('p', 'state-notice tools-notice', 'Prompt recipes do not grant tool access. Shell execution, wallet spending and outbound messages are unavailable.'));
   return view;
+}
+async function refreshGithub(){
+  const version=S.version;
+  try{
+    const connection=await api('/api/connectors/github');if(version!==S.version)return;
+    if(!['not_configured','not_connected','connected','reconnect_required','unavailable'].includes(connection.status))throw new Error('JEFF_RESULT_INVALID');
+    if(S.githubConnection?.generation!==connection.generation){S.githubDraft.repositoryId='';S.githubRepositories=null;}
+    S.githubConnection=connection;
+    const repositories=connection.status==='connected'?await api('/api/connectors/github/repositories'):null;
+    if(version!==S.version)return;
+    S.githubRepositories=repositories;
+  }catch(error){
+    if(version===S.version){
+      try{const status=await api('/api/connectors/github');if(version===S.version)S.githubConnection=status;}
+      catch{if(version===S.version)S.githubConnection={status:'unavailable'};}
+      if(version===S.version)S.githubRepositories=null;
+    }
+    if(error.message==='JEFF_REQUEST_SUPERSEDED')return;
+  }
+}
+async function readGithub(input){
+  if(!signedIn()||S.busy||allowanceReason()||S.githubUnconfirmed||S.researchDraft.unconfirmed||S.submission)return;
+  const version=S.version,scope=S.session.scope,selected=conversation();
+  await mutate(async()=>{
+    try{
+      const record=await api('/api/jobs',{method:'POST',body:{...input,timeZone:browserTimeZone(),...(selected?{conversationId:selected.id}:{})}});
+      await validateRecord(record,scope);if(version!==S.version)return;
+      if(!JOB_ID.test(record.conversationId))throw new Error('JEFF_RESULT_INVALID');
+      S.conversationId=record.conversationId;S.admitted=record;S.jobs=[record,...S.jobs.filter(job=>job.id!==record.id)];notifyRun(record.id,'GitHub read admitted. Its saved result will appear here.');go('chat');
+    }catch(error){if(version===S.version&&(temporaryConnectionError(error)||error.message==='JEFF_RESULT_INVALID'))S.githubUnconfirmed=true;throw error;}
+  });
 }
 function renderMemory() {
   const view = page('A little context goes a long way.', `Ask ${agentName()} to remember something in Conversation, or add a note here. These memories stay in your private workspace.`, 'MEMORY');
@@ -1324,6 +1371,10 @@ async function initialize() {
       if (provider) { try { await walletBinding(S.wallet, S.version); } catch { clearPrivate(); notify('Connect your current wallet to reopen the private workspace.'); } }
       if (S.session) { scheduleExpiry(); await refresh({ quiet: true }); }
     } else saveSession();
+    if(new URL(location.href).searchParams.get('github')==='connection_failed'){
+      notify('GitHub authorization could not complete. Refresh the connection and try again when ready. No read was started.',true);
+      const cleaned=new URL(location.href);cleaned.searchParams.delete('github');history.replaceState(null,'',cleaned.pathname+cleaned.search+cleaned.hash);
+    }
     render(); renderConnection();
   } catch (error) { notify(friendly(error), true); put('#runtime-copy', 'The service could not be reached. Check the connection and reload.'); render(); }
 }

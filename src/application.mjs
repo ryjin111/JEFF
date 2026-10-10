@@ -20,6 +20,9 @@ import { scopeId } from './scope.mjs';
 import { chatTimeZone, decodeChatResponse, directMemoryRequest, validateScheduleProposal } from './chat-actions.mjs';
 import { createJobRecordPersister } from './job-records.mjs';
 import { researchRequest, readResearchPages, researchAnswer, WEB_RESEARCH_LIMITS } from './web-research.mjs';
+import {createGithubConnectionStore} from './github-connection-store.mjs';
+import {createGithubProvider} from './github-provider.mjs';
+import {createGithubConnector,githubJobRequest,githubClearCookie} from './github-connector.mjs';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const strict = (input, fields) => {
@@ -94,6 +97,15 @@ export async function createJeffApplication(options = {}) {
     if (restoreBlocked()) throw new Error('JEFF_RESTORE_GUARDED');
   };
   const pending = new Map(), controllers = new Map(), admission = new Map();
+  const githubJobs=new Map();
+  const githubConfigured=env.JEFF_GITHUB_ENABLED==='true';
+  if(githubConfigured&&!/^[a-fA-F0-9]{64}$/.test(env.JEFF_GITHUB_ENCRYPTION_KEY||''))throw new Error('JEFF_GITHUB_CONFIG_INVALID');
+  const github=createGithubConnector({
+    store:githubConfigured?createGithubConnectionStore({dataRoot,key:Buffer.from(env.JEFF_GITHUB_ENCRYPTION_KEY,'hex')}):null,
+    provider:githubConfigured?(options.githubProvider||createGithubProvider({clientId:env.JEFF_GITHUB_CLIENT_ID,clientSecret:env.JEFF_GITHUB_CLIENT_SECRET,appId:env.JEFF_GITHUB_APP_ID,callbackUrl:origin+'/api/connectors/github/callback'})):null,
+    authenticate:session=>(accountSessions.has(session)?accountSessions:sessions).authenticate(session),authorizeScope,requireExecution,
+    cancel:scope=>{for(const[id,value]of controllers)if(value.scope===scopeId(scope)&&githubJobs.has(id))value.controller.abort();},
+  });
   let bridge, accountBridge;
   const activeBridge = scope => scope.kind === 'account' ? accountBridge : bridge;
   const runAgent = async args => {
@@ -122,6 +134,11 @@ export async function createJeffApplication(options = {}) {
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
       const manual = binding.source === 'manual';
       let research;
+      if(binding.github){
+        if(!manual)throw new Error('JEFF_GITHUB_SCHEDULE_DENIED');
+        const source=await github.read(args.scope,binding.github,{session:binding.session,signal:controller.signal});
+        research={sources:[source],failures:[],coverage:'Latest published GitHub release from one provider-confirmed repository only; bounded JSON excerpt, without following links or API pagination.'};
+      }
       if (binding.research) {
         if (!manual || !researchEnabled) throw new Error('JEFF_RESEARCH_DENIED');
         await authorizeScope(args.scope);
@@ -147,6 +164,7 @@ export async function createJeffApplication(options = {}) {
       if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
       requireExecution();
       if (research) {
+        if(binding.github)await github.assert(args.scope,binding.github.generation,binding.session);
         await authorizeScope(args.scope);
         if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
         return { ...result, text: researchAnswer(result.text, research) };
@@ -170,13 +188,32 @@ export async function createJeffApplication(options = {}) {
         : 'Here’s the schedule I’ve prepared. Review its timing and run limit below, then authorize it to start.' };
     } finally { gateway?.revoke(args.jobId); controllers.delete(args.jobId); }
   };
-  const persistRecord = createJobRecordPersister();
+  const saveRecord = createJobRecordPersister();
+  const persistRecord=async(directory,record)=>{
+    if(record.status==='running'){
+      const binding=pending.get(scopeId(record.scope));
+      if(binding?.github)githubJobs.set(record.id,{scope:record.scope,generation:binding.github.generation,session:binding.session});
+    }
+    const grant=githubJobs.get(record.id);
+    if(grant&&record.status==='completed'){
+      await github.assert(grant.scope,grant.generation,grant.session);
+      await github.commit(grant.scope,grant.generation,()=>saveRecord(directory,record),grant.session);
+      githubJobs.delete(record.id);return;
+    }
+    await saveRecord(directory,record);
+    if(record.status==='failed')githubJobs.delete(record.id);
+  };
   bridge = createJeffOpenClawNftBridge({ dataRoot, resolveOwner, runAgent, persistRecord });
   accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent, persistRecord });
 
-  async function submit(scope, input) {
+  async function submit(scope, input, session) {
     requireExecution();
-    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research']);
+    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research','github']);
+    let githubInput;
+    if(Object.hasOwn(input,'github')){
+      if(input.source==='schedule'||Object.hasOwn(input,'research'))throw new Error('JEFF_GITHUB_REQUEST_DENIED');
+      githubInput=githubJobRequest(input.github);await github.assert(scope,githubInput.generation,session);
+    }
     let research;
     if (Object.hasOwn(input, 'research')) {
       if (!researchEnabled || input.source === 'schedule') throw new Error('JEFF_RESEARCH_DENIED');
@@ -204,9 +241,11 @@ export async function createJeffApplication(options = {}) {
       await hosting.requireActive(scope);
       requireExecution();
       if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
-      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone, research });
-      const record = await hosting.startJob(scope, () => {
+      if(githubInput)await github.assert(scope,githubInput.generation,session);
+      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone, research,github:githubInput,session });
+      const record = await hosting.startJob(scope, async () => {
         requireExecution();
+        if(githubInput)await github.assert(scope,githubInput.generation,session);
         return activeBridge(scope).start(scope, input.objective.trim());
       });
       const completion = maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id: record.id }) }), `job:${record.id}`);
@@ -312,6 +351,14 @@ export async function createJeffApplication(options = {}) {
       if (/^\/api\/chat\/actions\/[a-f0-9-]{36}\/(?:apply|dismiss)$/.test(route)) diagnosticRoute = '/api/chat/actions';
       if (method === 'GET' && route === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw', scheduler: scheduler.status(), ...(options.backupStatus ? { backup: await options.backupStatus() } : {}) });
       if (method === 'GET' && route === '/api/config') return send(response, 200, config());
+      if(method==='GET'&&route==='/api/connectors/github/callback'){
+        try{
+          if(Object.keys(Object.fromEntries(url.searchParams)).some(key=>!['code','state','error','error_description','error_uri'].includes(key))||url.searchParams.getAll('state').length!==1||url.searchParams.getAll('code').length>1)throw new Error('JEFF_GITHUB_STATE_INVALID');
+          await github.callback({state:url.searchParams.get('state'),code:url.searchParams.get('code'),cookie:request.headers.cookie,denied:url.searchParams.has('error')});
+          response.writeHead(303,{Location:'/#skills','Set-Cookie':githubClearCookie,'Cache-Control':'no-store'});response.end();
+        }catch{response.writeHead(303,{Location:'/?github=connection_failed#skills','Set-Cookie':githubClearCookie,'Cache-Control':'no-store'});response.end();}
+        return;
+      }
       const bearer = request.headers.authorization?.replace(/^Bearer /, '');
       if (method === 'POST' && route === '/api/auth/nfts') return send(response, 200, await discoverNfts(await body(request)));
       for (const [prefix, manager] of [['/api/auth', sessions], ['/api/account/auth', accountSessions]]) {
@@ -323,6 +370,14 @@ export async function createJeffApplication(options = {}) {
         const scope = await (accountSessions.has(bearer) ? accountSessions : sessions).authenticate(bearer);
         requireAdmission();
         const currentBridge = activeBridge(scope);
+        if(method==='GET'&&route==='/api/connectors/github')return send(response,200,await github.status(scope));
+        if(method==='GET'&&route==='/api/connectors/github/repositories')return send(response,200,await github.repositories(scope,bearer));
+        if(method==='POST'&&route==='/api/connectors/github/authorize'){
+          if(Object.keys(strict(await body(request),[])).length)throw new Error('JEFF_REQUEST_INVALID');
+          const value=await github.authorize(scope,bearer);response.setHeader('Set-Cookie',value.cookie);
+          return send(response,200,{authorizationUrl:value.authorizationUrl,expiresAt:value.expiresAt});
+        }
+        if(method==='DELETE'&&route==='/api/connectors/github')return send(response,200,await github.disconnect(scope,bearer));
         if (method === 'GET' && route === '/api/hosting') return send(response, 200, await hosting.status(scope));
         if (method === 'POST' && route === '/api/hosting/free-pass') {
           const input = await body(request);
@@ -354,8 +409,8 @@ export async function createJeffApplication(options = {}) {
         }
         if (method === 'DELETE' && /^\/api\/schedules\//.test(route)) return send(response, 200, await scheduler.cancel(scope, route.split('/').at(-1)));
         if (method === 'POST' && route === '/api/jobs') {
-          const input = strict(await body(request), ['objective', 'conversationId', 'timeZone', 'research']);
-          return send(response, 202, (await submit(scope, input)).record);
+          const input = strict(await body(request), ['objective', 'conversationId', 'timeZone', 'research','github']);
+          return send(response, 202, (await submit(scope, input,bearer)).record);
         }
         const chatActionMatch = route.match(/^\/api\/chat\/actions\/([a-f0-9-]{36})\/(apply|dismiss)$/);
         if (method === 'POST' && chatActionMatch && uuid.test(chatActionMatch[1])) {

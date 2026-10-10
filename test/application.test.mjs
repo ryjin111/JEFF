@@ -13,6 +13,29 @@ import { captureBackup, encryptBackup, restoreBackup } from '../src/backup.mjs';
 const first = privateKeyToAccount('0x' + '12'.repeat(32)); // Disposable signing fixture; never a live RPC.
 const second = privateKeyToAccount('0x' + '34'.repeat(32));
 const collection = '0x' + '33'.repeat(20);
+test('GitHub signed workflow rejects stale generation before task usage, saves evidence and reloads without provider calls',async t=>{
+  let providerReads=0,taskStarts=0;const token='ghu_'+'a'.repeat(40);
+  const githubProvider={authorization:attempt=>'https://github.com/login/oauth/authorize?state='+attempt.state,
+    exchange:async()=>({accessToken:token,expiresAt:Date.now()+3600000,account:{id:'7',login:'holder'},permissions:{metadata:'read',contents:'read'}}),
+    repositories:async()=>({repositories:[{id:'11',name:'owner/repo'}],coverage:{shown:1,hasMore:false}}),
+    latest:async()=>{providerReads++;return{url:'https://github.com/owner/repo/releases/tag/v1',retrievedAt:new Date().toISOString(),excerpt:'{"tag":"v1"}',format:'json',excerptTruncated:false};},revoke:async()=>true};
+  const hosting={enabled:false,freePassEnabled:false,plan:{tasksIncluded:100},status:async()=>({active:true}),requireActive:async()=>{},startJob:async(_scope,start)=>{taskStarts++;return start();}};
+  const f=await fixture(t,{env:{JEFF_CHAIN_ID:'4663',JEFF_COLLECTION:collection,JEFF_MODEL:'bankr/fixture-model',JEFF_GITHUB_ENABLED:'true',JEFF_GITHUB_ENCRYPTION_KEY:'ab'.repeat(32)},githubProvider,hosting});
+  const session=await f.login();
+  const connect=async()=>{
+    const base='http://127.0.0.1:'+f.app.server.address().port;
+    const initiated=await fetch(base+'/api/connectors/github/authorize',{method:'POST',headers:{authorization:'Bearer '+session.token,'content-type':'application/json'},body:'{}'});
+    assert.equal(initiated.status,200);const value=await initiated.json(),state=new URL(value.authorizationUrl).searchParams.get('state');
+    const callback=await fetch(base+'/api/connectors/github/callback?state='+state+'&code=code',{headers:{cookie:initiated.headers.get('set-cookie').split(';')[0]},redirect:'manual'});assert.equal(callback.status,303);assert.equal(callback.headers.get('location'),'/#skills');
+    return(await f.api('/api/connectors/github',{session})).value;
+  };
+  const old=await connect();await f.api('/api/connectors/github',{method:'DELETE',session});const current=await connect();
+  const stale=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Read release',github:{repositoryId:'11',generation:old.generation,consent:true}}});
+  assert.equal(stale.value.error,'JEFF_GITHUB_CONNECTION_CHANGED');assert.equal(providerReads,0);assert.equal(taskStarts,0);assert.equal(f.calls.length,0);assert.equal((await f.api('/api/workspace',{session})).value.conversations.length,0);
+  const started=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Read release',github:{repositoryId:'11',generation:current.generation,consent:true}}});assert.equal(started.status,202);
+  const saved=await f.terminal(session,started.value.id);assert.equal(saved.value.status,'completed');assert.match(saved.value.text,/Retrieved sources/);assert.equal(f.calls[0].executionContext.chatActions.enabled,false);assert.ok(!JSON.stringify(f.calls).includes(token));
+  const count=providerReads;await f.api('/api/jobs/'+started.value.id,{session});assert.equal(providerReads,count);assert.equal(f.calls.length,1);
+});
 function deferred() {
   let resolvePromise;
   const promise = new Promise(resolveValue => { resolvePromise = resolveValue; });

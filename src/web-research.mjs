@@ -181,7 +181,7 @@ export function researchAnswer(text, evidence) {
     return source ? `[${number}](<${source.url}>)` : '[unverified reference]';
   });
   const lines = [linked, '', '### Retrieved sources', '',
-    'Coverage: supplied URLs only; bounded text or JSON excerpts, without following redirects, page links or API pagination.'];
+    'Coverage: '+(evidence.coverage||'supplied URLs only; bounded text or JSON excerpts, without following redirects, page links or API pagination.')];
   evidence.sources.forEach((source, index) => lines.push(`\n${index + 1}. [Source ${index + 1}](<${source.url}>) | Retrieved ${source.retrievedAt}${source.format === 'json' ? ' | JSON excerpt' : ''}${source.excerptTruncated ? ' | Excerpt truncated' : ''}`));
   if (evidence.failures.length) {
     lines.unshift('Partial coverage: some supplied pages could not be read.\n');
