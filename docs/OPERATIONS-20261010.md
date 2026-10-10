@@ -39,6 +39,8 @@ Recover an object into a new isolated directory with `node scripts/restore-recur
 
 The monitor accepts `JEFF_ALERT_WEBHOOK` and optional `JEFF_ALERT_BEARER` through provider secret settings. It alerts after three failed samples, retries delivery failures and sends one recovery after a delivered outage alert. Set `JEFF_MONITOR_TEST_DELIVERY=true` for one synthetic failure/recovery delivery test, then clear it. HTTP acceptance is evidence of delivery to the configured endpoint, not a human acknowledgment.
 
+To test without restarting the monitor, run `node --env-file-if-exists=.env scripts/monitor-alert-check.mjs` for a configuration-only check, then explicitly add `--send-test` to send one labeled synthetic failure/recovery pair. Set `JEFF_ALERT_TEST_ORIGIN` to the monitored HTTPS origin, or supply the existing `JEFF_MONITOR_CONFIG`. The checker does not change outage state or create an application outage. It sends no recovery if the failure message was not accepted, reports partial delivery, and does not retry automatically. Reports contain no webhook URL or bearer. Missing destination remains an unfinished launch gate; fixture responses do not establish real delivery.
+
 ## Remaining external and release gates
 
 Supply the separate recovery-key destination and alert webhook/contact. Actual staging object-storage activation is verified; mocked alert tests do not count as live alert delivery. Documented dedicated RPC/provider quotas and broader capacity remain necessary before wider launch. Existing pilot limits stay unchanged.
