@@ -25,9 +25,8 @@ recurringBackup.start();
 const shutdown = () => {
   if (closing) return;
   closing = true;
-  const drained = app.maintenance.pause();
   backupExport?.dispose();
-  Promise.all([drained, recurringBackup.stop()]).then(() => app.close()).then(() => process.exit(0)).catch(() => process.exit(1));
+  Promise.all([app.close(), recurringBackup.stop()]).then(() => process.exit(0)).catch(() => process.exit(1));
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
