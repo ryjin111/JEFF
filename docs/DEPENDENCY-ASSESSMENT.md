@@ -1,8 +1,10 @@
 # Restricted text-pilot dependency assessment
 
-Assessed 9 October 2026. The pinned OpenClaw `2026.9.9` tree contains npm `11.20.0` and **five affected bundled package entries: three high and two moderate**. Several entries group multiple advisories. They remain installed and unresolved; this assessment does not establish a clean dependency tree.
+Update, 10 October 2026: staging source `cd44f8d48be8258a8a0f8050429e05ef39bac8c1` replaces bundled npm with the pinned zero-dependency `@jeff/disabled-npm` denial package. A fresh installed-tree audit reports zero findings. The Docker build and hosted startup remove global package-manager paths; imports and commands remain denied. This removes these dependencies from the restricted runtime and does not patch upstream npm. Other recovery, alert, holder and capacity gates remain open. See `OPERATIONS-20261010.md` and the final image evidence.
 
-**Release decision:** retain only the restricted text pilot with external tools and package-management actions denied. Broad launch and additional runtime tools remain blocked until a reviewed fix is verified against the final artifact, or the operator explicitly accepts the named residual risks and records the scope, controls and review date. This assessment does not complete holder, monitoring, recovery or production acceptance gates.
+Historical assessment, 9 October 2026. The pinned OpenClaw `2026.9.9` tree contains npm `11.20.0` and **five affected bundled package entries: three high and two moderate**. Several entries group multiple advisories. They were installed and unresolved in that earlier artifact.
+
+**Historical release decision:** retain only the restricted text pilot with external tools and package-management actions denied. Broad launch and additional runtime tools remain blocked until a reviewed fix is verified against the final artifact, or the operator explicitly accepts the named residual risks and records the scope, controls and review date. This assessment does not complete holder, monitoring, recovery or production acceptance gates.
 
 | Bundled package | Audit severity | Potential exposure and primary advisories |
 | --- | --- | --- |

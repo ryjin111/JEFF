@@ -8,11 +8,11 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `8e8574c670ba76959f2ba87a9593736b810151d1` |
+| Application source | `cd44f8d48be8258a8a0f8050429e05ef39bac8c1` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `07cb719e-4c1c-4356-8c2f-29440f86b323` |
+| Current deployment | `7a08eb36-712e-4ea3-8b96-80624546817b` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
