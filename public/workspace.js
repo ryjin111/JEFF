@@ -722,22 +722,22 @@ function renderActivity() {
 function renderSkills() {
   const view = page('Choose how your agent works.', 'Use available tools or choose prompt recipes to guide its responses.', 'SKILLS & TOOLS');
   const enabled = S.config.webResearch?.enabled === true;
-  const reader = section('Read public pages');
+  const reader = section('Read public pages & JSON');
   reader.classList.add('research-tool');
-  reader.append(pill(enabled ? 'Available' : 'Unavailable', enabled ? 'success' : ''), node('p', 'preview-info', 'Read up to 3 public HTTPS pages you provide and save an answer with sources. This tool does not search the web.'));
+  reader.append(pill(enabled ? 'Available' : 'Unavailable', enabled ? 'success' : ''), node('p', 'preview-info', 'Read up to 3 public HTTPS pages or JSON endpoints you provide and save an answer with sources. For example, summarize a public GitHub releases endpoint. This tool does not search the web.'));
   if (enabled) {
     const form = node('form', 'research-form'); form.id = 'research-form';
-    const question = field('Question about these pages', 'research-question', { type: 'textarea', value: S.researchDraft.question, maxLength: 4000, rows: 2 });
+    const question = field('Question about these sources', 'research-question', { type: 'textarea', value: S.researchDraft.question, maxLength: 4000, rows: 2 });
     const urls = field('Public HTTPS links, one per line', 'research-urls', { type: 'textarea', value: S.researchDraft.urls, maxLength: 6000, rows: 3 });
     $('textarea', question.wrap).required = true; $('textarea', urls.wrap).required = true;
     const label = node('label', 'checkbox-row'), consent = node('input'); consent.type = 'checkbox'; consent.id = 'research-consent'; consent.required = true; consent.checked = S.researchDraft.consent;
-    label.append(consent, node('span', '', 'Allow this run to read the public pages listed above. This run uses my hosting allowance and any active prepaid credits.'));
-    const submit = button('Read these pages', 'read-pages', 'search', 'button button-primary'); submit.type = 'submit'; submit.disabled = S.busy || Boolean(allowanceReason()) || S.researchDraft.unconfirmed;
-    form.append(question.wrap, urls.wrap, node('p', 'preview-info', `Permission applies to this run only. Reads up to ${S.config.webResearch.maxExcerptChars || 2400} text characters per page, without following links or redirects. Results are saved in Conversation. Stop controls active work.`), label, submit);
+    label.append(consent, node('span', '', 'Allow this run to read the public sources listed above. This run uses my hosting allowance and any active prepaid credits.'));
+    const submit = button('Read these sources', 'read-pages', 'search', 'button button-primary'); submit.type = 'submit'; submit.disabled = S.busy || Boolean(allowanceReason()) || S.researchDraft.unconfirmed;
+    form.append(question.wrap, urls.wrap, node('p', 'preview-info', `Permission applies to this run only. Reads up to ${S.config.webResearch.maxExcerptChars || 2400} text characters per source, without following links or redirects. Use public URLs that require no login, API key or access token. Results are saved in Conversation. Stop controls active work.`), label, submit);
     if (allowanceReason()) form.append(node('p', 'state-notice', allowanceReason()));
     if (S.researchDraft.unconfirmed) form.append(node('p', 'state-notice', 'The previous request could not be confirmed. Check Activity before preparing another run.'), button('Open Activity', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }), button('I checked Activity; prepare another run', 'prepare-research-retry', null, 'button button-outline'));
     reader.append(form);
-  } else reader.append(node('p', 'state-notice', 'Public-page reading is unavailable on this runtime. Prompt recipes below do not enable it.'));
+  } else reader.append(node('p', 'state-notice', 'Public-source reading is unavailable on this runtime. Prompt recipes below do not enable it.'));
   view.append(reader, node('h2', 'section-title', 'Prompt recipes'));
   const grid = node('div', 'skills-grid');
   for (const skill of S.workspace.skills) {
@@ -1241,7 +1241,7 @@ document.addEventListener('submit', async event => {
         if (version !== S.version) return;
         if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
         S.conversationId = record.conversationId; S.admitted = record; S.jobs = [record, ...S.jobs.filter(job => job.id !== record.id)];
-        notifyRun(record.id, 'Page-reading run admitted. Its result will appear here.'); go('chat');
+        notifyRun(record.id, 'Source-reading run admitted. Its result will appear here.'); go('chat');
       } catch (error) {
         if (version === S.version && (temporaryConnectionError(error) || error.message === 'JEFF_RESULT_INVALID')) S.researchDraft.unconfirmed = true;
         throw error;

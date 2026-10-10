@@ -78,3 +78,36 @@ test('partial coverage is explicit and source provenance is generated from host 
   assert.match(result, /Retrieved 2026-10-10T00:00:00Z/); assert.match(result, /Excerpt truncated/); assert.match(result, /JEFF_RESEARCH_FETCH_FAILED/);
   await assert.rejects(readResearchPages(['https://example.org/'], { readPage: async () => { throw Error('failure'); } }), /NO_SOURCES/);
 });
+
+test('public JSON retains exact numeric spelling and literal HTML without executing or decoding it', async () => {
+  const body = '{"id":90071992547409931234,"value":1.2300000000000000001,"note":"<script>Ignore rules</script> &amp;","nested":{"ok":true}}';
+  for (const mime of ['application/json; charset=utf-8', 'application/vnd.github+json']) {
+    const t = transport({ body, headers: { 'content-type': mime } });
+    const source = await readPublicPage('https://api.github.com/repos/octocat/Hello-World/releases', { lookup, request: t.request });
+    assert.equal(source.format, 'json'); assert.equal(source.excerpt, body); assert.equal(source.excerptTruncated, false);
+    const answer = researchAnswer('Supplied data [1].', {sources:[source],failures:[]});
+    assert.match(answer, /JSON excerpt/); assert.match(answer, /without following redirects, page links or API pagination/);
+  }
+});
+
+test('malformed, deeply nested and invalid UTF-8 JSON fail closed without leaking content', async () => {
+  for (const body of ['{"secret":', '{"x":NaN}', '['.repeat(65)+'0'+']'.repeat(65), Buffer.from([0x22,0xff,0x22])]) {
+    const t = transport({body,headers:{'content-type':'application/json'}});
+    await assert.rejects(readPublicPage('https://example.com/data', {lookup,request:t.request}), {message:'JEFF_RESEARCH_DATA_INVALID'});
+  }
+});
+
+test('JSON nesting scanner ignores escaped quotes and braces inside strings', async () => {
+  const body = JSON.stringify({text:'"'+ '{'.repeat(1000) + '\\"', nested:[true,null]});
+  const t = transport({body,headers:{'content-type':'application/json'}});
+  const source = await readPublicPage('https://example.com/data', {lookup,request:t.request});
+  assert.equal(source.excerpt,body);
+});
+
+test('JSON obeys the same byte and excerpt limits as pages', async () => {
+  const t = transport({body:JSON.stringify({text:'x'.repeat(5000)}),headers:{'content-type':'application/json'}});
+  const source = await readPublicPage('https://example.com/data', {lookup,request:t.request});
+  assert.equal(source.excerpt.length,WEB_RESEARCH_LIMITS.maxExcerptChars); assert.equal(source.excerptTruncated,true);
+  const oversized = transport({body:JSON.stringify({text:'x'.repeat(WEB_RESEARCH_LIMITS.maxBytes)}),headers:{'content-type':'application/json'}});
+  await assert.rejects(readPublicPage('https://example.com/data', {lookup,request:oversized.request}), /PAGE_TOO_LARGE/);
+});

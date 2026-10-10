@@ -63,6 +63,21 @@ function pageText(body, html) {
   return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function jsonText(bytes) {
+  const body = new TextDecoder('utf-8', { fatal: true }).decode(bytes).trim();
+  // Validate without reserializing: retain large integer and decimal spellings.
+  // Bound structural depth before parsing, ignoring braces inside JSON strings.
+  let depth = 0, quoted = false, escaped = false;
+  for (const char of body) {
+    if (quoted) { if (escaped) escaped = false; else if (char === '\\') escaped = true; else if (char === '"') quoted = false; }
+    else if (char === '"') quoted = true;
+    else if (char === '{' || char === '[') { if (++depth > 64) throw error('DATA_INVALID'); }
+    else if (char === '}' || char === ']') depth--;
+  }
+  JSON.parse(body);
+  return body.replace(/[\u0000-\u001f\u007f]+/g, ' ');
+}
+
 // Native HTTPS ignores proxy environment settings. Resolve and pin one public
 // IPv4 address per request; no redirects, cookies, credentials or socket reuse.
 export async function readPublicPage(value, { signal, lookup = dnsLookup, request = httpsRequest } = {}) {
@@ -97,11 +112,12 @@ export async function readPublicPage(value, { signal, lookup = dnsLookup, reques
     try {
       req = request(url, { agent: false, family: 4, maxHeaderSize: 8192,
         lookup: (_host, options, callback) => options?.all ? callback(null, [{ address, family: 4 }]) : callback(null, address, 4),
-        headers: { Accept: 'text/html, text/plain;q=0.9', 'Accept-Encoding': 'identity', 'User-Agent': 'JEFF-PublicPageReader/1.0' } }, response => {
+        headers: { Accept: 'text/html, application/json, application/*+json;q=0.9, text/plain;q=0.9', 'Accept-Encoding': 'identity', 'User-Agent': 'JEFF-PublicPageReader/1.0' } }, response => {
         const fail = code => { finish(error(code)); response.destroy(); req?.destroy(); };
         if (response.statusCode !== 200) return fail(response.statusCode >= 300 && response.statusCode < 400 ? 'REDIRECT_DENIED' : 'HTTP_FAILED');
         const mime = String(response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-        if (!['text/html', 'text/plain', 'application/xhtml+xml'].includes(mime)
+        const json = /^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json$/.test(mime);
+        if ((!json && !['text/html', 'text/plain', 'application/xhtml+xml'].includes(mime))
           || !['', 'identity'].includes(String(response.headers['content-encoding'] || '').toLowerCase())) return fail('CONTENT_DENIED');
         if (Number(response.headers['content-length']) > WEB_RESEARCH_LIMITS.maxBytes) return fail('PAGE_TOO_LARGE');
         const chunks = []; let bytes = 0;
@@ -113,9 +129,13 @@ export async function readPublicPage(value, { signal, lookup = dnsLookup, reques
         response.on('error', () => finish(error('FETCH_FAILED')));
         response.on('aborted', () => finish(error('FETCH_FAILED')));
         response.on('end', () => {
-          const text = pageText(Buffer.concat(chunks).toString('utf8'), mime !== 'text/plain');
+          if (settled) return;
+          let text;
+          try { const body = Buffer.concat(chunks); text = json ? jsonText(body) : pageText(body.toString('utf8'), mime !== 'text/plain'); }
+          catch { return finish(error('DATA_INVALID')); }
           if (!text) return finish(error('EMPTY_PAGE'));
           finish(null, { url: url.href, retrievedAt: new Date().toISOString(), bytes,
+            format: json ? 'json' : mime === 'text/plain' ? 'text' : 'html',
             excerpt: text.slice(0, WEB_RESEARCH_LIMITS.maxExcerptChars), excerptTruncated: text.length > WEB_RESEARCH_LIMITS.maxExcerptChars });
         });
       });
@@ -161,8 +181,8 @@ export function researchAnswer(text, evidence) {
     return source ? `[${number}](<${source.url}>)` : '[unverified reference]';
   });
   const lines = [linked, '', '### Retrieved sources', '',
-    'Coverage: supplied pages only; bounded text excerpts, without following redirects or page links.'];
-  evidence.sources.forEach((source, index) => lines.push(`\n${index + 1}. [Source ${index + 1}](<${source.url}>) | Retrieved ${source.retrievedAt}${source.excerptTruncated ? ' | Excerpt truncated' : ''}`));
+    'Coverage: supplied URLs only; bounded text or JSON excerpts, without following redirects, page links or API pagination.'];
+  evidence.sources.forEach((source, index) => lines.push(`\n${index + 1}. [Source ${index + 1}](<${source.url}>) | Retrieved ${source.retrievedAt}${source.format === 'json' ? ' | JSON excerpt' : ''}${source.excerptTruncated ? ' | Excerpt truncated' : ''}`));
   if (evidence.failures.length) {
     lines.unshift('Partial coverage: some supplied pages could not be read.\n');
     lines.push('\n### Pages not retrieved');
