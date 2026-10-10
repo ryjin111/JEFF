@@ -70,6 +70,9 @@ html[data-theme=dark] .skill-icon,html[data-theme=dark] .chart-bar{border-color:
 .personal-context-section .preview-info { font-size:13px; line-height:1.6; overflow-wrap:anywhere; white-space:pre-wrap; }
 .personal-responsibility { padding:12px 0; border-bottom:1px solid var(--line); }
 .personal-responsibility strong { display:block; font-size:14px; overflow-wrap:anywhere; }
+.return-summary { margin-bottom:16px; }
+.return-summary h2 { font-size:16px; margin:0 0 8px; }
+.return-summary .text-button { min-height:36px; }
 .personal-context .text-button { min-height:36px; font-size:13px; }
 .personal-context .preview-info,.personal-context .text-button { color:var(--subtle); }
 @media(max-width:600px) { .personal-context { grid-template-columns:1fr; gap:8px; } }

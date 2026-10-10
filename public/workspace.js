@@ -1,6 +1,7 @@
 import { JOB_ID, scopeKey, validSession, validateRecord, validateNftDiscovery, errorLabel } from './client.js';
 import { validateHosting, validateInvoice, formatTokenAmount, formatUsdCents, transferData } from './billing.js';
 import { renderMarkdown } from './markdown.js';
+import { parseReviewed, unseenOutcomes } from './visit-summary.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -18,6 +19,8 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [],
   actionConsent: new Set(), actionRequests: new Map() };
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
+let reviewedOutcomes = new Set(), reviewedScope = null;
+const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
 const mobile = matchMedia('(max-width: 760px)');
@@ -170,6 +173,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.invoice = null; S.decimals = null; S.paymentHash = ''; S.paymentSubmitted = false; S.busy = false; S.authBusy = false; S.runNotice = null;
   S.actionConsent.clear(); S.actionRequests.clear();
   personalPanels.clear();
+  reviewedOutcomes = new Set(); reviewedScope = null;
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
   saveSession();
@@ -268,6 +272,11 @@ async function refresh({ quiet = false } = {}) {
     }
     reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
+    if (reviewedScope !== scopeKey(scope)) {
+      reviewedScope = scopeKey(scope);
+      try { reviewedOutcomes = parseReviewed(localStorage.getItem(reviewedKey(scope))); }
+      catch { reviewedOutcomes = new Set(); }
+    }
     for (const [jobId, request] of S.actionRequests) {
       const action = workspace.jobBindings?.[jobId]?.action;
       if (!action || action.status !== 'pending' || request === 'uncertain') S.actionRequests.delete(jobId);
@@ -625,6 +634,21 @@ function personalContext(selected) {
   memory.append(button('Open Memory', 'open-chat-action', 'book', 'text-button', { target: 'memory' }));
   panel.append(work, memory); return panel;
 }
+function returnSummary() {
+  const outcomes = unseenOutcomes(S.jobs, reviewedOutcomes);
+  if (!outcomes.length) return null;
+  const panel = node('section', 'personal-context-section return-summary');
+  panel.setAttribute('aria-label', 'Since your last visit');
+  panel.append(node('h2', '', 'Since your last visit'), node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
+  for (const job of outcomes.slice(0, 5)) {
+    const item = node('div', 'personal-responsibility');
+    item.append(node('strong', '', job.objective), pill(job.status === 'completed' ? 'Saved' : job.status === 'interrupted' ? 'Interrupted' : 'Failed', job.status === 'completed' ? 'success' : ''), button('Open result', 'open-job', 'arrow', 'text-button', { id: job.id }));
+    panel.append(item);
+  }
+  if (outcomes.length > 5) panel.append(button('View all runs', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }));
+  panel.append(button('Mark these reviewed', 'review-outcomes', 'check', 'button button-subtle'));
+  return panel;
+}
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
   if (!signedIn()) { view.append(empty(S.session ? 'Opening your workspace…' : 'A home for your Agent NFT.', S.session ? 'Checking ownership and loading saved work.' : 'Give your agent useful work. Keep conversations and memories together, and return to the results whenever you need them.', S.session ? null : ['Connect an Agent NFT', 'connect'])); return view; }
@@ -638,6 +662,7 @@ function renderChat() {
   toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
   if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
   view.append(toolbar);
+  const returned = returnSummary(); if (returned) view.append(returned);
   view.append(personalContext(selected));
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
@@ -1060,6 +1085,13 @@ async function payInvoice() {
 document.addEventListener('click', async event => {
   const element = event.target.closest('button'); if (!element || element.disabled) return;
   const action = element.dataset.action;
+  if (action === 'review-outcomes') {
+    if (!signedIn()) return;
+    const next = new Set([...reviewedOutcomes, ...unseenOutcomes(S.jobs, reviewedOutcomes).slice(0, 5).map(job => job.id)].slice(-5000));
+    try { localStorage.setItem(reviewedKey(S.session.scope), JSON.stringify([...next])); }
+    catch { notify('Review status could not be saved in this browser. Your saved work is unchanged.', true); return; }
+    reviewedOutcomes = next; render(); notify('Runs marked reviewed in this browser.'); return;
+  }
   if (element.dataset.view && action !== 'command-view') { go(element.dataset.view); return; }
   if (!action) return;
   if (action === 'connect') { openConnection('nft'); return; }
