@@ -1,5 +1,7 @@
 # Read public pages and JSON
 
+Current deployment identities are recorded in [staging acceptance](STAGING.md) and [operations](OPERATIONS-20261010.md). The reader and JSON verification counts/pins below belong to their named historical candidates. The public reader remains enabled on staging; the separate GitHub connector is implemented but unconfigured and awaits real acceptance.
+
 This is the first host-mediated web capability for OpenClaw-backed Agent NFTs. It answers a question about one to three public HTTPS pages or JSON API endpoints explicitly supplied by the signed holder. For example, a holder can supply a public GitHub repository or releases API URL. Sources must require no login, API key or access token. It does not discover sources through web search or grant arbitrary OpenClaw tools, shell access or connected-account permissions.
 
 The backend flag `JEFF_WEB_RESEARCH_ENABLED=true` enables the capability when a model is configured and storage is not restore-guarded. The default is disabled. The UI reads actual availability from `/api/config`, preserves the question and URLs after failure, and requires fresh consent for every submitted attempt. A request whose admission is uncertain requires deliberate Activity review before retry.

@@ -33,15 +33,19 @@ export function createGithubConnectionStore({dataRoot,key}) {
       return{generation:envelope.generation,credential};
     }catch(error){if(error.code==='ENOENT')return{generation:null,credential:null};fail();}
   }
-  async function save(id,value){
+  async function save(id,value,beforeCommit){
     await prepare();const file=join(directory,id+'.json'),temporary=file+'.'+randomUUID()+'.tmp';
     const plaintext=Buffer.from(JSON.stringify(value.credential));if(plaintext.length>16384){plaintext.fill(0);fail();}
     const nonce=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,nonce);cipher.setAAD(aad(id,value.generation));let ciphertext;
     try{ciphertext=Buffer.concat([cipher.update(plaintext),cipher.final()]);}finally{plaintext.fill(0);}
     const envelope={schema,scopeId:id,generation:value.generation,nonce:nonce.toString('hex'),tag:cipher.getAuthTag().toString('hex'),ciphertext:ciphertext.toString('base64')};
     let handle;
-    try{handle=await open(temporary,'wx',0o600);await handle.writeFile(JSON.stringify(envelope));await handle.sync();await handle.close();handle=undefined;await rename(temporary,file);}
-    catch{await rm(temporary,{force:true}).catch(()=>{});fail();}
+    try{
+      try{handle=await open(temporary,'wx',0o600);await handle.writeFile(JSON.stringify(envelope));await handle.sync();await handle.close();handle=undefined;}
+      catch{fail();}
+      if(beforeCommit)await beforeCommit();
+      try{await rename(temporary,file);}catch{fail();}
+    }
     finally{if(handle)await handle.close().catch(()=>{});await rm(temporary,{force:true}).catch(()=>{});ciphertext.fill(0);}
   }
   return Object.freeze({
@@ -50,10 +54,11 @@ export function createGithubConnectionStore({dataRoot,key}) {
       const value=await load(id);if(value.generation!==generation||!value.credential)throw new Error('JEFF_GITHUB_CONNECTION_CHANGED');
       return work(structuredClone(value));
     });},
-    replace(scope,generation,credential){const id=scopeId(scope),copy=structuredClone(credential);return serialize(async()=>{
+    replace(scope,generation,credential,{beforeCommit}={}){const id=scopeId(scope),copy=structuredClone(credential);return serialize(async()=>{
       const prior=await load(id);if(prior.generation!==generation)throw new Error('JEFF_GITHUB_CONNECTION_CHANGED');
       if(!copy||typeof copy!=='object'||Array.isArray(copy))throw new Error('JEFF_GITHUB_CREDENTIAL_INVALID');
-      const next={generation:randomUUID(),credential:copy};await save(id,next);return structuredClone(next);
+      if(beforeCommit!==undefined&&typeof beforeCommit!=='function')throw new Error('JEFF_GITHUB_CONFIG_INVALID');
+      const next={generation:randomUUID(),credential:copy};await save(id,next,beforeCommit);return structuredClone(next);
     });},
     disconnect(scope){const id=scopeId(scope);return serialize(async()=>{
       const prior=await load(id),next={generation:randomUUID(),credential:null};await save(id,next);

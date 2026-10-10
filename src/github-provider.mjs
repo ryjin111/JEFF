@@ -49,25 +49,29 @@ export function createGithubProvider({clientId,clientSecret,appId,callbackUrl,tr
   if(typeof clientId!=='string'||!/^Iv[0-9A-Za-z_.]{5,100}$/.test(clientId)||typeof clientSecret!=='string'||clientSecret.length<20||!/^\d{1,16}$/.test(String(appId)))throw failure('CONFIG_INVALID');
   const callback=new URL(callbackUrl);
   if(callback.protocol!=='https:'||callback.username||callback.password||callback.search||callback.hash||callback.pathname!=='/api/connectors/github/callback')throw failure('CONFIG_INVALID');
-  async function call(path,{accessToken,method='GET',body,basic=false,signal,allow404=false}={}){
+  async function call(path,{accessToken,method='GET',body,basic=false,signal,allow404=false,checkpoint}={}){
     if(accessToken&&!token(accessToken))throw failure('CREDENTIAL_INVALID');
+    if(signal?.aborted)throw failure('CANCELLED');
+    if(checkpoint)await checkpoint();
+    if(signal?.aborted)throw failure('CANCELLED');
     const response=await transport({url:(path==='/login/oauth/access_token'?'https://github.com':'https://api.github.com')+path,method,signal,body,
-      headers:{...(accessToken?{authorization:'Bearer '+accessToken}:{}),...(basic?{authorization:'Basic '+Buffer.from(clientId+':'+clientSecret).toString('base64')}:{}),...(body?{'content-type':path==='/login/oauth/access_token'?'application/x-www-form-urlencoded':'application/json'}:{})}});
+      headers:{...(path==='/login/oauth/access_token'?{}:{accept:'application/vnd.github+json','x-github-api-version':'2026-03-10'}),...(accessToken?{authorization:'Bearer '+accessToken}:{}),...(basic?{authorization:'Basic '+Buffer.from(clientId+':'+clientSecret).toString('base64')}:{}),...(body?{'content-type':path==='/login/oauth/access_token'?'application/x-www-form-urlencoded':'application/json'}:{})}});
     if(response.status===401)throw failure('RECONNECT_REQUIRED');
     if(response.status===403||response.status===429)throw failure('ACCESS_UNAVAILABLE');
     if(response.status===404&&allow404)return null;
     if(response.status<200||response.status>=300)throw failure('UNAVAILABLE');
     return response.json;
   }
-  async function repositories(accessToken,signal){
-    const result=await call('/user/installations?per_page=5&page=1',{accessToken,signal});
+  async function repositories(accessToken,signal,checkpoint){
+    const result=await call('/user/installations?per_page=5&page=1',{accessToken,signal,checkpoint});
     if(!Array.isArray(result?.installations)||result.installations.length>5||!Number.isSafeInteger(result.total_count)||result.total_count<result.installations.length)throw failure('DATA_INVALID');
     const found=[];let hasMore=result.total_count>result.installations.length,verifiedInstallations=0;
     for(const installation of result.installations){
-      if(String(installation.app_id)!==String(appId))continue;
-      if(!id(installation.id)||installation.client_id!==clientId||!installation.permissions||Object.entries(installation.permissions).some(([key,value])=>!['metadata','contents'].includes(key)||value!=='read')||installation.permissions.metadata!=='read'||installation.permissions.contents!=='read')throw failure('PERMISSIONS_INVALID');
+      if(id(installation.app_id)!==String(appId))continue;
+      // The installation schema requires app_id; client_id is optional.
+      if(!id(installation.id)||(Object.hasOwn(installation,'client_id')&&installation.client_id!==clientId)||!installation.permissions||Object.entries(installation.permissions).some(([key,value])=>!['metadata','contents'].includes(key)||value!=='read')||installation.permissions.metadata!=='read'||installation.permissions.contents!=='read')throw failure('PERMISSIONS_INVALID');
       verifiedInstallations++;
-      const page=await call('/user/installations/'+id(installation.id)+'/repositories?per_page=5&page=1',{accessToken,signal});
+      const page=await call('/user/installations/'+id(installation.id)+'/repositories?per_page=5&page=1',{accessToken,signal,checkpoint});
       if(!Array.isArray(page?.repositories)||page.repositories.length>5||!Number.isSafeInteger(page.total_count)||page.total_count<page.repositories.length)throw failure('DATA_INVALID');
       hasMore ||= page.total_count>page.repositories.length;
       for(const item of page.repositories){
@@ -86,24 +90,26 @@ export function createGithubProvider({clientId,clientSecret,appId,callbackUrl,tr
     async exchange({code,verifier,signal}){
       if(typeof code!=='string'||! /^[A-Za-z0-9_-]{1,512}$/.test(code)||! /^[A-Za-z0-9_-]{43}$/.test(verifier))throw failure('STATE_INVALID');
       const value=await call('/login/oauth/access_token',{method:'POST',signal,body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,code,redirect_uri:callback.href,code_verifier:verifier}).toString()});
-      if(!token(value?.access_token)||value.token_type!=='bearer'||value.scope!==''||!Number.isSafeInteger(value.expires_in)||value.expires_in<1||value.expires_in>28800)throw failure('TOKEN_INVALID');
+      if(!token(value?.access_token))throw failure('TOKEN_INVALID');
+      const receivedAt=now();
       try{
+        if(value.token_type!=='bearer'||value.scope!==''||!Number.isSafeInteger(value.expires_in)||value.expires_in<1||value.expires_in>28800)throw failure('TOKEN_INVALID');
         const user=await call('/user',{accessToken:value.access_token,signal});
         if(!id(user?.id)||!login(user.login))throw failure('IDENTITY_INVALID');
         await repositories(value.access_token,signal);
-        return{accessToken:value.access_token,expiresAt:now()+value.expires_in*1000,account:{id:id(user.id),login:user.login},permissions:{metadata:'read',contents:'read'}};
+        return{accessToken:value.access_token,expiresAt:receivedAt+value.expires_in*1000,account:{id:id(user.id),login:user.login},permissions:{metadata:'read',contents:'read'}};
       }catch(error){await call('/applications/'+clientId+'/token',{method:'DELETE',basic:true,body:JSON.stringify({access_token:value.access_token})}).catch(()=>{});throw error;}
     },
     repositories,
-    async latest(accessToken,repositoryId,signal){
+    async latest(accessToken,repositoryId,signal,checkpoint){
       if(typeof repositoryId!=='string'||! /^[1-9][0-9]{0,15}$/.test(repositoryId))throw failure('REPOSITORY_INVALID');
-      const grant=await repositories(accessToken,signal),selected=grant.repositories.find(value=>value.id===repositoryId);
+      const grant=await repositories(accessToken,signal,checkpoint),selected=grant.repositories.find(value=>value.id===repositoryId);
       if(!selected)throw failure('REPOSITORY_UNAVAILABLE');
-      const release=await call('/repos/'+selected.name+'/releases/latest',{accessToken,signal,allow404:true});
+      const release=await call('/repos/'+selected.name+'/releases/latest',{accessToken,signal,allow404:true,checkpoint});
       if(!release)throw failure('RELEASE_UNAVAILABLE');
-      if(typeof release.tag_name!=='string'||!release.tag_name||release.tag_name.length>256||typeof release.name!=='string'&&release.name!==null||typeof release.body!=='string'&&release.body!==null||typeof release.published_at!=='string'||!Number.isFinite(Date.parse(release.published_at))||release.draft!==false||release.prerelease!==false)throw failure('DATA_INVALID');
+      if(typeof release.tag_name!=='string'||!release.tag_name||release.tag_name.length>256||typeof release.name!=='string'&&release.name!==null||typeof release.body!=='string'&&release.body!==null&&release.body!==undefined||typeof release.published_at!=='string'||!Number.isFinite(Date.parse(release.published_at))||release.draft!==false||release.prerelease!==false)throw failure('DATA_INVALID');
       const fields={tag:release.tag_name,name:release.name?.slice(0,256),publishedAt:release.published_at,body:release.body?.slice(0,1600)};
-      let excerpt=JSON.stringify(fields),excerptTruncated=(release.body?.length??0)>1600;
+      let excerpt=JSON.stringify(fields),excerptTruncated=(release.body?.length??0)>1600||(release.name?.length??0)>256;
       while(excerpt.length>2400){excerptTruncated=true;if(fields.body?.length)fields.body=fields.body.slice(0,Math.max(0,fields.body.length-128));else if(fields.name?.length)fields.name=fields.name.slice(0,Math.max(0,fields.name.length-64));else if(fields.tag.length)fields.tag=fields.tag.slice(0,Math.max(0,fields.tag.length-64));else throw failure('DATA_INVALID');excerpt=JSON.stringify(fields);}
       return{url:'https://github.com/'+selected.name+'/releases/tag/'+encodeURIComponent(release.tag_name),retrievedAt:new Date(now()).toISOString(),excerpt,format:'json',excerptTruncated,truncated:excerptTruncated,coverage:'Latest published release only; serialized excerpt limited to 2400 characters.'};
     },

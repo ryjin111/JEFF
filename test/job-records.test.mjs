@@ -21,6 +21,15 @@ async function fixture(t) {
   await writeFile(file, previousRaw);
   return { directory, file, previous, previousRaw, next: { ...previous, status: 'failed', error: 'cancelled' } };
 }
+test('commit guard runs after temporary write and denies rename without changing the receipt',async t=>{
+  const f=await fixture(t);let renamed=false;
+  const persist=createJobRecordPersister({renameImpl:async(...args)=>{renamed=true;return rename(...args);}});
+  await assert.rejects(persist(f.directory,f.next,{commit:async()=>{
+    const files=await readdir(f.directory);assert.equal(files.filter(name=>name.endsWith('.tmp')).length,1);
+    throw new Error('JEFF_GITHUB_CONNECTION_CHANGED');
+  }}),/CONNECTION_CHANGED/);
+  assert.equal(renamed,false);assert.equal(await readFile(f.file,'utf8'),f.previousRaw);assert.equal((await readdir(f.directory)).filter(name=>name.endsWith('.tmp')).length,0);
+});
 
 for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
   test(`job receipts retry transient ${code} rename errors and save the complete terminal record`, async t => {

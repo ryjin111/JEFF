@@ -1,6 +1,6 @@
 # JEFF: OpenClaw for Agent NFTs
 
-Updated 10 October 2026. Production remains on the original pilot; the reviewed release is on staging.
+Updated 10 October 2026. Staging application source is `275fae7`; monitor source is `df094c7`. Production remains on the original pilot, `4a014572`. The source archive has its own commit/hash manifest and does not change either deployment.
 
 ## Complete
 
@@ -13,7 +13,7 @@ Updated 10 October 2026. Production remains on the original pilot; the reviewed 
 
 ## Launch this release
 
-- [x] Configure actual backup storage and separate credentials; verify encrypted upload, readback and restore. Railway staging daily backups are active on `81f22b8`; the first automatic object's isolated restore verified 86 files, 18 SQLite databases, 12 saved jobs and preserved the hosting ledger. See `evidence/operations/automatic-backup-proof.json`. Production backup scheduling still requires activation during promotion.
+- [x] Configure actual backup storage and separate credentials; verify encrypted upload, readback and restore. Railway staging daily backups were activated on `81f22b8` and remain enabled on the current staging application. The first automatic object's isolated restore verified 86 files, 18 SQLite databases, 12 saved jobs and preserved the hosting ledger; a later independent restore verified 87 files, 18 databases and 12 jobs. See `evidence/operations/automatic-backup-proof.json` and the delivery's `independent-monitored-recovery-proof.json`. Production backup scheduling still requires activation during promotion.
 - [ ] Retain recovery keys independently of the host and this workstation; verify recovery access.
 - [ ] Configure an external alert webhook and verify failure/recovery delivery.
 - [ ] Record four remaining live holder observations: action cards, Memory reload, continuation and pause/cancel. Completed login, saved-conversation reload, memory recall and schedule/run checks remain accepted.
@@ -25,9 +25,9 @@ Builder owns activation, integration and promotion. Destination/access inputs an
 
 - [x] Since your last visit: saved/failed outcomes, result links and explicit holder-scoped review state. Implemented in staging candidate `4846aba`; five fixture browser checks and three unit checks pass. Independent UX and reviewer served-delta sign-off passed on 4846aba; both findings closed.
 - [x] First public-web research capability: supplied-page reader implemented locally with explicit per-run consent, source-linked saved results, Stop and deliberate retry. Backend review passed for c6a3a94; staging capability is enabled. Railway-egress real-provider save/reload and all 28 deployed source hashes are verified. Local real-provider/durable-reload verification and the 401-test suite pass; eight reader checks pass after a narrow parser hardening delta. Search discovery is not included. See WEB-RESEARCH.md.
-- [ ] Expand useful skills/tools and connected-app workflows after that first capability passes acceptance.
-
-GitHub connector implementation: `275fae7` passed independent source review, 41 focused provider/storage/controller/application tests and an integrated signed-route browser check. Epoch-bound encrypted credentials, PKCE/browser-bound callback, manual generation-bound release reads and disconnect/commit guards are implemented. Approval permits staging with GitHub unconfigured; staging deployment `5fda4a12-6d21-4d2d-b0cc-f05311473787` is verified with 28 public files and 31 container modules matching, GitHub disabled and the temporary verification key revoked. Operator-owned GitHub App configuration, independently retained connector-encryption key and a real authorized repository read remain pending. The broader workflows box stays unchecked. See GITHUB-CONNECTOR.md.
+- [x] Implement the first authenticated GitHub release workflow behind configuration. Commit `275fae7` includes encrypted epoch-bound grants, PKCE, signed routes, explicit read consent, stale-generation rejection and durable-save guards. Independent implementation review passed in channel message 32233, including 41 focused tests and the signed-route browser check. The recorded implementation suite passed 434 tests, with two subsequent controller regressions also passing.
+- [x] Deploy reviewed `275fae7` to staging with GitHub unconfigured and verify the served release. Deployment `5fda4a12-6d21-4d2d-b0cc-f05311473787`: all 28 public files and 31 container source modules match, private routes reject unsigned access, GitHub is disabled and the temporary verification key is revoked.
+- [ ] Configure the operator-owned read-only GitHub App and independently retained connector key; verify real authorization, a permitted repository read, saved-result reload and disconnect before marking the connector delivered. See GITHUB-CONNECTOR.md.
 
 Public API research extension: supplied JSON endpoints are implemented on staging candidate `f44a5f5`, with valid UTF-8/syntax/depth checks and unchanged consent, network, byte/time/excerpt and authority boundaries. Source review, 28 focused local checks, six real-JSON/simulated-model browser checks, and local real-provider save/reload pass. Railway real-provider JSON save/reload, all 28 container source hashes and verification-key revocation pass; independent served sign-off passed in channel message 32176. This adds public API reading; authenticated connected-account workflows remain unfinished.
 

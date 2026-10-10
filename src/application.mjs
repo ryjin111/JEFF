@@ -158,6 +158,9 @@ export async function createJeffApplication(options = {}) {
         expiresAt: item.expiresAt, maxRuns: item.maxRuns, runsUsed: item.runs.length,
         lastRun: item.runs.length ? { status: item.runs.at(-1).status, finishedAt: item.runs.at(-1).finishedAt } : null,
       })) : [];
+      if(binding.github)await github.assert(args.scope,binding.github.generation,binding.session);
+      if(closing||controller.signal.aborted)throw new Error('JEFF_OPENCLAW_CANCELLED');
+      requireExecution();
       const result = await runner({ ...args, signal: controller.signal, executionContext: { ...context, history,
         responsibilities, ...(research ? { research } : {}),
         chatActions: { enabled: manual && !research, now: new Date().toISOString(), timeZone: binding.timeZone } }, inferenceGateway });
@@ -188,16 +191,27 @@ export async function createJeffApplication(options = {}) {
         : 'Here’s the schedule I’ve prepared. Review its timing and run limit below, then authorize it to start.' };
     } finally { gateway?.revoke(args.jobId); controllers.delete(args.jobId); }
   };
-  const saveRecord = createJobRecordPersister();
+  const saveRecord = options.persistJobRecord || createJobRecordPersister();
   const persistRecord=async(directory,record)=>{
     if(record.status==='running'){
       const binding=pending.get(scopeId(record.scope));
+      await saveRecord(directory,record);
       if(binding?.github)githubJobs.set(record.id,{scope:record.scope,generation:binding.github.generation,session:binding.session});
+      return;
     }
     const grant=githubJobs.get(record.id);
     if(grant&&record.status==='completed'){
-      await github.assert(grant.scope,grant.generation,grant.session);
-      await github.commit(grant.scope,grant.generation,()=>saveRecord(directory,record),grant.session);
+      try{
+        await github.assert(grant.scope,grant.generation,grant.session);
+        await saveRecord(directory,record,{commit:rename=>github.commit(grant.scope,grant.generation,rename,grant.session)});
+      }catch(error){
+        if(!/^(?:JEFF_GITHUB_(?:CONNECTION_CHANGED|NOT_CONNECTED|RECONNECT_REQUIRED|AUTHORITY_CHANGED)|JEFF_SESSION_(?:REQUIRED|REVOKED)|JEFF_OPENCLAW_(?:OWNER_REVOKED|ACCOUNT_DENIED|CANCELLED)|JEFF_RESTORE_GUARDED|JEFF_SERVICE_MAINTENANCE)$/.test(error.message))throw error;
+        // Authority invalidation is terminal. A retry cannot restore the old
+        // grant/session, and retaining it as an unsaved success strands capacity.
+        record.status='failed';record.saved=true;record.error='JEFF_GITHUB_AUTHORITY_CHANGED';
+        delete record.text;delete record.textSha256;delete record.model;
+        await saveRecord(directory,record);
+      }
       githubJobs.delete(record.id);return;
     }
     await saveRecord(directory,record);
@@ -322,11 +336,20 @@ export async function createJeffApplication(options = {}) {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify(value));
   };
+  const bodyTimeoutMs=options.requestBodyTimeoutMs??15000;
+  if(!Number.isSafeInteger(bodyTimeoutMs)||bodyTimeoutMs<1||bodyTimeoutMs>30000)throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
   async function body(request) {
-    const chunks = []; let size = 0;
-    for await (const chunk of request) { size += chunk.length; if (size > 32768) throw new Error('JEFF_REQUEST_TOO_LARGE'); chunks.push(chunk); }
-    // A multibyte character can span chunks. Decode only after joining bytes.
-    try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); } catch { throw new Error('JEFF_REQUEST_INVALID'); }
+    if(request.destroyed)throw new Error(request.errored?.message==='JEFF_REQUEST_TIMEOUT'?'JEFF_REQUEST_TIMEOUT':'JEFF_REQUEST_INVALID');
+    return new Promise((resolveBody,rejectBody)=>{
+      const chunks=[];let size=0,settled=false;
+      const cleanup=()=>{request.off('data',data);request.off('end',end);request.off('error',error);request.off('aborted',aborted);};
+      const fail=code=>{if(settled)return;settled=true;cleanup();rejectBody(new Error(code));};
+      const data=chunk=>{size+=chunk.length;if(size>32768){fail('JEFF_REQUEST_TOO_LARGE');request.destroy();}else chunks.push(chunk);};
+      // Decode only after joining bytes, preserving split UTF-8 characters.
+      const end=()=>{if(settled)return;settled=true;cleanup();try{resolveBody(JSON.parse(Buffer.concat(chunks,size).toString('utf8')));}catch{rejectBody(new Error('JEFF_REQUEST_INVALID'));}};
+      const error=error=>fail(error?.message==='JEFF_REQUEST_TIMEOUT'?'JEFF_REQUEST_TIMEOUT':'JEFF_REQUEST_INVALID'),aborted=()=>error(request.errored);
+      request.on('data',data);request.once('end',end);request.once('error',error);request.once('aborted',aborted);
+    });
   }
   const usage = scope => ({ enabled: creditsEnabled, mode: creditsEnabled ? 'prepaid' : 'operator-funded',
     pricingBasis: creditsEnabled ? 'operator-token-tariff' : null, balance: inference.balance(scope), transactions: inference.list(scope) });
@@ -336,7 +359,17 @@ export async function createJeffApplication(options = {}) {
     toolsEnabled: false, webResearch: { enabled: researchEnabled && modelConfigured && !restoreBlocked(), maxSources: WEB_RESEARCH_LIMITS.maxSources,
       maxBytes: WEB_RESEARCH_LIMITS.maxBytes, maxExcerptChars: WEB_RESEARCH_LIMITS.maxExcerptChars },
     schedulesEnabled: !restoreBlocked(), restoreBlocked: restoreBlocked(), creditsEnabled, allowedModels, plan: hosting.plan, freePassEnabled: hosting.freePassEnabled });
+  const transports=new Map();
   const server = createServer(async (request, response) => {
+    const socket=request.socket;transports.set(socket,(transports.get(socket)||0)+1);let transportFinished=false;
+    const finishTransport=()=>{if(transportFinished)return;transportFinished=true;const count=(transports.get(socket)||1)-1;if(transports.has(socket))transports.set(socket,count);if(closing&&!count)socket.destroy();};
+    response.once('finish',finishTransport);response.once('close',finishTransport);
+    // Bound incomplete inbound messages even when a route rejects before body().
+    // Otherwise an early 401/405 can leave server.close() waiting on its socket.
+    const inboundDeadline=setTimeout(()=>{if(!request.complete)request.destroy(new Error('JEFF_REQUEST_TIMEOUT'));},bodyTimeoutMs);
+    const clearInboundDeadline=()=>clearTimeout(inboundDeadline);
+    request.once('end',clearInboundDeadline);request.once('close',clearInboundDeadline);
+    request.on('error',()=>{});
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
@@ -442,7 +475,7 @@ export async function createJeffApplication(options = {}) {
     } catch (error) {
       const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : error.code === 'ENOENT' ? 'JEFF_ROUTE_NOT_FOUND' : 'JEFF_SERVICE_UNAVAILABLE';
       const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400
-        : /CONFLICT|BUSY|PAUSED|CHAT_ACTION_(?:NOT_READY|EXPIRED)/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED|CHAT_ACTION_DENIED|RESEARCH_DENIED/.test(message) ? 403 : 503;
+        : /CONFLICT|BUSY|PAUSED|CHAT_ACTION_(?:NOT_READY|EXPIRED)|GITHUB_(?:CONNECTION_CHANGED|NOT_CONNECTED|RECONNECT_REQUIRED|REPOSITORY_UNAVAILABLE|RELEASE_UNAVAILABLE)/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED|CHAT_ACTION_DENIED|RESEARCH_DENIED/.test(message) ? 403 : 503;
       if (status >= 500) {
         const event = { event: 'JEFF_REQUEST_FAILED', method: ['GET', 'POST', 'PATCH', 'DELETE', 'HEAD'].includes(request.method) ? request.method : 'OTHER',
           route: diagnosticRoute, status, error: message, ...failureDetails(error) };
@@ -451,6 +484,7 @@ export async function createJeffApplication(options = {}) {
       send(response, status, { error: message });
     } finally { finish(); }
   });
+  server.on('connection',socket=>{transports.set(socket,0);socket.once('close',()=>transports.delete(socket));if(closing)socket.destroy();});
   await maintenance.resume();
   if (options.startScheduler !== false) scheduler.start();
   return Object.freeze({ server, sessions, workspace, scheduler, inference, gateway, maintenance, config, submit,
@@ -463,7 +497,7 @@ export async function createJeffApplication(options = {}) {
         try {
           for (const { controller } of controllers.values()) controller.abort();
           await scheduler.stop();
-          if (server.listening) await new Promise(resolveClosed => { server.close(resolveClosed); server.closeIdleConnections(); });
+          if (server.listening) await new Promise(resolveClosed => { server.close(resolveClosed); server.closeIdleConnections();for(const[socket,count]of transports)if(!count)socket.destroy(); });
           await paused;
           await gateway?.drain();
           inference.checkpoint();

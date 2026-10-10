@@ -1,8 +1,14 @@
 # Public staging monitoring
 
+Current state, 10 October 2026: a separate always-on Railway service probes staging every minute at https://jeff-monitor-jeff-staging.up.railway.app/health. Application source is `275fae7be2bce2e9bde404c059e5aee0b81d7a17`; monitor source is `df094c7`, deployment `db2cf73b-3d31-4480-b4f7-4f3fa13ea7c1`. The monitor requires a verified staging backup within 28 hours as well as ready health, the expected application source/configuration and public RPC reachability. A read-only check at `2026-10-10T12:49Z` reported a healthy target and `alertConfigured: false`.
+
+The cloud monitor survives workstation shutdown but shares Railway with the application and backup bucket. External failure/recovery delivery remains unverified until an approved webhook is configured and tested. Synthetic fixture checks do not satisfy that gate. The monitor's public health does not attest its source files or holder/provider execution; the deployment receipt records its source. See [current operations](OPERATIONS-20261010.md) and [release gates](CHECKLIST.md).
+
+## Historical workstation setup, 9 October 2026
+
 The Windows task **JEFF staging public monitor** checks the staging site every five minutes. It runs a hidden PowerShell action under the current user's **Interactive / Limited** principal; it uses no SYSTEM identity, stored account password or provider key. The task was registered and a scheduled invocation completed successfully on 9 October 2026, at approximately **17:44 Asia/Taipei**.
 
-This is a workstation monitor. The computer must be on and the current user must be logged in. It writes a local report and Task Scheduler exit status; it sends no email, Discord, Slack or other outside notification. An independently hosted monitor with an approved alert destination remains necessary for unattended production coverage. No additional cloud service or paid monitoring plan was provisioned.
+This workstation monitor requires the computer on and the current user logged in. It writes a local report and Task Scheduler exit status; it sends no outside notification. No cloud monitor had been provisioned at that point. The later Railway service supplies continuous staging probes; an approved and tested outside alert destination is still required.
 
 ## What it checks
 
@@ -58,5 +64,5 @@ The application currently limits active jobs to two across the service. That con
 - Validate a dedicated RPC endpoint and its documented request quota from Railway egress; recheck chain, collection, fresh pinned-block owner and epoch reads. Preserve fail-closed behavior during rate limits and outages. Robinhood recommends a provider-backed endpoint for production. [Robinhood connection guide](https://docs.robinhood.com/chain/connecting/)
 - Measure real admission, completion and queue/rejection latency using explicitly authorized pilot work, with the current two-job limit. Verify failure behavior and task/monetary accounting before changing that limit.
 - Record CPU, resident memory, process restarts, volume growth/free capacity and provider billing capacity during that work. Include saved job and schedule history growth. Public health/config timing does not cover these measurements.
-- Run an independent always-on monitor with an approved destination and test its failure/recovery notification. This workstation task does not satisfy that gate while the machine is off or logged out.
+- Configure and test an approved external failure/recovery destination for the always-on Railway monitor. Coverage independent of a Railway-wide outage remains a separate limitation; the workstation task depends on the machine being on and logged in.
 - Keep one writer on the persistent volume. Railway does not support service replicas with a volume, and a volume-backed deployment has a brief interruption. [Railway volumes](https://docs.railway.com/volumes/reference)

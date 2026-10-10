@@ -543,6 +543,14 @@ async function walletCallbackIsolation() {
       restoredBanner: 'Connection restored. Review saved work before retrying.' };
     checked('Rejected task POST recovers its connection banner through GET only while preserving the draft and creating no job');
 
+    assert.equal(await page.locator('[data-action="send-task"]').isDisabled(), true);
+    await nav(page, 'activity');
+    await page.getByRole('button', { name: 'I checked Activity; prepare another run', exact: true }).click();
+    await nav(page, 'chat');
+    assert.equal(await page.locator('#composer-input').inputValue(), objective);
+    assert.equal(submissions.length, 1);
+    checked('Uncertain admission stays guarded after GET recovery until explicit Activity acknowledgement, preserving the draft without replay');
+
     await page.locator('[data-action="send-task"]').click();
     await page.waitForFunction(() => /accepted|admitted/i.test(document.getElementById('workspace-notice').textContent)
       && /refresh|reload/i.test(document.getElementById('workspace-notice').textContent));
@@ -786,6 +794,11 @@ async function walletCallbackIsolation() {
       releaseSuggestionFailure(); await page.unroute('**/api/jobs', suggestionFailureRoute);
       page.off('request', observeSuggestionFailure);
     }
+    assert.equal(await page.locator('[data-action="send-task"]').isDisabled(), true);
+    await nav(page, 'activity');
+    await page.getByRole('button', { name: 'I checked Activity; prepare another run', exact: true }).click();
+    await nav(page, 'chat');
+    checked('Replacing an uncertain draft does not unlock admission; explicit Activity acknowledgement enables a separately submitted task');
     await ready(page); await page.locator('#composer-input').fill(`${unique}: stop this fixture run`); await page.locator('[data-action="send-task"]').click();
     await page.locator('[data-action="stop-job"]').waitFor();
     const workingLabel = `${await page.locator('#agent-title').textContent()} is working on your request.`;

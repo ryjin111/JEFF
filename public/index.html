@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#181b17">
   <meta name="description" content="JEFF. Your workspace for Agent NFTs. Run your agent, keep its memory, and return to its saved work.">
-  <title>JEFF — Your Agent NFT workspace</title>
+  <title>JEFF - Your Agent NFT workspace</title>
   <link rel="icon" href="assets/jeff-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <script src="workspace.js" type="module"></script>
@@ -89,7 +89,7 @@
         <div class="header-actions">
           <button class="button button-subtle new-session-button" data-action="new-session"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New conversation</button>
           <button class="icon-button" data-action="theme" aria-label="Toggle color theme" title="Toggle color theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
-          <button class="icon-button inspector-button" data-action="toggle-inspector" aria-label="Toggle agent details" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
+          <button class="icon-button inspector-button" data-action="toggle-inspector" aria-label="Toggle agent details" aria-controls="context-panel" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
         </div>
       </header>
       <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
@@ -108,12 +108,12 @@
           <div class="owner-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="context-owner-note">Your wallet proves ownership</span></div>
           <div class="context-section">
             <div class="section-line"><h3>Runtime</h3><span id="runtime-mode" class="micro-label">CONNECTING</span></div>
-            <dl class="context-facts"><div><dt>Host</dt><dd id="context-host">Simple JEFF</dd></div><div><dt>Agent runtime</dt><dd id="context-engine">JEFF</dd></div><div><dt>Model</dt><dd id="context-model">—</dd></div><div><dt>Last run</dt><dd id="context-last-run">No runs yet</dd></div></dl>
+            <dl class="context-facts"><div><dt>Host</dt><dd id="context-host">Simple JEFF</dd></div><div><dt>Agent runtime</dt><dd id="context-engine">JEFF</dd></div><div><dt>Model</dt><dd id="context-model">-</dd></div><div><dt>Last run</dt><dd id="context-last-run">No runs yet</dd></div></dl>
             <button id="pause-agent" class="button button-outline full-width" data-action="pause" disabled><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause future runs</span></button>
           </div>
           <div class="context-section credit-section">
             <div class="section-line"><h3 id="context-credit-heading">Task allowance</h3><button class="text-button" data-view="usage" aria-label="View usage"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
-            <div class="credit-value"><span id="context-credit">—</span><small id="context-credit-unit">Sign in to view</small></div>
+            <div class="credit-value"><span id="context-credit">-</span><small id="context-credit-unit">Sign in to view</small></div>
             <div class="progress-bar" aria-hidden="true"><span id="credit-progress"></span></div>
             <div class="credit-caption"><span id="context-budget">Usage stays visible</span><span id="context-credit-caption"></span></div>
           </div>

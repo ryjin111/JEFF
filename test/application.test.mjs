@@ -4,23 +4,27 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { request as httpRequest } from 'node:http';
+import { createConnection } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createJeffApplication } from '../src/application.mjs';
 import { createDurableJobReader, resolveMaintenanceMarkerPath } from '../src/maintenance.mjs';
 import { captureBackup, encryptBackup, restoreBackup } from '../src/backup.mjs';
+import {createJobRecordPersister} from '../src/job-records.mjs';
 
 const first = privateKeyToAccount('0x' + '12'.repeat(32)); // Disposable signing fixture; never a live RPC.
 const second = privateKeyToAccount('0x' + '34'.repeat(32));
 const collection = '0x' + '33'.repeat(20);
 test('GitHub signed workflow rejects stale generation before task usage, saves evidence and reloads without provider calls',async t=>{
-  let providerReads=0,taskStarts=0;const token='ghu_'+'a'.repeat(40);
+  let providerReads=0,taskStarts=0,beforeCompleted;const token='ghu_'+'a'.repeat(40);
   const githubProvider={authorization:attempt=>'https://github.com/login/oauth/authorize?state='+attempt.state,
     exchange:async()=>({accessToken:token,expiresAt:Date.now()+3600000,account:{id:'7',login:'holder'},permissions:{metadata:'read',contents:'read'}}),
     repositories:async()=>({repositories:[{id:'11',name:'owner/repo'}],coverage:{shown:1,hasMore:false}}),
     latest:async()=>{providerReads++;return{url:'https://github.com/owner/repo/releases/tag/v1',retrievedAt:new Date().toISOString(),excerpt:'{"tag":"v1"}',format:'json',excerptTruncated:false};},revoke:async()=>true};
   const hosting={enabled:false,freePassEnabled:false,plan:{tasksIncluded:100},status:async()=>({active:true}),requireActive:async()=>{},startJob:async(_scope,start)=>{taskStarts++;return start();}};
-  const f=await fixture(t,{env:{JEFF_CHAIN_ID:'4663',JEFF_COLLECTION:collection,JEFF_MODEL:'bankr/fixture-model',JEFF_GITHUB_ENABLED:'true',JEFF_GITHUB_ENCRYPTION_KEY:'ab'.repeat(32)},githubProvider,hosting});
+  const persister=createJobRecordPersister();
+  const f=await fixture(t,{env:{JEFF_CHAIN_ID:'4663',JEFF_COLLECTION:collection,JEFF_MODEL:'bankr/fixture-model',JEFF_GITHUB_ENABLED:'true',JEFF_GITHUB_ENCRYPTION_KEY:'ab'.repeat(32),JEFF_MAX_CONCURRENT_JOBS:'1'},githubProvider,hosting,
+    persistJobRecord:async(directory,record,options)=>{if(record.status==='completed'&&beforeCompleted){const hook=beforeCompleted;beforeCompleted=null;await hook();}return persister(directory,record,options);}});
   const session=await f.login();
   const connect=async()=>{
     const base='http://127.0.0.1:'+f.app.server.address().port;
@@ -31,10 +35,16 @@ test('GitHub signed workflow rejects stale generation before task usage, saves e
   };
   const old=await connect();await f.api('/api/connectors/github',{method:'DELETE',session});const current=await connect();
   const stale=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Read release',github:{repositoryId:'11',generation:old.generation,consent:true}}});
-  assert.equal(stale.value.error,'JEFF_GITHUB_CONNECTION_CHANGED');assert.equal(providerReads,0);assert.equal(taskStarts,0);assert.equal(f.calls.length,0);assert.equal((await f.api('/api/workspace',{session})).value.conversations.length,0);
+  assert.equal(stale.status,409);assert.equal(stale.value.error,'JEFF_GITHUB_CONNECTION_CHANGED');assert.equal(providerReads,0);assert.equal(taskStarts,0);assert.equal(f.calls.length,0);assert.equal((await f.api('/api/workspace',{session})).value.conversations.length,0);
   const started=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Read release',github:{repositoryId:'11',generation:current.generation,consent:true}}});assert.equal(started.status,202);
   const saved=await f.terminal(session,started.value.id);assert.equal(saved.value.status,'completed');assert.match(saved.value.text,/Retrieved sources/);assert.equal(f.calls[0].executionContext.chatActions.enabled,false);assert.ok(!JSON.stringify(f.calls).includes(token));
   const count=providerReads;await f.api('/api/jobs/'+started.value.id,{session});assert.equal(providerReads,count);assert.equal(f.calls.length,1);
+  await delay(120);
+  beforeCompleted=async()=>{assert.equal((await f.api('/api/connectors/github',{method:'DELETE',session})).status,200);};
+  const cancelled=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Read then disconnect before rename',github:{repositoryId:'11',generation:current.generation,consent:true}}});assert.equal(cancelled.status,202);
+  const failed=await f.terminal(session,cancelled.value.id);assert.equal(failed.value.status,'failed');assert.equal(failed.value.error,'JEFF_GITHUB_AUTHORITY_CHANGED');assert.equal(failed.value.text,undefined);
+  await delay(120);assert.equal(f.app.maintenance.status().pendingTasks,0);
+  const next=await f.api('/api/jobs',{method:'POST',session,input:{objective:'Ordinary task after cancelled GitHub save'}});assert.equal(next.status,202);assert.equal((await f.terminal(session,next.value.id)).value.status,'completed');
 });
 function deferred() {
   let resolvePromise;
@@ -301,6 +311,57 @@ test('application publishes readiness where the backup reader expects its config
   const marker = JSON.parse(await readFile(resolveMaintenanceMarkerPath({ env: {}, dataRoot: f.dataRoot }), 'utf8'));
   assert.equal(marker.status, 'ready');
   assert.equal(marker.pid, process.pid);
+});
+test('an incomplete public request cannot strand maintenance drain or start work',async t=>{
+  const f=await fixture(t,{requestBodyTimeoutMs:100});let client;
+  const disconnected=new Promise(resolveDisconnected=>{
+    client=httpRequest({hostname:'127.0.0.1',port:f.app.server.address().port,path:'/api/auth/challenge',method:'POST',headers:{'content-type':'application/json','content-length':'100'}},response=>{response.resume();response.on('end',resolveDisconnected);});
+    client.on('error',resolveDisconnected);client.write('{');
+  });
+  t.after(()=>client.destroy());
+  for(let i=0;i<20&&f.app.maintenance.status().activeRequests===0;i++)await delay(5);
+  assert.equal(f.app.maintenance.status().activeRequests,1);
+  const started=Date.now();await f.app.maintenance.pause();await disconnected;
+  assert.ok(Date.now()-started<2000);assert.equal(f.app.maintenance.status().activeRequests,0);assert.equal(f.calls.length,0);
+  assert.equal(JSON.parse(await readFile(resolveMaintenanceMarkerPath({env:{},dataRoot:f.dataRoot}),'utf8')).status,'ready');
+});
+
+for(const [path,status]of [['/api/jobs',401],['/unsupported',405]])test('incomplete early-response '+status+' request cannot strand server shutdown',async t=>{
+  const f=await fixture(t,{requestBodyTimeoutMs:100});
+  const client=createConnection({host:'127.0.0.1',port:f.app.server.address().port});
+  t.after(()=>client.destroy());
+  let received='';const responseSeen=deferred(),disconnected=deferred();
+  client.on('error',()=>{});client.on('close',()=>disconnected.resolve());
+  client.on('data',chunk=>{received+=chunk.toString();if(received.includes('\r\n\r\n'))responseSeen.resolve();});
+  await new Promise(resolveConnected=>client.once('connect',resolveConnected));
+  client.write('POST '+path+' HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{');
+  await responseSeen.promise;assert.match(received,new RegExp('HTTP/1.1 '+status));
+  assert.equal(f.app.maintenance.status().activeRequests,0);
+  const started=Date.now();
+  await Promise.race([Promise.all([f.app.close(),disconnected.promise]),delay(2000).then(()=>{throw new Error('Shutdown retained incomplete inbound socket');})]);
+  assert.ok(Date.now()-started<2000);assert.equal(f.calls.length,0);
+});
+
+test('body deadline expiring during authentication cannot strand the later body reader',async t=>{
+  const ownerEntered=deferred(),allowOwner=deferred();let holdOwner=false;
+  const f=await fixture(t,{requestBodyTimeoutMs:100,resolveOwner:async()=>{if(holdOwner){ownerEntered.resolve();await allowOwner.promise;}return{owner:first.address.toLowerCase(),ownerEpoch:0};}});
+  const session=await f.login();holdOwner=true;
+  const client=createConnection({host:'127.0.0.1',port:f.app.server.address().port}),disconnected=deferred();
+  t.after(()=>{allowOwner.resolve();client.destroy();});client.on('error',()=>{});client.on('close',()=>disconnected.resolve());client.on('data',()=>{});
+  await new Promise(done=>client.once('connect',done));
+  client.write('POST /api/jobs HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer '+session.token+'\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{');
+  await ownerEntered.promise;await disconnected.promise;allowOwner.resolve();
+  await Promise.race([f.app.maintenance.pause(),delay(2000).then(()=>{throw new Error('Body reader waited on an already destroyed request');})]);
+  assert.equal(f.app.maintenance.status().activeRequests,0);assert.equal(f.calls.length,0);
+});
+
+for(const headers of ['', 'POST /api/jobs HTTP/1.1\r\nHost: localhost\r\n'])test('shutdown closes a socket with '+(headers?'partial':'no')+' request headers',async t=>{
+  const f=await fixture(t);const client=createConnection({host:'127.0.0.1',port:f.app.server.address().port}),disconnected=deferred();
+  t.after(()=>client.destroy());client.on('error',()=>{});client.on('close',()=>disconnected.resolve());
+  await new Promise(done=>client.once('connect',done));if(headers)client.write(headers);
+  await delay(10);assert.equal(f.app.maintenance.status().activeRequests,0);
+  await Promise.race([Promise.all([f.app.close(),disconnected.promise]),delay(1000).then(()=>{throw new Error('Shutdown retained a pre-header socket');})]);
+  assert.equal(f.calls.length,0);
 });
 
 test('shutdown rejects an in-flight signed admission and direct submissions before a runner can start', async t => {

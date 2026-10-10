@@ -1,6 +1,8 @@
 # Personal-agent slice
 
-Live staging: https://jeff-staging-jeff-staging.up.railway.app . Application source `8e8574c670ba76959f2ba87a9593736b810151d1`, deployment `07cb719e-4c1c-4356-8c2f-29440f86b323`, verified 10 October 2026. All 373 unit tests, 49 general browser checks and 18 action browser checks pass. All 26 served public files match source bytes; health, source pin, CSP, unsigned private-route checks and the repinned public monitor pass. Local independent UX review passed; independent deployed attestation was requested. Production is unchanged.
+This document records the personal-agent slice and its original verification. For the current staging application and separate monitor source, use [staging acceptance](STAGING.md), [operations](OPERATIONS-20261010.md) and [release gates](CHECKLIST.md). Later public research and GitHub implementation checks do not replace the four remaining live holder observations.
+
+Historical slice deployment: https://jeff-staging-jeff-staging.up.railway.app . Application source `8e8574c670ba76959f2ba87a9593736b810151d1`, deployment `07cb719e-4c1c-4356-8c2f-29440f86b323`, verified 10 October 2026. All 373 unit tests, 49 general browser checks and 18 action browser checks passed for that candidate. All 26 served public files matched source bytes; health, source pin, CSP, unsigned private-route checks and the repinned public monitor passed. Local independent UX review passed; independent deployed attestation is recorded below. Production was unchanged.
 
 The conversation shows ongoing responsibilities and saved context above the chat. Existing schedules provide the task, next check-in, run cap, expiry and latest outcome. Saved results open through the existing private run view. The starter prepares a chat request; creating a schedule still requires the existing explicit consent.
 

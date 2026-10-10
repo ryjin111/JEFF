@@ -8,6 +8,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const content = $('#workspace-content');
 const SESSION_KEY = 'jeff:workspace:session:v1';
+const GITHUB_QUESTION_KEY = 'jeff:workspace:github-question-handoff:v1';
 const THEME_KEY = 'jeff:workspace:theme:v1';
 const pages = [
   ['chat', 'Conversation', 'chat'], ['activity', 'Activity', 'activity'], ['skills', 'Skills & tools', 'grid'],
@@ -21,7 +22,7 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
   actionConsent: new Set(), actionRequests: new Map() };
 Object.assign(S,{githubConnection:null,githubRepositories:null,githubDraft:{question:'',repositoryId:''},githubUnconfirmed:false});
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
-let reviewedOutcomes = new Set(), reviewedScope = null;
+let reviewedOutcomes = new Set(), reviewedScope = null, githubQuestionRestorePending = true;
 const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
@@ -47,10 +48,10 @@ const button = (label, action, iconName, className = 'button button-outline', da
 const put = (selector, value) => { const element = $(selector); if (element) element.textContent = value; };
 const pill = (label, kind = '') => node('span', `pill ${kind}`, label);
 const shortWallet = wallet => wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : '';
-const when = value => Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
+const when = value => Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';
 const safeMicros = value => Number.isSafeInteger(value) && value >= 0;
 const dollars = value => {
-  if (!safeMicros(value)) return '—';
+  if (!safeMicros(value)) return '-';
   const raw = BigInt(value).toString().padStart(7, '0');
   const fraction = raw.slice(-6).replace(/0+$/, '').padEnd(2, '0');
   return `$${raw.slice(0, -6)}.${fraction}`;
@@ -85,10 +86,12 @@ const signedIn = () => Boolean(S.session && S.workspace);
 const agentName = () => S.workspace?.settings.name?.trim()
   || (S.session && S.session.scope.kind !== 'account' ? `Room #${S.session.scope.tokenId}` : 'Your agent');
 const browserTimeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
+const manualAdmissionUncertain = () => S.githubUnconfirmed || S.researchDraft.unconfirmed || S.submission?.status === 'unconfirmed';
 function allowanceReason() {
   if (!S.session) return 'Connect your Agent NFT to start a conversation.';
   if (!S.workspace || !S.hosting) return 'Loading your private workspace…';
   if (S.config?.restoreBlocked) return 'New runs are paused while restored storage is verified. Saved work remains accessible.';
+  if (manualAdmissionUncertain()) return 'The previous request could not be confirmed. Check Activity before preparing another run.';
   if (!S.config?.modelConfigured) return 'JEFF’s model connection is unavailable. Saved work remains accessible.';
   if (S.workspace.settings.paused) return 'Future runs are paused. Resume this agent to send a task.';
   if (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now()) return S.session.scope.kind === 'account'
@@ -157,6 +160,9 @@ function friendly(error) {
     JEFF_CHAT_ACTION_EXPIRED: 'This schedule proposal has expired. Ask your agent for a new schedule.',
     JEFF_ROUTE_NOT_FOUND: 'This feature is unavailable on the connected runtime. Refresh after the service is updated.',
     JEFF_WALLET_NETWORK_MISMATCH: 'Switch your wallet to the workspace network, then connect again.',
+    JEFF_GITHUB_CONNECTION_CHANGED: 'Your GitHub connection changed. Review the refreshed connection, choose a repository and authorize a new read when ready. This request was not admitted.',
+    JEFF_GITHUB_NOT_CONNECTED: 'GitHub is disconnected. Connect again before authorizing a new read.',
+    JEFF_GITHUB_RECONNECT_REQUIRED: 'GitHub requires reconnection. No read will retry automatically.',
   };
   if (Number(error?.code) === 4001) return 'The wallet request was declined. You can try again when ready.';
   return labels[error?.message] || errorLabel(error);
@@ -164,6 +170,28 @@ function friendly(error) {
 function saveSession() {
   try { S.session ? sessionStorage.setItem(SESSION_KEY, JSON.stringify(S.session)) : sessionStorage.removeItem(SESSION_KEY); }
   catch { toast('Session storage is unavailable. This tab will still work until it closes.'); }
+}
+function saveGithubQuestion() {
+  if (!S.session) return;
+  try { sessionStorage.setItem(GITHUB_QUESTION_KEY, JSON.stringify({
+    scope: scopeKey(S.session.scope), sessionEnds: S.session.expiresAt,
+    question: S.githubDraft.question.slice(0, 4000), expiresAt: Date.now() + 10 * 60 * 1000,
+  })); } catch {}
+}
+function restoreGithubQuestion() {
+  if (!githubQuestionRestorePending || !S.session) return;
+  githubQuestionRestorePending = false;
+  try {
+    const raw = sessionStorage.getItem(GITHUB_QUESTION_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(GITHUB_QUESTION_KEY);
+    const saved = JSON.parse(raw);
+    if (saved.scope === scopeKey(S.session.scope) && saved.sessionEnds === S.session.expiresAt
+      && Number.isFinite(saved.expiresAt) && saved.expiresAt > Date.now()
+      && typeof saved.question === 'string' && saved.question.length <= 4000) {
+      S.githubDraft = { question: saved.question, repositoryId: '' };
+    }
+  } catch {}
 }
 function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   const token = S.session?.token;
@@ -177,6 +205,8 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   personalPanels.clear();
   S.researchDraft = { question: '', urls: '', consent: false, unconfirmed: false };
   S.githubConnection=null;S.githubRepositories=null;S.githubDraft={question:'',repositoryId:''};S.githubUnconfirmed=false;
+  githubQuestionRestorePending = false;
+  try { sessionStorage.removeItem(GITHUB_QUESTION_KEY); } catch {}
   reviewedOutcomes = new Set(); reviewedScope = null;
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
@@ -255,7 +285,7 @@ function temporaryConnectionError(error) {
   return error.status === 429 || error.status >= 500
     || ['JEFF_NETWORK_FAILURE', 'JEFF_CHAIN_UNAVAILABLE', 'JEFF_SERVICE_UNAVAILABLE'].includes(error.message);
 }
-async function refresh({ quiet = false } = {}) {
+async function refresh({ quiet = false, github = false } = {}) {
   if (!S.session) return;
   clearTimeout(pollTimer);
   const version = S.version, sequence = ++refreshSequence, scope = S.session.scope;
@@ -276,7 +306,8 @@ async function refresh({ quiet = false } = {}) {
     }
     reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
-    if(!S.githubConnection)await refreshGithub();
+    restoreGithubQuestion();
+    if(github||!S.githubConnection)await refreshGithub();
     if(version!==S.version||sequence!==refreshSequence)return;
     if (reviewedScope !== scopeKey(scope)) {
       reviewedScope = scopeKey(scope);
@@ -355,6 +386,9 @@ function setTheme(theme) {
     element.setAttribute('aria-label', `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`);
     $('use', element)?.setAttribute('href', `#i-${theme === 'dark' ? 'sun' : 'moon'}`);
   }
+}
+function syncInspectorState() {
+  $('[data-action="toggle-inspector"]').setAttribute('aria-expanded', String(getComputedStyle($('#context-panel')).display !== 'none'));
 }
 function closeSidebar({ restoreFocus = true } = {}) {
   $('#sidebar').classList.remove('open'); $('#sidebar-backdrop').hidden = true;
@@ -453,7 +487,7 @@ function renderShell() {
   put('#context-agent-room', S.session ? account ? `Account · ${shortWallet(S.session.scope.owner)}` : `Clockers Room #${S.session.scope.tokenId}` : 'Connect an Agent NFT');
   $('#ownership-mark').hidden = !S.session || account;
   put('#context-owner-note', S.session ? account ? 'Private workspace controlled by your wallet' : `Holder epoch ${S.session.scope.ownerEpoch} · ${shortWallet(S.session.scope.owner)}` : 'Your wallet proves ownership');
-  put('#context-model', settings?.model?.replace(/^bankr\//, '') || '—');
+  put('#context-model', settings?.model?.replace(/^bankr\//, '') || '-');
   put('#context-last-run', S.jobs.length ? when(S.jobs[0].startedAt) : 'No runs yet');
   put('#context-host', S.config?.continuousHosting ? 'Simple JEFF · cloud' : 'Simple JEFF · local');
   put('#context-engine', S.config?.fixture ? 'Test fixture' : 'JEFF');
@@ -466,7 +500,7 @@ function renderShell() {
   $('use', pause).setAttribute('href', settings?.paused ? '#i-play' : '#i-pause');
   const quota = S.hosting?.usage;
   put('#context-credit-heading', prepaid() ? 'Inference credits' : 'Task allowance');
-  put('#context-credit', prepaid() ? dollars(S.usage.balance?.availableMicros) : quota ? String(quota.remaining) : '—');
+  put('#context-credit', prepaid() ? dollars(S.usage.balance?.availableMicros) : quota ? String(quota.remaining) : '-');
   put('#context-credit-unit', prepaid() ? 'available credits' : quota ? 'tasks remaining' : 'Sign in to view');
   put('#context-budget', prepaid() && settings ? `${dollars(settings.dailyBudgetMicros)} daily budget` : quota ? `${quota.used} of ${quota.limit} tasks used` : 'Usage stays visible');
   put('#context-credit-caption', prepaid() ? 'Prepaid ledger' : quota ? `${quota.hourlyRemaining}/10 this hour` : '');
@@ -478,6 +512,7 @@ function renderShell() {
   }
   $$('[data-action="new-session"]').forEach(element => { element.disabled = !signedIn() || S.busy; });
   renderAgents();
+  syncInspectorState();
 }
 
 const chatActionExpired = action => action?.type === 'schedule.create' && (Date.parse(action.parameters.expiresAt) <= Date.now()
@@ -658,6 +693,15 @@ function returnSummary() {
   }));
   return panel;
 }
+function admissionRecovery({ activity = false } = {}) {
+  if (!manualAdmissionUncertain()) return null;
+  const notice = node('section', 'state-notice manual-admission-recovery');
+  notice.append(node('p', '', 'The previous request could not be confirmed. Review saved work before preparing another run. Nothing will be sent automatically.'));
+  notice.append(activity
+    ? button('I checked Activity; prepare another run', 'prepare-manual-retry', null, 'button button-outline')
+    : button('Open Activity', 'open-chat-action', 'activity', 'button button-outline', { target: 'activity' }));
+  return notice;
+}
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
   if (!signedIn()) { view.append(empty(S.session ? 'Opening your workspace…' : 'A home for your Agent NFT.', S.session ? 'Checking ownership and loading saved work.' : 'Give your agent useful work. Keep conversations and memories together, and return to the results whenever you need them.', S.session ? null : ['Connect an Agent NFT', 'connect'])); return view; }
@@ -693,12 +737,17 @@ function renderChat() {
   for (const [title, prompt, iconName] of [['Plan a project', 'Help me plan a project. Ask me about my goal, constraints and deadline.', 'clock'], ['Shape an idea', 'Help me examine an idea. Ask me for the context and compare the main options.', 'spark'], ['Draft an update', 'Help me draft a community update. Ask me for the information and tone to use.', 'book']]) suggestions.append(button(title, 'suggestion', iconName, 'suggestion-chip', { prompt }));
   const form = node('form', 'composer'); form.id = 'composer-form';
   const input = node('textarea'); input.id = 'composer-input'; input.name = 'objective'; input.placeholder = `Give ${S.workspace.settings.name} something to work on…`; input.maxLength = 4000; input.rows = 2; input.required = true; input.value = S.draft;
-  const reason = allowanceReason(); input.disabled = Boolean(reason) && !running() && S.submission?.status !== 'sending';
+  input.setAttribute('aria-label', `Message ${agentName()}`);
+  const reason = allowanceReason(); input.disabled = Boolean(reason) && !running() && !manualAdmissionUncertain() && S.submission?.status !== 'sending';
   const lower = node('div', 'composer-bottom'), meta = node('div', 'composer-meta'); meta.append(icon('spark'), node('span', '', S.workspace.settings.model.replace(/^bankr\//, '')), pill('PRIVATE WORKSPACE'));
   const send = button('Send task', 'send-task', 'send', 'send-button'); send.type = 'submit'; send.setAttribute('aria-label', 'Send task'); send.disabled = Boolean(reason) || S.busy || !S.draft.trim();
   if (S.submission?.status === 'sending') { send.setAttribute('aria-label', 'Sending message'); send.setAttribute('aria-busy', 'true'); }
   lower.append(meta, send); form.append(input, lower);
-  composerWrap.append(suggestions, form, node('p', 'composer-footnote', reason || 'Enter to send · Shift + Enter for a new line · External tools and messaging are disabled.'));
+  const capabilityNote = S.config.webResearch?.enabled === true || S.githubConnection?.status === 'connected'
+    ? 'Use Skills & tools for authorized source reads. Outbound messaging is unavailable.'
+    : 'Source-reading tools and outbound messaging are unavailable.';
+  composerWrap.append(suggestions, form, node('p', 'composer-footnote', reason || `Enter to send · Shift + Enter for a new line · ${capabilityNote}`));
+  const recovery = admissionRecovery(); if (recovery) composerWrap.append(recovery);
   if (S.session.scope.kind === 'account' && (!S.hosting.active || Date.parse(S.hosting.expiresAt) <= Date.now())) {
     const actions = node('div', 'prompt-suggestions');
     actions.append(button('Open your Agent NFT', 'connect', 'link', 'button button-outline'));
@@ -709,6 +758,7 @@ function renderChat() {
 function renderActivity() {
   const view = page('A clear trail of work.', 'Actual runs and saved workspace changes. Open a receipt to see its status and result.', 'ACTIVITY');
   const actions = node('div', 'page-actions'); actions.append(button('Refresh activity', 'refresh', 'activity')); view.append(actions);
+  const recovery = admissionRecovery({ activity: true }); if (recovery) view.append(recovery);
   if (!S.jobs.length && !S.workspace.activity.length) { view.append(empty('No activity yet.', 'Your agent’s work and the changes you make will appear here.')); return view; }
   const jobs = section('Runs');
   for (const job of S.jobs) {
@@ -727,16 +777,14 @@ function renderActivity() {
 function renderSkills() {
   const view = page('Choose how your agent works.', 'Use available tools or choose prompt recipes to guide its responses.', 'SKILLS & TOOLS');
   view.append(githubConnectorPanel({connection:S.githubConnection,repositoryList:S.githubRepositories,draft:S.githubDraft,busy:S.busy,
-    uncertainAdmission:S.githubUnconfirmed||S.researchDraft.unconfirmed||Boolean(S.submission)||Boolean(allowanceReason()),
+    uncertainAdmission:manualAdmissionUncertain(),
+    blockedReason:allowanceReason()||(S.submission?'A conversation request is being sent. Wait for its status before preparing another run.':''),
     onDraft:draft=>{S.githubDraft=draft;},onRefresh:()=>mutate(refreshGithub),
-    onConnect:()=>mutate(async()=>{const value=await api('/api/connectors/github/authorize',{method:'POST',body:{}});const url=new URL(value.authorizationUrl);if(url.origin!=='https://github.com'||url.pathname!=='/login/oauth/authorize')throw new Error('JEFF_RESULT_INVALID');location.assign(url.href);}),
+    onConnect:()=>mutate(async()=>{const value=await api('/api/connectors/github/authorize',{method:'POST',body:{}});const url=new URL(value.authorizationUrl);if(url.origin!=='https://github.com'||url.pathname!=='/login/oauth/authorize')throw new Error('JEFF_RESULT_INVALID');saveGithubQuestion();location.assign(url.href);}),
     onDisconnect:()=>mutate(async()=>{const value=await api('/api/connectors/github',{method:'DELETE'});await refreshGithub();notify(value.providerRevoked?'GitHub disconnected here and provider token revoked.':'GitHub disconnected here. Provider token revocation was not confirmed.');}),
     onRead:readGithub,
   }));
-  if(S.githubUnconfirmed){
-    const reset=node('button','button button-outline','I checked Activity; prepare another GitHub read');reset.type='button';reset.disabled=S.busy;
-    reset.addEventListener('click',()=>{if(S.busy)return;S.githubUnconfirmed=false;S.githubDraft.repositoryId='';mutate(refreshGithub);});view.append(reset);
-  }
+  const recovery = admissionRecovery(); if (recovery) view.append(recovery);
   const enabled = S.config.webResearch?.enabled === true;
   const reader = section('Read public pages & JSON');
   reader.classList.add('research-tool');
@@ -754,7 +802,6 @@ function renderSkills() {
     const submit = button('Read these sources', 'read-pages', 'search', 'button button-primary'); submit.type = 'submit'; submit.disabled = S.busy || Boolean(allowanceReason()) || S.researchDraft.unconfirmed;
     form.append(question.wrap, urls.wrap, node('p', 'preview-info', `Permission applies to this run only. Reads up to ${S.config.webResearch.maxExcerptChars || 2400} text characters per source, without following links or redirects. Use public URLs that require no login, API key or access token. Results are saved in Conversation. Stop controls active work.`), label, submit);
     if (allowanceReason()) form.append(node('p', 'state-notice', allowanceReason()));
-    if (S.researchDraft.unconfirmed) form.append(node('p', 'state-notice', 'The previous request could not be confirmed. Check Activity before preparing another run.'), button('Open Activity', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }), button('I checked Activity; prepare another run', 'prepare-research-retry', null, 'button button-outline'));
     reader.append(form);
   } else reader.append(node('p', 'state-notice', 'Public-source reading is unavailable on this runtime. Prompt recipes below do not enable it.'));
   view.append(reader, node('h2', 'section-title', 'Prompt recipes'));
@@ -795,7 +842,14 @@ async function readGithub(input){
       await validateRecord(record,scope);if(version!==S.version)return;
       if(!JOB_ID.test(record.conversationId))throw new Error('JEFF_RESULT_INVALID');
       S.conversationId=record.conversationId;S.admitted=record;S.jobs=[record,...S.jobs.filter(job=>job.id!==record.id)];notifyRun(record.id,'GitHub read admitted. Its saved result will appear here.');go('chat');
-    }catch(error){if(version===S.version&&(temporaryConnectionError(error)||error.message==='JEFF_RESULT_INVALID'))S.githubUnconfirmed=true;throw error;}
+    }catch(error){
+      if(version===S.version){
+        if(['JEFF_GITHUB_CONNECTION_CHANGED','JEFF_GITHUB_NOT_CONNECTED','JEFF_GITHUB_RECONNECT_REQUIRED'].includes(error.message)){
+          S.githubDraft.repositoryId='';S.githubRepositories=null;await refreshGithub();
+        }else if(temporaryConnectionError(error)||error.message==='JEFF_RESULT_INVALID')S.githubUnconfirmed=true;
+      }
+      throw error;
+    }
   });
 }
 function renderMemory() {
@@ -820,7 +874,7 @@ function renderMemory() {
 function renderUsage() {
   const view = page('Know what your agent uses.', prepaid() ? 'Your wallet’s funded inference credits and reserved usage, alongside this NFT’s hosting task allowance.' : 'Model use is operator funded. This workspace has a task allowance, not a dollar credit balance or a provider billing cap.', 'USAGE & CREDITS');
   const stats = node('div', 'stats-grid'), quota = S.hosting?.usage;
-  stats.append(stat('TASKS REMAINING', quota ? String(quota.remaining) : '—', quota ? `${quota.used} used of ${quota.limit} this period` : 'Hosting details unavailable'), stat('HOURLY ALLOWANCE', quota ? `${quota.hourlyRemaining}/${quota.hourlyLimit}` : '—', quota?.hourlyResetsAt ? `Next slot ${when(quota.hourlyResetsAt)}` : 'Rolling hour'), stat(prepaid() ? 'AVAILABLE CREDITS' : 'MODEL FUNDING', prepaid() ? dollars(S.usage.balance.availableMicros) : 'Included', prepaid() ? 'Wallet-scoped prepaid balance' : 'Operator funded within task allowance'));
+  stats.append(stat('TASKS REMAINING', quota ? String(quota.remaining) : '-', quota ? `${quota.used} used of ${quota.limit} this period` : 'Hosting details unavailable'), stat('HOURLY ALLOWANCE', quota ? `${quota.hourlyRemaining}/${quota.hourlyLimit}` : '-', quota?.hourlyResetsAt ? `Next slot ${when(quota.hourlyResetsAt)}` : 'Rolling hour'), stat(prepaid() ? 'AVAILABLE CREDITS' : 'MODEL FUNDING', prepaid() ? dollars(S.usage.balance.availableMicros) : 'Included', prepaid() ? 'Wallet-scoped prepaid balance' : 'Operator funded within task allowance'));
   view.append(stats);
   const chart = section('Runs over the last seven days'); const columns = node('div', 'usage-chart live-usage-chart');
   const days = Array.from({ length: 7 }, (_, index) => { const date = new Date(); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - (6 - index)); const count = S.jobs.filter(job => { const time = Date.parse(job.startedAt); return time >= date.getTime() && time < date.getTime() + 86400000; }).length; return { date, count }; });
@@ -898,7 +952,7 @@ function renderSchedules() {
 function renderHosting() {
   const view = page('A home that stays available.', 'Simple JEFF hosts your agent workspace. Your hosting term stays with the NFT; private work stays with its holder epoch.', 'HOSTING');
   const hosting = S.hosting, quota = hosting?.usage;
-  const stats = node('div', 'stats-grid'); stats.append(stat('HOSTING', hosting.active ? 'Active' : 'Inactive', hosting.source ? hosting.source.replaceAll('-', ' ') : 'No current term'), stat('TASKS INCLUDED', quota ? String(quota.limit) : '—', quota ? `${quota.remaining} remaining` : ''), stat('TERM ENDS', hosting.expiresAt ? new Date(hosting.expiresAt).toLocaleDateString() : '—', hosting.expiresAt ? when(hosting.expiresAt) : 'Activate a hosting term')); view.append(stats);
+  const stats = node('div', 'stats-grid'); stats.append(stat('HOSTING', hosting.active ? 'Active' : 'Inactive', hosting.source ? hosting.source.replaceAll('-', ' ') : 'No current term'), stat('TASKS INCLUDED', quota ? String(quota.limit) : '-', quota ? `${quota.remaining} remaining` : ''), stat('TERM ENDS', hosting.expiresAt ? new Date(hosting.expiresAt).toLocaleDateString() : '-', hosting.expiresAt ? when(hosting.expiresAt) : 'Activate a hosting term')); view.append(stats);
   const pass = hosting.freePass;
   if (pass) {
     const card = section('Your NFT’s free month');
@@ -1060,8 +1114,9 @@ async function sendTask(event) {
       notifyRun(record.id, 'Run admitted. Its result will appear here.'); render();
     } catch (error) {
       if (version === S.version) {
-        if (S.draftVersion === draftVersion) { S.draft = originalDraft; S.submission = null; }
-        else S.submission = { objective, conversationId: selected?.id || null, status: 'unconfirmed' };
+        if (S.draftVersion === draftVersion) S.draft = originalDraft;
+        S.submission = temporaryConnectionError(error) || error.message === 'JEFF_RESULT_INVALID'
+          ? { objective, conversationId: selected?.id || null, status: 'unconfirmed' } : null;
       }
       throw error;
     }
@@ -1162,7 +1217,12 @@ document.addEventListener('click', async event => {
     S.researchDraft = { question: 'Report the latest OpenClaw release tag and publication date from this source. State whether release notes appear in the supplied excerpt, and identify missing or truncated coverage.', urls: 'https://api.github.com/repos/openclaw/openclaw/releases/latest', consent: false, unconfirmed: false };
     render(); $('#research-question')?.focus(); return;
   }
-  if (action === 'prepare-research-retry') { S.researchDraft.unconfirmed = false; S.researchDraft.consent = false; render(); return; }
+  if (action === 'prepare-manual-retry') {
+    if (!signedIn() || S.busy || S.view !== 'activity' || !manualAdmissionUncertain()) return;
+    S.githubUnconfirmed = false; S.researchDraft.unconfirmed = false; S.researchDraft.consent = false;
+    S.githubDraft.repositoryId = ''; if (S.submission?.status === 'unconfirmed') S.submission = null;
+    render(); notify('New runs are available after your Activity review. Review the draft and authorize any new run explicitly.'); return;
+  }
   if (action === 'review-outcomes') {
     if (!signedIn() || element.dataset.scope !== scopeKey(S.session.scope)) return;
     const shown = parseReviewed(element.dataset.ids);
@@ -1188,7 +1248,7 @@ document.addEventListener('click', async event => {
   if (action === 'theme') { setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); return; }
   if (action === 'command-view') { go(element.dataset.view); return; }
   if (action === 'logout') { clearPrivate(); $('#connect-dialog').close(); notify('Signed out. Private content was cleared from this tab.'); return; }
-  if (action === 'refresh') { await refresh(); return; }
+  if (action === 'refresh') { await refresh({ github: true }); return; }
   if (action === 'discover-agents') { if (openConnection('nft')) await connect({ discoverOnly: true }); return; }
   if (action === 'select-agent') { if (element.dataset.token === S.session?.scope.tokenId) return; if (openConnection('nft')) await connect({ preferredToken: element.dataset.token }); return; }
   if (action === 'switch-network') {
@@ -1218,7 +1278,7 @@ document.addEventListener('click', async event => {
     const selected = conversation(); await mutate(async () => {
       await api(`/api/conversations/${selected.id}`, { method: 'DELETE' });
       if (S.admitted?.conversationId === selected.id) S.admitted = null;
-      if (S.submission?.conversationId === selected.id) S.submission = null;
+      if (S.submission?.conversationId === selected.id && S.submission.status !== 'unconfirmed') S.submission = null;
     }, 'Conversation removed.'); return;
   }
   if (action === 'toggle-skill') { const skill = S.workspace.skills.find(item => item.id === element.dataset.id); if (skill) await mutate(() => api('/api/workspace/skills', { method: 'PATCH', body: { id: skill.id, enabled: !skill.enabled } }), 'Prompt recipe saved.'); return; }
@@ -1262,7 +1322,11 @@ $('#connect-mode').addEventListener('change', event => {
 $('#command-search').addEventListener('input', renderCommands);
 document.addEventListener('input', event => {
   const element = event.target;
-  if (element.closest('#research-form')) S.researchDraft = { ...S.researchDraft, question: $('#research-question').value, urls: $('#research-urls').value, consent: $('#research-consent').checked };
+  if (element.closest('#research-form')) {
+    const consent = $('#research-consent');
+    if (['research-question', 'research-urls'].includes(element.id)) consent.checked = false;
+    S.researchDraft = { ...S.researchDraft, question: $('#research-question').value, urls: $('#research-urls').value, consent: consent.checked };
+  }
   if (element.id === 'composer-input') { S.draft = element.value; S.draftVersion++; const send = $('[data-action="send-task"]'); if (send) send.disabled = S.busy || Boolean(allowanceReason()) || !S.draft.trim(); element.style.height = 'auto'; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }
   if (['memory-title', 'memory-text'].includes(element.id)) S.memoryDraft[element.id === 'memory-title' ? 'title' : 'text'] = element.value;
   if (element.id === 'payment-hash') { S.paymentHash = element.value; if (element.value.trim()) S.paymentSubmitted = true; }
@@ -1335,7 +1399,7 @@ document.addEventListener('submit', async event => {
 });
 document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openDialog('#command-dialog'); return; }
-  if (event.key === 'Escape') { if ($('#sidebar').classList.contains('open')) { event.preventDefault(); closeSidebar(); } $('#context-panel').classList.remove('open'); return; }
+  if (event.key === 'Escape') { if ($('#sidebar').classList.contains('open')) { event.preventDefault(); closeSidebar(); } $('#context-panel').classList.remove('open'); syncInspectorState(); return; }
   if (event.target.id === 'composer-input' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('#composer-form')?.requestSubmit(); }
   if (event.key === 'Tab' && mobile.matches && $('#sidebar').classList.contains('open')) {
     const items = $$('button:not(:disabled),a[href]', $('#sidebar')).filter(element => !element.hidden && element.offsetParent !== null);
@@ -1349,6 +1413,7 @@ document.addEventListener('keydown', event => {
     const current = items.indexOf(document.activeElement); event.preventDefault(); items[(current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
   }
 });
+window.addEventListener('resize', syncInspectorState);
 window.addEventListener('hashchange', () => { const next = location.hash.slice(1); if (pages.some(([id]) => id === next)) { S.view = next; render(); } });
 mobile.addEventListener('change', () => closeSidebar({ restoreFocus: false }));
 document.addEventListener('visibilitychange', () => {

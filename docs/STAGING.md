@@ -1,4 +1,4 @@
-# JEFF staging acceptance - 9 October 2026
+# JEFF staging acceptance - updated 10 October 2026
 
 Staging: https://jeff-staging-jeff-staging.up.railway.app
 
@@ -8,22 +8,28 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `c6a3a9417bdc05d6799a1e44bb403bf4e7959b47` |
+| Application source | `275fae7be2bce2e9bde404c059e5aee0b81d7a17` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `eddce389-d351-4385-bce1-f42a154ca671` |
+| Current deployment | `5fda4a12-6d21-4d2d-b0cc-f05311473787` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
-Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. Prepaid inference accounting, paid checkout, free passes and external tools remain disabled. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
+Current evidence: the reviewed GitHub implementation is deployed with GitHub unconfigured. All 28 public files and 31 container source modules matched this candidate; its temporary verification key was revoked. The recorded implementation suite passed 434 tests, with 41 focused connector checks and a signed-route fixture browser check included in independent review. A read-only public recheck on 10 October matched all 28 served files and confirmed 401 responses for unsigned workspace and connector requests. Real GitHub authorization, repository reading, saved-result reload and disconnect have not been accepted.
+
+Daily encrypted staging backups and the separate always-on Railway monitor are active. The monitor runs source `df094c7`, deployment `db2cf73b-3d31-4480-b4f7-4f3fa13ea7c1`, and checks the application source above with a 28-hour backup freshness limit. Live health at `2026-10-10T12:49Z` reported a healthy target and no alert destination. Independent key retention, tested external alert delivery, four holder observations and production promotion remain open. The monitor, application and bucket share Railway. See [current operations](OPERATIONS-20261010.md) and [release checklist](CHECKLIST.md).
+
+Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. On staging, prepaid inference accounting, paid checkout, free passes and general execution tools remain disabled. The supplied HTML/JSON reader is enabled; GitHub remains unconfigured. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
 
 Return-summary update: all 27 public files match source; health/source/CSP/private-route checks and monitor pass. Five local fixture browser checks and three filtering/storage/scope tests pass. Independent UX and reviewer served-delta review passed for the displayed-ID binding and readability fixes on 4846aba. Review markers contain only job IDs, are local to this browser, and are separated by NFT/holder/ownership epoch. They are not synchronized across devices.
 
 Public-page reader candidate: `c6a3a94`; backend review passed and the capability is enabled. Local evidence: 401/401 full tests before the narrow linear-parser delta; eight reader checks pass after it, seven actual-renderer source-link checks, six integrated browser checks using real HTTPS with a simulated model, and one isolated genuine provider turn with durable post-shutdown reload. A subsequent Railway-egress operator turn passed with real HTTPS, the real provider, saved sources and post-shutdown reload. All 28 runtime source hashes match; global npm is absent; the temporary verification key is revoked. Operator checks are not live holder acceptance. See [reader scope](WEB-RESEARCH.md).
 
-## Verified
+## Recorded verification evidence
+
+The following evidence belongs to the named historical candidates. It is retained without claiming that every suite or holder observation was repeated on the current deployment.
 
 - The preceding backup/monitoring candidate `124c6f4` passed **301/301 automated tests** with a fresh isolated OpenClaw `2026.9.9` installation; all ten focused encrypted-export/client checks passed again after final hardening. Its frontend had **49/49 fixture browser checks**. These are historical results for that candidate, rather than a repeat of both full suites for the later wording update. Coverage includes account/NFT session isolation, expiry/logout races, scheduled cancellation, restored-storage execution guards, missing known ledgers, split UTF-8 requests, two-tab Settings conflicts, late wallet callbacks, hosting admission, private memory, automatic GET recovery, safe formatted replies, scoped agent identity, editable drafts, encrypted exports/storage restores and bounded public monitoring.
 - A clean source installation passed production dependency installation, OpenClaw CLI verification, health/shutdown/restart checks and 15 focused runtime/restore tests. It used no shared `node_modules`.
@@ -89,7 +95,7 @@ The replacement process retrieved the original operator result at `2026-10-09T08
 
 The broader review in release `2ff9a91` reproduced and fixed eight bug groups: schedule cancellation during a pending admission check; authentication completing after logout/session expiry or challenge expiry; split UTF-8 request chunks corrupting stored Chinese text or emoji; missing known hosting ledgers resetting quotas/free passes; missing known inference databases losing financial history; Settings drafts becoming stuck on stale revisions and failed refresh notices; late wallet callbacks changing another session's notices/payment lock; and operator-funded manual inference bypassing the restore guard. Regression tests demonstrated the prior failures. Restored workspaces remain readable, while all new model execution stays blocked until reconciliation.
 
-Validation used a fresh isolated dependency installation: **285/285 automated tests** and **49/49 browser checks** passed with OpenClaw `2026.9.9`, including actual CLI requests to a local fixture provider. The original pilot's shared dependencies were untouched. The production dependency audit improved from seven findings to five, with three high and two moderate reports remaining inside bundled npm components. Attempts with upstream npm `11.21.0` and `12.2.0` did not remove those reports; no override is shipped. These remain open findings, not a claim of a clean audit. See `docs/RELEASE.md` and the before/after registry reports under `evidence/release/`.
+Validation used a fresh isolated dependency installation: **285/285 automated tests** and **49/49 browser checks** passed with OpenClaw `2026.9.9`, including actual CLI requests to a local fixture provider. The original pilot's shared dependencies were untouched. The production dependency audit improved from seven findings to five, with three high and two moderate reports remaining inside bundled npm components. Attempts with upstream npm `11.21.0` and `12.2.0` did not remove those reports; no override is shipped. Those were open findings for source `2ff9a91`; the later denial-package replacement and clean installed-tree audit are recorded in current operations. See `docs/RELEASE.md` and the before/after registry reports under `evidence/release/`.
 
 The bug-fix deployment passed **12/12 live public checks at 16:58 Asia/Taipei**, with exact source and asset hashes, ready health, public Room #35 discovery/challenge, unsigned private-route rejection and safe desktop/mobile Markdown rendering. Both browser sizes reported zero JavaScript, console/CSP or external-request errors and no horizontal overflow. No holder session, private workspace or model invocation was used. The pre-deploy HTTP metadata check observed zero accepted tasks in the preceding ten minutes; its sanitized receipt is `evidence/staging/bug-audit-deploy-precheck.json`.
 
@@ -111,15 +117,17 @@ The receipt-UI deployment passed **12/12 live public checks at 18:59 Asia/Taipei
 
 Release `6c07af2` adds scoped memory and schedule actions to conversations. Explicit literal memory instructions can save the requested note; other proposals show their exact contents before confirmation. Schedule drafts disclose timing, timezone, run limit, expiry and workspace delivery, and require explicit authorization. Confirmations are idempotent, preserved across reload and isolated by signed workspace; rejected or uncertain responses recover through GET without replay. The saved-envelope client also supports guarded offline recovery after download expiry. All **371/371 automated tests**, **49/49 broad browser checks** and **17/17 chat-action browser checks** passed.
 
-The chat-action deployment passed **12/12 live public checks at 21:36 Asia/Taipei**. Startup retrieved the original operator result at `2026-10-09T13:36:21.424Z` with `modelRerun: false`; the monitor passed against the exact source. Reports are `evidence/staging/chat-actions-live-smoke.json`, `chat-actions-restart-persistence.json` and `chat-actions-release.json`. These checks used no holder signature, private holder workspace or new inference. Existing scheduling is now accepted by holder report; pause/cancellation remains separate. Production and disabled payment, free-pass, credits and external-tool flags are unchanged.
+The chat-action deployment passed **12/12 live public checks at 21:36 Asia/Taipei**. Startup retrieved the original operator result at `2026-10-09T13:36:21.424Z` with `modelRerun: false`; the monitor passed against the exact source. Reports are `evidence/staging/chat-actions-live-smoke.json`, `chat-actions-restart-persistence.json` and `chat-actions-release.json`. These checks used no holder signature, private holder workspace or new inference. Existing scheduling is now accepted by holder report; pause/cancellation remains separate. Production was unchanged; staging payment, free-pass, credits and external-tool flags remained disabled at that deployment.
 
-The [five-minute public workstation monitor](MONITORING.md) is registered under the current user's limited interactive principal, and its pin was updated for each successful release. Its initial backup-release sample passed at `2026-10-09T10:01:49.437Z`. It needs the workstation on and user logged in; there is no outside alert delivery or independently hosted monitor. A bounded 12-request sample passed but does not establish production throughput. The [production migration/rollback procedure](PROMOTION.md) preserves the existing production volume and records the legacy maintenance-marker incompatibility. Production has not been changed.
+At the 9 October baseline, the [five-minute public workstation monitor](MONITORING.md) was registered under the current user's limited interactive principal, and its pin was updated for each successful release. Its initial backup-release sample passed at `2026-10-09T10:01:49.437Z`. It needs the workstation on and user logged in; there was no outside alert delivery or cloud monitor at that point. The later always-on Railway service is recorded above; external alert delivery remains open. The bounded 12-request sample does not establish production throughput. The [production migration/rollback procedure](PROMOTION.md) preserves the existing production volume and records the legacy maintenance-marker incompatibility. Production has not been changed.
 
 The existing schedule/run check is holder-reported complete. Outstanding holder observations are pause/cancellation, an explicit Memory-view reload and a new conversation continuation turn.
 
 Any remaining scheduled run consumes the pilot task allowance. The operator runtime check does not substitute for this holder acceptance.
 
-## Backup status
+## Historical backup and recovery evidence
+
+These 9 October captures and recovery drills precede the daily encrypted bucket backups activated on 10 October. Recurring staging backup/upload/readback/restore evidence and the independent monitored restore are recorded in [current operations](OPERATIONS-20261010.md). Independent retention of recovery keys outside the host and this workstation is still unverified.
 
 An isolated Railway volume snapshot was created through its authenticated HTTPS API at `2026-10-09T05:13:06.593Z`: backup `6a5df0d6-e428-4466-8ae3-91c6b2d9818a`. It is listed by the provider. The terminal workflow query returned **Not Authorized**, so completion and restoration are not counted as verified. No restore ran. [Railway volume backups](https://docs.railway.com/volumes/backups)
 
@@ -143,11 +151,14 @@ The temporary recovery deployment was stopped with provider confirmation `deploy
 
 ## Remaining acceptance
 
-1. Confirm an explicit Memory-view reload and one new conversation continuation turn. Memory recall has passed by holder screenshot evidence. Holder sign-in, a completed saved response and saved-conversation reload have passed; the conversation reload was confirmed by the holder on candidate `124c6f4`.
-2. Carry forward the completed holder-reported schedule/run check. Pause/cancellation remains separate.
-3. Complete independent key retention and configure recurring off-machine backups. Guarded replacement cloud service/volume recovery and restart, isolated storage restores and one encrypted off-host capture have passed. Provider-credential recovery and post-checkpoint reconciliation remain separate.
-4. Check production capacity and independent always-on monitoring with a tested alert destination before a wider holder pilot. The configured workstation monitor and short public sample do not establish those gates.
-5. Approve a funded credit policy and payment configuration before enabling their corresponding features. Token relaunch and automatic token-holder distributions remain separate.
-6. Resolve the five remaining bundled npm findings before widening the service or enabling additional runtime tools. The current restricted text-only workflow has a documented finite reachability assessment, not a clean audit.
+1. Record the four remaining live holder observations: chat-action cards, an explicit Memory-view reload, a new conversation continuation turn and pause/cancellation. Sign-in, saved-conversation reload, memory recall and the holder-reported schedule/run check remain accepted and should not be requested again.
+2. Complete independent retention of recovery keys and verify recovery access. Recurring encrypted staging backups, isolated storage restores and guarded replacement recovery/restart have passed. Production backup activation and post-checkpoint reconciliation remain separate. The encrypted production-configuration round trip does not establish recovery access after loss of this workstation.
+3. Configure an approved external alert destination and verify labeled failure/recovery delivery. The always-on Railway monitor is running; no real delivery has been verified. It shares the application provider and does not establish Railway-wide outage coverage.
+4. Refresh the production inventory/checkpoint immediately before promoting the exact reviewed candidate on the existing volume, then verify saved work and entitlements. Production remains on `4a014572`; staging changes do not activate or deactivate production features.
+5. Configure the operator-owned read-only GitHub App and independently retained connector key, then verify real authorization, a permitted repository read, saved-result reload and disconnect. Fixture and unconfigured-staging checks do not deliver this connector.
+6. Document RPC/provider quotas and measure broader production capacity before widening the pilot. The two-job operator check, parent-process memory samples and short public reachability sample are bounded evidence only.
+7. Approve a funded credit policy and payment configuration before enabling their corresponding features. Token relaunch and automatic token-holder distributions remain separate.
+
+The five bundled npm findings belong to the 9 October assessment. The later reviewed denial-package replacement and package-manager removal produced a fresh installed-tree audit with zero findings, with exact-container hardening evidence. This resolves those dependencies for the restricted runtime; it does not patch upstream npm or authorize additional runtime tools. See [dependency assessment](DEPENDENCY-ASSESSMENT.md).
 
 Public smoke reports and screenshots are in the local ignored `evidence/staging/` folder. Provider keys and backup encryption keys are excluded. Production remains on deployment `3dbc3610-d799-4c0a-8133-ac727759559d`, source `4a0145727279d22e0db0394b0da0ea5ff3ace03e`.

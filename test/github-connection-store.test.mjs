@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import{mkdtemp,rm,readFile,writeFile,copyFile}from'node:fs/promises';import{resolve}from'node:path';import{randomBytes,createHash}from'node:crypto';
+import{mkdtemp,rm,readFile,writeFile,copyFile,readdir}from'node:fs/promises';import{resolve}from'node:path';import{randomBytes,createHash}from'node:crypto';
 import{createGithubConnectionStore,createGithubAuthorizationStates}from'../src/github-connection-store.mjs';import{scopeId}from'../src/scope.mjs';
 const scope={chainId:4663,collection:'0x'+'33'.repeat(20),tokenId:'35',owner:'0x'+'12'.repeat(20),ownerEpoch:0};
 const transferred={...scope,owner:'0x'+'34'.repeat(20),ownerEpoch:1};
@@ -21,6 +21,15 @@ test('disconnect tombstone survives restart and prevents stale pending authoriza
 });
 test('concurrent grants with the same generation have one winner',async t=>{
  const f=await fixture(t),outcomes=await Promise.allSettled([f.store.replace(scope,null,credential),f.store.replace(scope,null,{...credential,login:'another'})]);assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);assert.equal(outcomes.filter(x=>x.status==='rejected').length,1);
+});
+
+test('grant authority is checked after temporary sync and denial preserves the previous grant',async t=>{
+ const f=await fixture(t),prior=await f.store.replace(scope,null,credential),original=await readFile(f.file(scope),'utf8'),directory=resolve(f.dataRoot,'connectors/github');let checked=false;
+ await assert.rejects(f.store.replace(scope,prior.generation,{...credential,login:'other'},{beforeCommit:async()=>{
+   checked=true;assert.ok((await readdir(directory)).some(file=>file.endsWith('.tmp')));
+   assert.equal(await readFile(f.file(scope),'utf8'),original);throw new Error('JEFF_SESSION_REVOKED');
+ }}),/JEFF_SESSION_REVOKED/);
+ assert.equal(checked,true);assert.deepEqual(await f.store.read(scope),prior);assert.equal((await readdir(directory)).length,1);
 });
 test('authorization state binds session and epoch, supplies S256 and is consumed once',()=>{
  const states=createGithubAuthorizationStates(),issued=states.issue({scope,session:'session-a',generation:null}),consumed=states.consume({state:issued.state,scope,session:'session-a'});

@@ -12,18 +12,25 @@ export function githubJobRequest(input){
 // Pending bearer tokens live only in this process for the five-minute exchange.
 // The browser receives an independent HttpOnly binding, never its bearer in a URL.
 export function createGithubConnector({store,provider,authenticate,authorizeScope,requireExecution=()=>{},cancel=()=>{},now=()=>Date.now()}){
-  const states=createGithubAuthorizationStates({now}),pending=new Map();
+  const states=createGithubAuthorizationStates({now}),pending=new Map(),listings=new Map();
   const prune=()=>{for(const[key,value]of pending)if(value.expiresAt<=now())pending.delete(key);};
   const authority=async(scope,session)=>{
-    if(session){const current=await authenticate(session);if(scopeId(current)!==scopeId(scope))throw failure('AUTHORITY_CHANGED');}
     await authorizeScope(scope);
+    if(session){const current=await authenticate(session);if(scopeId(current)!==scopeId(scope))throw failure('AUTHORITY_CHANGED');}
   };
   const configured=()=>{if(!store||!provider)throw failure('NOT_CONFIGURED');};
   const usable=value=>{
     if(!value.credential)throw failure('NOT_CONNECTED');
     if(value.credential.reconnectRequired||!Number.isFinite(value.credential.expiresAt)||value.credential.expiresAt<=now())throw failure('RECONNECT_REQUIRED');
   };
-  async function assert(scope,generation,session){configured();requireExecution();await authority(scope,session);const value=await store.read(scope);if(value.generation!==generation)throw failure('CONNECTION_CHANGED');usable(value);return value;}
+  async function assert(scope,generation,session){
+    configured();requireExecution();await authority(scope,session);
+    const value=await store.read(scope);
+    // Storage can wait behind another guarded commit. Authenticate again after
+    // that queue drains before admitting a provider call or a model execution.
+    await authority(scope,session);requireExecution();
+    if(value.generation!==generation)throw failure('CONNECTION_CHANGED');usable(value);return value;
+  }
   async function providerRead(scope,value,work){
     try{return await work();}
     catch(error){
@@ -55,28 +62,34 @@ export function createGithubConnector({store,provider,authenticate,authorizeScop
       requireExecution();await authority(context.scope,context.session);
       const prior=await store.read(context.scope);if(prior.generation!==attempt.generation)throw failure('CONNECTION_CHANGED');
       const credential=await provider.exchange({code,verifier:attempt.verifier});
-      try{requireExecution();await authority(context.scope,context.session);await store.replace(context.scope,attempt.generation,credential);}
+      try{requireExecution();await authority(context.scope,context.session);await store.replace(context.scope,attempt.generation,credential,{beforeCommit:async()=>{requireExecution();await authority(context.scope,context.session);requireExecution();}});}
       catch(error){await provider.revoke(credential.accessToken).catch(()=>{});throw error;}
       return true;
     },
     assert,
     async repositories(scope,session){
-      configured();const value=await store.read(scope);await assert(scope,value.generation,session);
-      const result=await providerRead(scope,value,()=>provider.repositories(value.credential.accessToken));
-      await assert(scope,value.generation,session);return{generation:value.generation,...result};
+      configured();const key=scopeId(scope),controller=new AbortController();
+      if(!listings.has(key))listings.set(key,new Set());listings.get(key).add(controller);
+      try{
+        const value=await store.read(scope);
+        const checkpoint=async()=>{if(controller.signal.aborted)throw failure('CANCELLED');await assert(scope,value.generation,session);if(controller.signal.aborted)throw failure('CANCELLED');};
+        await checkpoint();
+        const result=await providerRead(scope,value,()=>provider.repositories(value.credential.accessToken,controller.signal,checkpoint));
+        await checkpoint();return{generation:value.generation,...result};
+      }finally{const active=listings.get(key);active?.delete(controller);if(!active?.size)listings.delete(key);}
     },
     async read(scope,input,{session,signal}={}){
       const request=githubJobRequest(input),value=await assert(scope,request.generation,session);
-      const result=await providerRead(scope,value,()=>provider.latest(value.credential.accessToken,request.repositoryId,signal));
+      const result=await providerRead(scope,value,()=>provider.latest(value.credential.accessToken,request.repositoryId,signal,()=>assert(scope,request.generation,session)));
       await assert(scope,request.generation,session);if(signal?.aborted)throw failure('CANCELLED');return result;
     },
     async commit(scope,generation,work,session){
       configured();requireExecution();await authority(scope,session);
-      return store.guard(scope,generation,async value=>{usable(value);requireExecution();await authority(scope,session);return work();});
+      return store.guard(scope,generation,async value=>{usable(value);requireExecution();await authority(scope,session);requireExecution();return work();});
     },
     async disconnect(scope,session){
       configured();await authority(scope,session);
-      const value=await store.disconnect(scope);cancel(scope);
+      const value=await store.disconnect(scope);for(const controller of listings.get(scopeId(scope))??[])controller.abort();cancel(scope);
       for(const[key,context]of pending)if(scopeId(context.scope)===scopeId(scope))pending.delete(key);
       let providerRevoked=false;if(value.credential)try{providerRevoked=await provider.revoke(value.credential.accessToken)===true;}catch{}
       return{localDisconnected:true,providerRevoked};

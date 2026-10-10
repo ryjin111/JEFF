@@ -12,7 +12,7 @@ export function createJobRecordPersister({ renameImpl = rename, sleepImpl = slee
   if (typeof renameImpl !== 'function' || typeof sleepImpl !== 'function') {
     throw new TypeError('JEFF_JOB_RECORD_CONFIG_INVALID');
   }
-  return async function persistRecord(directory, record) {
+  return async function persistRecord(directory, record, { commit } = {}) {
     if (typeof directory !== 'string' || !directory.trim() || !JOB_ID.test(record?.id ?? '')) {
       throw new Error('JEFF_JOB_RECORD_INVALID');
     }
@@ -32,7 +32,8 @@ export function createJobRecordPersister({ renameImpl = rename, sleepImpl = slee
       handle = undefined;
       for (let attempt = 0; ; attempt++) {
         try {
-          await renameImpl(temporary, file);
+          if(commit)await commit(()=>renameImpl(temporary,file));
+          else await renameImpl(temporary, file);
           ownsTemporary = false;
           return;
         } catch (error) {
