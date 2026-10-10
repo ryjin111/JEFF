@@ -8,16 +8,18 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 
 | Item | Value |
 | --- | --- |
-| Application source | `cd44f8d48be8258a8a0f8050429e05ef39bac8c1` |
+| Application source | `47c634ca11dedf83434b27ea42d070e8ed5247fe` |
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `7a08eb36-712e-4ea3-8b96-80624546817b` |
+| Current deployment | `6dea4a97-61e7-4b32-ae70-d17bf34511ea` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
 
 Provider credentials are stored in Railway service variables and omitted from all reports. Staging currently uses the existing JEFF provider credential, so its model use shares that provider billing capacity. Prepaid inference accounting, paid checkout, free passes and external tools remain disabled. Room #35 has an explicit staging pilot through **16 October 2026, 23:59 Asia/Taipei**. Its hosting allowance is 100 tasks, with the existing ten-task rolling hourly limit.
+
+Return-summary update: all 27 public files match source; health/source/CSP/private-route checks and monitor pass. Five local fixture browser checks and three filtering/storage/scope tests pass. Independent review of this UI delta is pending. Review markers contain only job IDs, are local to this browser, and are separated by NFT/holder/ownership epoch. They are not synchronized across devices.
 
 ## Verified
 
