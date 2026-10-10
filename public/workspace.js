@@ -727,6 +727,9 @@ function renderSkills() {
   reader.append(pill(enabled ? 'Available' : 'Unavailable', enabled ? 'success' : ''), node('p', 'preview-info', 'Read up to 3 public HTTPS pages or JSON endpoints you provide and save an answer with sources. For example, summarize a public GitHub releases endpoint. This tool does not search the web.'));
   if (enabled) {
     const form = node('form', 'research-form'); form.id = 'research-form';
+    const example = button('Try an OpenClaw release example', 'research-example', 'arrow', 'text-button');
+    example.disabled = S.busy || S.researchDraft.unconfirmed;
+    form.append(example, node('p', 'preview-info', 'Fills a public GitHub JSON link and a question. Review them and authorize the run below.'));
     const question = field('Question about these sources', 'research-question', { type: 'textarea', value: S.researchDraft.question, maxLength: 4000, rows: 2 });
     const urls = field('Public HTTPS links, one per line', 'research-urls', { type: 'textarea', value: S.researchDraft.urls, maxLength: 6000, rows: 3 });
     $('textarea', question.wrap).required = true; $('textarea', urls.wrap).required = true;
@@ -1107,6 +1110,11 @@ async function payInvoice() {
 document.addEventListener('click', async event => {
   const element = event.target.closest('button'); if (!element || element.disabled) return;
   const action = element.dataset.action;
+  if (action === 'research-example') {
+    if (!signedIn() || S.busy || S.researchDraft.unconfirmed || S.config.webResearch?.enabled !== true) return;
+    S.researchDraft = { question: 'Report the latest OpenClaw release tag and publication date from this source. State whether release notes appear in the supplied excerpt, and identify missing or truncated coverage.', urls: 'https://api.github.com/repos/openclaw/openclaw/releases/latest', consent: false, unconfirmed: false };
+    render(); $('#research-question')?.focus(); return;
+  }
   if (action === 'prepare-research-retry') { S.researchDraft.unconfirmed = false; S.researchDraft.consent = false; render(); return; }
   if (action === 'review-outcomes') {
     if (!signedIn() || element.dataset.scope !== scopeKey(S.session.scope)) return;
