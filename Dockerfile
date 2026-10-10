@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY vendor/ ./vendor/
 RUN npm ci --omit=dev --no-audit --no-fund
+COPY src/runtime-hardening.mjs ./src/runtime-hardening.mjs
+RUN JEFF_IMAGE_BUILD=true node src/runtime-hardening.mjs
 COPY src/ ./src/
 COPY public/ ./public/
 ENV NODE_ENV=production JEFF_BIND=0.0.0.0 JEFF_DATA_ROOT=/data

@@ -11,7 +11,9 @@
     "preview:release": "node scripts/release-preview.mjs",
     "smoke": "node --env-file-if-exists=.env scripts/runtime-smoke.mjs"
   },
+  "overrides": { "npm": "$npm" },
   "dependencies": {
+    "npm": "file:vendor/jeff-disabled-npm-1.0.0.tgz",
     "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.1-5909a4d.tgz",
     "openclaw": "2026.9.9",
     "viem": "2.57.3"

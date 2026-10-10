@@ -1,0 +1,11 @@
+{
+  "name": "@jeff/disabled-npm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Explicit fail-closed replacement for OpenClaw's unused hosted package manager",
+  "license": "MIT",
+  "main": "index.cjs",
+  "bin": { "npm": "bin/npm-cli.js", "npx": "bin/npx-cli.js" },
+  "files": ["index.cjs", "bin", "README.md"],
+  "jeffPackageManagementDisabled": true
+}

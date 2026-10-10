@@ -1,5 +1,6 @@
 ﻿import { createJeffApplication } from './application.mjs';
 
+import { createRecurringBackup } from './recurring-backup.mjs';
 const { prepareStartupBackup } = await import('./startup-backup.mjs');
 let backupExport;
 try { backupExport = await prepareStartupBackup(); }
@@ -9,16 +10,22 @@ catch (error) {
 }
 const app = await createJeffApplication({ backupExport });
 if (backupExport) console.log(JSON.stringify(backupExport.receipt));
-process.on('SIGUSR2', () => app.maintenance.pause()
+let operatorPaused = false;
+process.on('SIGUSR2', () => { operatorPaused = true; app.maintenance.pause()
   .then(marker => { if (marker) console.log(JSON.stringify({ event: 'JEFF_MAINTENANCE_READY', ...marker })); })
-  .catch(() => console.error('JEFF_MAINTENANCE_DRAIN_FAILED')));
-process.on('SIGCONT', () => app.maintenance.resume().catch(() => console.error('JEFF_MAINTENANCE_RESUME_FAILED')));
+  .catch(() => console.error('JEFF_MAINTENANCE_DRAIN_FAILED')); });
+process.on('SIGCONT', () => {
+  operatorPaused = false;
+  if (!recurringBackup.isCapturing() && !closing) app.maintenance.resume().catch(() => console.error('JEFF_MAINTENANCE_RESUME_FAILED'));
+});
 let closing = false;
+const recurringBackup = createRecurringBackup({ maintenance: app.maintenance, canResume: () => !closing && !operatorPaused });
+recurringBackup.start();
 const shutdown = () => {
   if (closing) return;
   closing = true;
   backupExport?.dispose();
-  app.close().then(() => process.exit(0)).catch(() => process.exit(1));
+  recurringBackup.stop().then(() => app.close()).then(() => process.exit(0)).catch(() => process.exit(1));
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

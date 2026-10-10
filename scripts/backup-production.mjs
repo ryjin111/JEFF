@@ -20,10 +20,12 @@ function restrictWindows(path, directory = false) {
 }
 restrictWindows(keyPath);
 const moduleSource = await readFile(resolve(root, 'src/backup.mjs'), 'utf8');
+const maintenanceSource = await readFile(resolve(root, 'src/backup-maintenance.mjs'), 'utf8');
 const program = `
 import { readdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 const backup = await import('data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}');
+const { backupMarkerPath, backupDrainReady } = await import('data:text/javascript;base64,${Buffer.from(maintenanceSource).toString('base64')}');
 async function processes() {
   const found=[];
   for (const name of await readdir('/proc')) {
@@ -40,8 +42,8 @@ const servers=(await processes()).filter(p=>p.args.some(a=>/^(?:\\/app\\/)?src\\
 if (servers.length!==1) throw new Error('BACKUP_SINGLE_SERVER_REQUIRED');
 const server=servers[0];
 if (!process.env.JEFF_DATA_ROOT || process.env.JEFF_DATA_ROOT!=='/data') throw new Error('BACKUP_DATA_ROOT_UNEXPECTED');
-const { resolveMaintenanceMarkerPath } = await import('/app/src/maintenance.mjs');
-const markerPath = resolveMaintenanceMarkerPath();
+const maintenance = await import('/app/src/maintenance.mjs');
+const markerPath = backupMarkerPath(maintenance, process.env);
 const status=await readFile('/proc/'+server.pid+'/status','utf8');
 if(!(BigInt('0x'+status.match(/^SigCgt:\\s+(\\w+)/m)[1]) & (1n<<11n))) throw new Error('BACKUP_MAINTENANCE_HANDLER_REQUIRED');
 try { await readFile(markerPath); throw new Error('BACKUP_ALREADY_IN_MAINTENANCE'); }
@@ -53,7 +55,7 @@ try {
   process.kill(server.pid,'SIGUSR2'); pausedAt=new Date().toISOString();
   let ready=false;
   for(let attempt=0;attempt<100;attempt++) {
-    try { ready=JSON.parse(await readFile(markerPath,'utf8')).status==='ready'; } catch {}
+    try { ready=backupDrainReady(JSON.parse(await readFile(markerPath,'utf8')), {pid:server.pid,releaseSha:process.env.JEFF_RELEASE_SHA}); } catch {}
     if(ready) break;
     await new Promise(resolve=>setTimeout(resolve,100));
   }
