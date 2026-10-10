@@ -23,7 +23,7 @@ Builder owns activation, integration and promotion. Destination/access inputs an
 
 ## Complete the broader product
 
-- [ ] Since your last visit: saved/failed outcomes, result links and explicit holder-scoped review state. Implemented on staging `47c634c`; five fixture browser checks and three unit checks pass. Independent review pending.
+- [ ] Since your last visit: saved/failed outcomes, result links and explicit holder-scoped review state. Implemented in staging candidate `4846aba`; five fixture browser checks and three unit checks pass. Local UX review passed after readability/displayed-ID fixes; served-delta review pending.
 - [ ] First public-web research capability with source-linked saved results, real backend availability, scoped permissions, deliberate retry and Stop. Jester owns UX; Builder implements; Resu reviews isolation and execution before activation.
 - [ ] Expand useful skills/tools and connected-app workflows after that first capability passes acceptance.
 
