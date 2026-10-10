@@ -2,7 +2,9 @@
 
 The personal-agent release is being hardened on staging. Production remains on `4a0145727279d22e0db0394b0da0ea5ff3ace03e`; no production source upgrade, payment activation or holder-data overwrite has occurred.
 
-Application candidate: `cd44f8d` on staging deployment `7a08eb36-712e-4ea3-8b96-80624546817b`. The operations suite passed 386/386 before the narrow startup/shutdown delta; 47 application/maintenance/recurring checks passed after the final correction, including held-child cancellation and durable terminal persistence.
+Current reviewed application candidate: `c6a3a9417bdc05d6799a1e44bb403bf4e7959b47` on staging deployment `eddce389-d351-4385-bce1-f42a154ca671`. The supplied-page reader is enabled. Independent review matched all 28 recorded container source hashes; Railway operator evidence records real HTTPS/provider execution and durable sourced-result reload. This isolated check used a hosting stub with credits disabled and does not replace holder acceptance. The preceding full suite passed 401/401; all eight reader checks passed after the final linear-parser hardening. See `evidence/research/railway-provider-proof.json` and `container-proof.json`.
+
+Historical operations baseline: `cd44f8d` on staging deployment `7a08eb36-712e-4ea3-8b96-80624546817b`. The operations suite passed 386/386 before the narrow startup/shutdown delta; 47 application/maintenance/recurring checks passed after the final correction, including held-child cancellation and durable terminal persistence.
 
 Independent source/container review passed for `cd44f8d48be8258a8a0f8050429e05ef39bac8c1`, deployed image `sha256:f7323c3958850c82b9a1719b5566d3aaf0b70c8ef645f28772671af0ef3c14ea`. Review checked the server process root, all 27 source hashes, six global manager paths, the local disabled package and seven shutdown/failure tests. The dedicated inspection SSH key was revoked after review. Sanitized proof is archived in the delivery folder as `independent-container-proof.json`.
 
