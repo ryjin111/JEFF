@@ -20,7 +20,8 @@ process.env.JEFF_PAID_CHECKOUT_ENABLED = 'false';
 process.env.JEFF_FREE_PASS_ENABLED = 'false';
 const app = await createJeffApplication({ origin, dataRoot: resolve(root, 'data'), publicRoot, fixture: true,
   env: { PORT: String(port), JEFF_PUBLIC_ORIGIN: origin, JEFF_CHAIN_ID: '4663', JEFF_COLLECTION: collection,
-    JEFF_ALLOWED_MODELS: 'bankr/fixture-model', JEFF_CONTINUOUS_HOSTING: 'true' },
+    JEFF_ALLOWED_MODELS: 'bankr/fixture-model', JEFF_CONTINUOUS_HOSTING: 'true',
+    JEFF_WEB_RESEARCH_ENABLED: process.env.JEFF_PREVIEW_WEB_RESEARCH === 'true' ? 'true' : 'false' },
   resolveOwner: async scope => ({ owner, ownerEpoch: 0 }),
   discoverNfts: async ({ wallet }) => ({ chainId: 4663, collection, wallet: wallet.toLowerCase(), tokenIds: wallet.toLowerCase() === owner ? tokenIds : [],
     balance: wallet.toLowerCase() === owner ? tokenIds.length : 0, blockNumber: '100', complete: true }),

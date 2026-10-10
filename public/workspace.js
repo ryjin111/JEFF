@@ -15,7 +15,7 @@ const pages = [
 ];
 const S = { config: null, session: null, workspace: null, jobs: [], hosting: null, schedules: [], usage: null,
   inventory: null, wallet: null, mode: 'nft', view: 'chat', conversationId: null, draft: '', draftVersion: 0, submission: null, admitted: null, busy: false, authBusy: false,
-  memoryDraft: { title: '', text: '' }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
+  memoryDraft: { title: '', text: '' }, researchDraft: { question: '', urls: '', consent: false, unconfirmed: false }, settingsDraft: null, scheduleDraft: null, invoice: null, decimals: null,
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [],
   actionConsent: new Set(), actionRequests: new Map() };
 let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
@@ -173,6 +173,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.invoice = null; S.decimals = null; S.paymentHash = ''; S.paymentSubmitted = false; S.busy = false; S.authBusy = false; S.runNotice = null;
   S.actionConsent.clear(); S.actionRequests.clear();
   personalPanels.clear();
+  S.researchDraft = { question: '', urls: '', consent: false, unconfirmed: false };
   reviewedOutcomes = new Set(); reviewedScope = null;
   $$('.receipt-dialog').forEach(dialog => dialog.remove());
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
@@ -719,14 +720,32 @@ function renderActivity() {
   view.append(jobs, changes); return view;
 }
 function renderSkills() {
-  const view = page('Give your agent direction.', `Choose the prompt recipes ${agentName()} uses to approach your work. These guide its responses; they do not grant access to websites, shell commands or messaging.`, 'SKILLS & TOOLS');
+  const view = page('Choose how your agent works.', 'Use available tools or choose prompt recipes to guide its responses.', 'SKILLS & TOOLS');
+  const enabled = S.config.webResearch?.enabled === true;
+  const reader = section('Read public pages');
+  reader.classList.add('research-tool');
+  reader.append(pill(enabled ? 'Available' : 'Unavailable', enabled ? 'success' : ''), node('p', 'preview-info', 'Read up to 3 public HTTPS pages you provide and save an answer with sources. This tool does not search the web.'));
+  if (enabled) {
+    const form = node('form', 'research-form'); form.id = 'research-form';
+    const question = field('Question about these pages', 'research-question', { type: 'textarea', value: S.researchDraft.question, maxLength: 4000, rows: 2 });
+    const urls = field('Public HTTPS links, one per line', 'research-urls', { type: 'textarea', value: S.researchDraft.urls, maxLength: 6000, rows: 3 });
+    $('textarea', question.wrap).required = true; $('textarea', urls.wrap).required = true;
+    const label = node('label', 'checkbox-row'), consent = node('input'); consent.type = 'checkbox'; consent.id = 'research-consent'; consent.required = true; consent.checked = S.researchDraft.consent;
+    label.append(consent, node('span', '', 'Allow this run to read the public pages listed above. This run uses my hosting allowance and any active prepaid credits.'));
+    const submit = button('Read these pages', 'read-pages', 'search', 'button button-primary'); submit.type = 'submit'; submit.disabled = S.busy || Boolean(allowanceReason()) || S.researchDraft.unconfirmed;
+    form.append(question.wrap, urls.wrap, node('p', 'preview-info', `Permission applies to this run only. Reads up to ${S.config.webResearch.maxExcerptChars || 2400} text characters per page, without following links or redirects. Results are saved in Conversation. Stop controls active work.`), label, submit);
+    if (allowanceReason()) form.append(node('p', 'state-notice', allowanceReason()));
+    if (S.researchDraft.unconfirmed) form.append(node('p', 'state-notice', 'The previous request could not be confirmed. Check Activity before preparing another run.'), button('Open Activity', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }), button('I checked Activity; prepare another run', 'prepare-research-retry', null, 'button button-outline'));
+    reader.append(form);
+  } else reader.append(node('p', 'state-notice', 'Public-page reading is unavailable on this runtime. Prompt recipes below do not enable it.'));
+  view.append(reader, node('h2', 'section-title', 'Prompt recipes'));
   const grid = node('div', 'skills-grid');
   for (const skill of S.workspace.skills) {
     const card = node('article', 'skill-card'), top = node('div', 'skill-card-top'), glyph = node('span', 'skill-icon'); glyph.append(icon(skill.id === 'writing' ? 'book' : skill.id === 'analysis' ? 'search' : 'clock'));
     const toggle = button(`${skill.enabled ? 'Disable' : 'Enable'} ${skill.name}`, 'toggle-skill', null, 'toggle-switch', { id: skill.id }); toggle.replaceChildren(); toggle.setAttribute('role', 'switch'); toggle.setAttribute('aria-checked', String(skill.enabled)); toggle.setAttribute('aria-label', `${skill.name} prompt recipe`); toggle.disabled = S.busy;
     top.append(glyph, toggle); card.append(top, node('span', 'eyebrow', 'PROMPT RECIPE'), node('h2', '', skill.name), node('p', '', skill.description), pill(skill.enabled ? 'Enabled' : 'Disabled')); grid.append(card);
   }
-  view.append(grid, node('p', 'state-notice tools-notice', 'External tools, shell execution, wallet spending and outbound messages are disabled in this hosted release. Turning on a recipe does not grant these capabilities.'));
+  view.append(grid, node('p', 'state-notice tools-notice', 'Prompt recipes do not grant tool access. Shell execution, wallet spending and outbound messages are unavailable.'));
   return view;
 }
 function renderMemory() {
@@ -1088,6 +1107,7 @@ async function payInvoice() {
 document.addEventListener('click', async event => {
   const element = event.target.closest('button'); if (!element || element.disabled) return;
   const action = element.dataset.action;
+  if (action === 'prepare-research-retry') { S.researchDraft.unconfirmed = false; S.researchDraft.consent = false; render(); return; }
   if (action === 'review-outcomes') {
     if (!signedIn() || element.dataset.scope !== scopeKey(S.session.scope)) return;
     const shown = parseReviewed(element.dataset.ids);
@@ -1128,7 +1148,7 @@ document.addEventListener('click', async event => {
     if (await refresh({ quiet: true }) && version === S.version) notify(chatActionOutcome(jobId));
     return;
   }
-  if (action === 'open-chat-action') { if (['memory', 'schedules'].includes(element.dataset.target)) go(element.dataset.target); return; }
+  if (action === 'open-chat-action') { if (['memory', 'schedules', 'activity'].includes(element.dataset.target)) go(element.dataset.target); return; }
   if (action === 'new-session') { if (S.busy) return; S.draft = ''; S.draftVersion++; await mutate(() => newConversation(), 'New conversation created.'); go('chat'); return; }
   if (action === 'suggestion') { S.draft = element.dataset.prompt; S.draftVersion++; render(); $('#composer-input')?.focus(); return; }
   if (action === 'reset-settings-draft') { if (S.busy) return; S.settingsDraft = null; render(); notify('Latest saved settings loaded.'); return; }
@@ -1187,6 +1207,7 @@ $('#connect-mode').addEventListener('change', event => {
 $('#command-search').addEventListener('input', renderCommands);
 document.addEventListener('input', event => {
   const element = event.target;
+  if (element.closest('#research-form')) S.researchDraft = { ...S.researchDraft, question: $('#research-question').value, urls: $('#research-urls').value, consent: $('#research-consent').checked };
   if (element.id === 'composer-input') { S.draft = element.value; S.draftVersion++; const send = $('[data-action="send-task"]'); if (send) send.disabled = S.busy || Boolean(allowanceReason()) || !S.draft.trim(); element.style.height = 'auto'; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }
   if (['memory-title', 'memory-text'].includes(element.id)) S.memoryDraft[element.id === 'memory-title' ? 'title' : 'text'] = element.value;
   if (element.id === 'payment-hash') { S.paymentHash = element.value; if (element.value.trim()) S.paymentSubmitted = true; }
@@ -1205,6 +1226,29 @@ document.addEventListener('change', event => {
   if (event.target.closest('#settings-form') || event.target.closest('#schedule-form')) event.target.dispatchEvent(new Event('input', { bubbles: true }));
 });
 document.addEventListener('submit', async event => {
+  if (event.target.id === 'research-form') {
+    event.preventDefault();
+    if (!signedIn() || S.busy || allowanceReason() || S.config.webResearch?.enabled !== true || S.researchDraft.unconfirmed) return;
+    const draft = { ...S.researchDraft }, urls = draft.urls.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    if (!draft.consent || !draft.question.trim()) return;
+    if (urls.length < 1 || urls.length > Math.min(3, S.config.webResearch.maxSources || 3) || urls.some(value => { try { const url = new URL(value); return url.protocol !== 'https:' || Boolean(url.username || url.password); } catch { return true; } })) { notify('Enter 1 to 3 public HTTPS links, one per line, without embedded credentials.', true); return; }
+    const version = S.version, scope = S.session.scope, selected = conversation();
+    S.researchDraft.consent = false;
+    await mutate(async () => {
+      try {
+        const record = await api('/api/jobs', { method: 'POST', body: { objective: draft.question.trim(), timeZone: browserTimeZone(), research: { urls, consent: true }, ...(selected ? { conversationId: selected.id } : {}) } });
+        await validateRecord(record, scope);
+        if (version !== S.version) return;
+        if (!JOB_ID.test(record.conversationId)) throw new Error('JEFF_RESULT_INVALID');
+        S.conversationId = record.conversationId; S.admitted = record; S.jobs = [record, ...S.jobs.filter(job => job.id !== record.id)];
+        notifyRun(record.id, 'Page-reading run admitted. Its result will appear here.'); go('chat');
+      } catch (error) {
+        if (version === S.version && (temporaryConnectionError(error) || error.message === 'JEFF_RESULT_INVALID')) S.researchDraft.unconfirmed = true;
+        throw error;
+      }
+    });
+    return;
+  }
   if (event.target.id === 'composer-form') { await sendTask(event); return; }
   if (!['memory-form', 'settings-form', 'schedule-form', 'payment-form'].includes(event.target.id)) return;
   event.preventDefault();

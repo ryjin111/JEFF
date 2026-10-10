@@ -72,6 +72,9 @@ html[data-theme=dark] .skill-icon,html[data-theme=dark] .chart-bar{border-color:
 .personal-responsibility strong { display:block; font-size:14px; overflow-wrap:anywhere; }
 .return-summary { margin-bottom:16px; }
 .return-summary h2 { font-size:16px; margin:0 0 8px; }
+.research-tool .preview-info,.research-tool .text-button { color:var(--subtle); font-size:13px; line-height:1.6; }
+.research-form textarea { width:100%; min-height:80px; resize:vertical; overflow-wrap:anywhere; }
+.research-form .checkbox-row { margin:16px 0; }
 .return-summary .text-button { min-height:36px; font-size:13px; }
 .return-summary .preview-info,.return-summary .text-button { color:var(--subtle); }
 .personal-context .text-button { min-height:36px; font-size:13px; }

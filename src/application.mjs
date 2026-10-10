@@ -19,6 +19,7 @@ import { createInferenceGateway } from './inference-gateway.mjs';
 import { scopeId } from './scope.mjs';
 import { chatTimeZone, decodeChatResponse, directMemoryRequest, validateScheduleProposal } from './chat-actions.mjs';
 import { createJobRecordPersister } from './job-records.mjs';
+import { researchRequest, readResearchPages, researchAnswer, WEB_RESEARCH_LIMITS } from './web-research.mjs';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const strict = (input, fields) => {
@@ -83,6 +84,7 @@ export async function createJeffApplication(options = {}) {
   if (gateway) await gateway.start();
   const runner = options.runAgent || createOpenClawRunner({ env, allowedModels });
   const modelConfigured = Boolean(options.runAgent || env.BANKR_LLM_API_KEY);
+  const researchEnabled = env.JEFF_WEB_RESEARCH_ENABLED === 'true';
   const maximumJobs = Number(env.JEFF_MAX_CONCURRENT_JOBS || 2);
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 16) throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
   let admittedJobs = 0, closing = false, closePromise;
@@ -119,6 +121,15 @@ export async function createJeffApplication(options = {}) {
       const inferenceGateway = gateway?.issue({ jobId: args.jobId, scope: args.scope, model: context.settings.model.slice(6),
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
       const manual = binding.source === 'manual';
+      let research;
+      if (binding.research) {
+        if (!manual || !researchEnabled) throw new Error('JEFF_RESEARCH_DENIED');
+        await authorizeScope(args.scope);
+        research = await (options.readResearchPages || readResearchPages)(binding.research.urls, { signal: controller.signal });
+        if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+        await authorizeScope(args.scope);
+        requireExecution();
+      }
       const liveResponsibility = item => item.status === 'active' && Date.parse(item.expiresAt) > Date.now() && item.runs.length < item.maxRuns;
       const responsibilities = manual ? (await scheduler.list(args.scope))
         .sort((a, b) => Number(liveResponsibility(b)) - Number(liveResponsibility(a))
@@ -131,10 +142,15 @@ export async function createJeffApplication(options = {}) {
         lastRun: item.runs.length ? { status: item.runs.at(-1).status, finishedAt: item.runs.at(-1).finishedAt } : null,
       })) : [];
       const result = await runner({ ...args, signal: controller.signal, executionContext: { ...context, history,
-        responsibilities,
-        chatActions: { enabled: manual, now: new Date().toISOString(), timeZone: binding.timeZone } }, inferenceGateway });
+        responsibilities, ...(research ? { research } : {}),
+        chatActions: { enabled: manual && !research, now: new Date().toISOString(), timeZone: binding.timeZone } }, inferenceGateway });
       if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
       requireExecution();
+      if (research) {
+        await authorizeScope(args.scope);
+        if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');
+        return { ...result, text: researchAnswer(result.text, research) };
+      }
       const decoded = decodeChatResponse(result.text);
       if (!manual) return { ...result, text: decoded.action
         ? 'Scheduled work cannot create additional memory notes or schedules. No new action was applied.' : decoded.text };
@@ -160,7 +176,12 @@ export async function createJeffApplication(options = {}) {
 
   async function submit(scope, input) {
     requireExecution();
-    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone']);
+    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research']);
+    let research;
+    if (Object.hasOwn(input, 'research')) {
+      if (!researchEnabled || input.source === 'schedule') throw new Error('JEFF_RESEARCH_DENIED');
+      research = researchRequest(input.research);
+    }
     const timeZone = chatTimeZone(input.timeZone);
     if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) throw new Error('JEFF_OBJECTIVE_INVALID');
     if (!modelConfigured) throw new Error('JEFF_MODEL_NOT_CONFIGURED');
@@ -183,7 +204,7 @@ export async function createJeffApplication(options = {}) {
       await hosting.requireActive(scope);
       requireExecution();
       if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
-      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone });
+      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone, research });
       const record = await hosting.startJob(scope, () => {
         requireExecution();
         return activeBridge(scope).start(scope, input.objective.trim());
@@ -273,7 +294,9 @@ export async function createJeffApplication(options = {}) {
   const config = () => ({ product: 'JEFF', stage: options.fixture ? 'development-fixture' : env.JEFF_CONTINUOUS_HOSTING === 'true' ? 'hosted' : 'local',
     fixture: Boolean(options.fixture), chainId, collection, releaseSha: env.JEFF_RELEASE_SHA || null, modelConfigured,
     billingEnabled: hosting.enabled, continuousHosting: env.JEFF_CONTINUOUS_HOSTING === 'true', standaloneAccounts: true,
-    toolsEnabled: false, schedulesEnabled: !restoreBlocked(), restoreBlocked: restoreBlocked(), creditsEnabled, allowedModels, plan: hosting.plan, freePassEnabled: hosting.freePassEnabled });
+    toolsEnabled: false, webResearch: { enabled: researchEnabled && modelConfigured && !restoreBlocked(), maxSources: WEB_RESEARCH_LIMITS.maxSources,
+      maxBytes: WEB_RESEARCH_LIMITS.maxBytes, maxExcerptChars: WEB_RESEARCH_LIMITS.maxExcerptChars },
+    schedulesEnabled: !restoreBlocked(), restoreBlocked: restoreBlocked(), creditsEnabled, allowedModels, plan: hosting.plan, freePassEnabled: hosting.freePassEnabled });
   const server = createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
@@ -331,7 +354,7 @@ export async function createJeffApplication(options = {}) {
         }
         if (method === 'DELETE' && /^\/api\/schedules\//.test(route)) return send(response, 200, await scheduler.cancel(scope, route.split('/').at(-1)));
         if (method === 'POST' && route === '/api/jobs') {
-          const input = strict(await body(request), ['objective', 'conversationId', 'timeZone']);
+          const input = strict(await body(request), ['objective', 'conversationId', 'timeZone', 'research']);
           return send(response, 202, (await submit(scope, input)).record);
         }
         const chatActionMatch = route.match(/^\/api\/chat\/actions\/([a-f0-9-]{36})\/(apply|dismiss)$/);
@@ -364,7 +387,7 @@ export async function createJeffApplication(options = {}) {
     } catch (error) {
       const message = /^JEFF_[A-Z_]+$/.test(error.message) ? error.message : error.code === 'ENOENT' ? 'JEFF_ROUTE_NOT_FOUND' : 'JEFF_SERVICE_UNAVAILABLE';
       const status = /SESSION|OWNER|SIGNATURE|CHALLENGE/.test(message) ? 401 : /NOT_FOUND/.test(message) ? 404 : /INVALID|TOO_LARGE/.test(message) ? 400
-        : /CONFLICT|BUSY|PAUSED|CHAT_ACTION_(?:NOT_READY|EXPIRED)/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED|CHAT_ACTION_DENIED/.test(message) ? 403 : 503;
+        : /CONFLICT|BUSY|PAUSED|CHAT_ACTION_(?:NOT_READY|EXPIRED)/.test(message) ? 409 : /INSUFFICIENT|ALLOWANCE_EXHAUSTED|USAGE_LIMIT|DAILY_LIMIT/.test(message) ? 429 : /FREE_PASS_DENIED|CHAT_ACTION_DENIED|RESEARCH_DENIED/.test(message) ? 403 : 503;
       if (status >= 500) {
         const event = { event: 'JEFF_REQUEST_FAILED', method: ['GET', 'POST', 'PATCH', 'DELETE', 'HEAD'].includes(request.method) ? request.method : 'OTHER',
           route: diagnosticRoute, status, error: message, ...failureDetails(error) };

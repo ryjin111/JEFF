@@ -1,0 +1,17 @@
+# Read public pages
+
+This is the first host-mediated web capability for OpenClaw-backed Agent NFTs. It answers a question about one to three public HTTPS pages explicitly supplied by the signed holder. It does not discover sources through web search or grant arbitrary OpenClaw tools, shell access or connected-account permissions.
+
+The backend flag `JEFF_WEB_RESEARCH_ENABLED=true` enables the capability when a model is configured and storage is not restore-guarded. The default is disabled. The UI reads actual availability from `/api/config`, preserves the question and URLs after failure, and requires fresh consent for every submitted attempt. A request whose admission is uncertain requires deliberate Activity review before retry.
+
+Consent is part of the signed manual job request, scoped by the existing NFT/holder/ownership-epoch session. The endpoint accepts `research: { urls: [...], consent: true }`. Research is rejected on scheduled submissions. A manual research run cannot authorize recurring reads. Hosting, pause, concurrency, inference admission, Stop, maintenance and ownership checks remain in effect. An admitted failed retrieval consumes the normal task allowance; no provider call is made if every page fails.
+
+The host reads each supplied page with native HTTPS, pins a checked public IPv4 address, and sends no cookies, bearer tokens or model credentials. Private, link-local, shared, documentation, multicast/reserved addresses, IP-literal URLs, alternate ports, embedded credentials, redirects, non-text bodies and compressed bodies are rejected. IPv6-only sources are unavailable in this slice. Per-page limits are eight seconds, 128 KiB received and 2,400 extracted text characters. HTML text extraction is deliberately simple; it is not a browser or a full-page/archive reader.
+
+Ownership is rechecked before retrieval, after retrieval and before the result returns. Page text is untrusted evidence in the model context. OpenClaw's own tools remain denied. Research runs bypass all memory/schedule action decoding, including direct-memory requests. Stop aborts both DNS waiting and active HTTP work before the model, or the runtime child after it starts.
+
+The host appends authoritative supplied URLs, retrieval timestamps and excerpt coverage to the same durable saved result. Model-created Markdown links/images are converted to prose using the same lexer as the UI; numbered citations are linked only to retrieved host sources. These links establish which pages were retrieved, not automatic verification that every generated claim is supported. Partial coverage is explicit; zero retrieved pages fail the run. Reloading a result does not fetch pages or call the model again.
+
+Verification includes unsafe/mixed DNS, address pinning, redirect/content/body limits, Stop during DNS/HTTP, consent and schedule rejection, ownership transfer, action-envelope suppression, saved-result restart, seven adversarial cases against the actual Markdown renderer, and six integrated browser checks using real HTTPS pages with a simulated model. Real-provider staging verification and independent final review remain pending until recorded separately. Isolated fixture evidence is not live holder acceptance.
+
+For local development, `JEFF_PREVIEW_WEB_RESEARCH=true` enables real public HTTPS reads in the disposable preview. The model, signing wallet and ownership remain simulated; use only public non-sensitive URLs. This switch is excluded from the hosted application entrypoint.
