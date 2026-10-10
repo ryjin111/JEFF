@@ -17,7 +17,7 @@ export function createMonitorAlerts({ url, bearer, fetchImpl = fetch } = {}) {
 }
 
 export async function deliverMonitorTransition(previous, current, observation, alerts) {
-  const event = current.alertActive ? 'failure' : previous?.deliveredAlert === 'failure' ? 'recovery' : null;
+  const event = current.alertActive ? 'failure' : observation.ok === true && previous?.deliveredAlert === 'failure' ? 'recovery' : null;
   if (!event || current.alertActive && previous?.deliveredAlert === 'failure') return { ...current, deliveredAlert: previous?.deliveredAlert || null };
   try {
     const sent = await alerts.send({ event, origin: observation.origin, observedAt: observation.observedAt,

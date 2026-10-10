@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { resolve, dirname, relative, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -178,4 +179,26 @@ test('Windows source-tree isolation is case insensitive', { skip: process.platfo
   const before = await inventory(f.dataRoot);
   await assert.rejects(restoreBackup({ archive: encryptBackup(snapshot, key), key, parent: f.dataRoot }), /JEFF_BACKUP_RESTORE_SOURCE_DENIED/);
   assert.deepEqual(await inventory(f.dataRoot), before);
+});
+
+test('Windows restored plaintext excludes broad inherited access without changing the parent ACL', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t);
+  await put(f.dataRoot, 'holder/private.txt', 'harmless private fixture');
+  execFileSync('icacls.exe', [f.parent, '/grant', '*S-1-5-11:(OI)(CI)(M)', '*S-1-5-32-545:(OI)(CI)(RX)'], { stdio: 'pipe', windowsHide: true });
+  const acl = path => {
+    const literal = path.replaceAll("'", "''");
+    const command = `(Get-Acl -LiteralPath '${literal}').Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } | ConvertTo-Json -Compress`;
+    return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true }));
+  };
+  const before = acl(f.parent);
+  assert.ok(before.includes('S-1-5-11'));
+  assert.ok(before.includes('S-1-5-32-545'));
+  const archive = encryptBackup(await captureBackup({ dataRoot: f.dataRoot, writersQuiesced: true }), key);
+  const restored = await restoreBackup({ archive, key, parent: f.parent });
+  const identity = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true }).match(/S-1-\d+(?:-\d+)+/i)[0];
+  for (const path of [restored.root, resolve(restored.root, 'holder'), resolve(restored.root, 'holder/private.txt')]) {
+    assert.deepEqual([acl(path)].flat(), [identity]);
+  }
+  assert.deepEqual(acl(f.parent), before);
+  assert.equal(await readFile(resolve(restored.root, 'holder/private.txt'), 'utf8'), 'harmless private fixture');
 });

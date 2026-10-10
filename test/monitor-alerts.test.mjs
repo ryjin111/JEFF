@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMonitorAlerts, deliverMonitorTransition } from '../scripts/monitor-alerts.mjs';
+import { nextMonitorState } from '../scripts/uptime-monitor.mjs';
 test('monitor sends only configured HTTPS alerts and reports failed delivery without exposing the URL', async () => {
   assert.throws(() => createMonitorAlerts({ url: 'http://alerts.example' }), /CONFIG_INVALID/);
   let body;
@@ -17,15 +18,47 @@ test('monitor sends only configured HTTPS alerts and reports failed delivery wit
 });
 test('outage alerts retry until accepted, deduplicate success and deliver recovery once', async () => {
   let calls = 0;
-  const observation = { origin: 'https://jeff.example', observedAt: new Date().toISOString(), checks: [{ name: 'health', ok: false }] };
+  const observation = { origin: 'https://jeff.example', observedAt: new Date().toISOString(), ok: false, checks: [{ name: 'health', ok: false }] };
+  const healthy = { ...observation, ok: true, checks: [{ name: 'health', ok: true }] };
   const alerts = { send: async () => { calls++; if (calls === 1) throw new Error('failure'); return true; } };
   const current = { alertActive: true };
   let state = await deliverMonitorTransition(null, current, observation, alerts);
   assert.equal(state.alertDeliveryError, true); assert.equal(state.deliveredAlert, null);
   state = await deliverMonitorTransition(state, current, observation, alerts); assert.equal(state.deliveredAlert, 'failure');
   state = await deliverMonitorTransition(state, current, observation, alerts); assert.equal(calls, 2);
-  state = await deliverMonitorTransition(state, { alertActive: false }, observation, alerts); assert.equal(state.deliveredAlert, 'recovery');
-  await deliverMonitorTransition(state, { alertActive: false }, observation, alerts); assert.equal(calls, 3);
+  state = await deliverMonitorTransition(state, { alertActive: false }, healthy, alerts); assert.equal(state.deliveredAlert, 'recovery');
+  await deliverMonitorTransition(state, { alertActive: false }, healthy, alerts); assert.equal(calls, 3);
+});
+
+test('failed recovery delivery waits for a healthy probe through a renewed outage before retrying', async () => {
+  const calls = [];
+  let rejectRecovery = true, state, sample = 0;
+  const alerts = { send: async value => {
+    calls.push({ event: value.event, failedChecks: value.failedChecks });
+    if (value.event === 'recovery' && rejectRecovery) { rejectRecovery = false; throw new Error('temporary delivery failure'); }
+    return true;
+  } };
+  const probe = async ok => {
+    const observation = { origin: 'https://jeff.example', rpcHost: 'rpc.example',
+      observedAt: new Date(1760000000000 + sample++ * 60000).toISOString(), ok, checks: [{ name: 'health', ok }] };
+    state = await deliverMonitorTransition(state, nextMonitorState(state, observation), observation, alerts);
+  };
+  for (const ok of [false, false, false, true]) await probe(ok);
+  assert.equal(state.deliveredAlert, 'failure');
+  assert.equal(state.alertDeliveryError, true);
+  for (const ok of [false, false, false]) {
+    await probe(ok);
+    assert.equal(state.deliveredAlert, 'failure');
+    assert.equal(calls.length, 2);
+  }
+  await probe(true);
+  assert.equal(state.deliveredAlert, 'recovery');
+  await probe(true);
+  assert.deepEqual(calls, [
+    { event: 'failure', failedChecks: ['health'] },
+    { event: 'recovery', failedChecks: [] },
+    { event: 'recovery', failedChecks: [] },
+  ]);
 });
 test('synthetic alerts do not claim observed application health', async () => {
   const messages = [];

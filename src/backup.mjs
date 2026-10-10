@@ -1,4 +1,5 @@
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readdir, lstat, readFile, writeFile, mkdir, realpath, mkdtemp } from 'node:fs/promises';
 import { resolve, relative, dirname, sep, isAbsolute } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -84,6 +85,13 @@ export async function restoreBackup({ archive, key, parent }) {
   const destinationParent = await realpath(parent);
   if (inside(destinationParent, resolve(snapshot.sourceRoot))) throw new Error('JEFF_BACKUP_RESTORE_SOURCE_DENIED');
   const root = await mkdtemp(resolve(destinationParent, 'jeff-isolated-restore-'));
+  // POSIX modes do not restrict Windows ACLs. Secure this new, empty root
+  // before creating any plaintext; descendants inherit only the current user.
+  if (process.platform === 'win32') {
+    const identity = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true }).match(/S-1-\d+(?:-\d+)+/i)?.[0];
+    if (!identity) throw new Error('JEFF_BACKUP_RESTORE_ACL_FAILED');
+    execFileSync('icacls.exe', [root, '/inheritance:r', '/grant:r', `*${identity}:(OI)(CI)(F)`], { stdio: 'pipe', windowsHide: true });
+  }
   for (const file of snapshot.files) {
     const path = resolve(root, file.path);
     if (!inside(path, root)) throw new Error('JEFF_BACKUP_PATH_INVALID');
