@@ -12,7 +12,7 @@ This is a separate JEFF service and volume. The existing hosted pilot continues 
 | Railway project | `ec9d2cd1-0714-425b-9bfa-2392fee7c7a8` |
 | Environment | `jeff-staging` / `f5fd75b1-27d8-46e7-81dd-88abde70eba0` |
 | Service | `jeff-staging` / `b527c9ed-5728-4f14-83f6-bca5bc28ad8b` |
-| Current deployment | `155ed5da-f2d7-4837-b9c9-da543fc3c59f` |
+| Current deployment | `eddce389-d351-4385-bce1-f42a154ca671` |
 | Deployment status | Success; live public checks passed |
 | Isolated volume | `69c4a618-e0a1-45c7-ae76-3bb366ea0c78`, mounted at `/data` |
 | Staging ownership/discovery RPC | `https://robinhood-rpc.publicnode.com` |
@@ -21,7 +21,7 @@ Provider credentials are stored in Railway service variables and omitted from al
 
 Return-summary update: all 27 public files match source; health/source/CSP/private-route checks and monitor pass. Five local fixture browser checks and three filtering/storage/scope tests pass. Independent UX and reviewer served-delta review passed for the displayed-ID binding and readability fixes on 4846aba. Review markers contain only job IDs, are local to this browser, and are separated by NFT/holder/ownership epoch. They are not synchronized across devices.
 
-Public-page reader candidate: `c6a3a94`; backend capability flag remains OFF pending independent final review. Local evidence: 401/401 full tests before the narrow linear-parser delta; eight reader checks pass after it, seven actual-renderer source-link checks, six integrated browser checks using real HTTPS with a simulated model, and one isolated genuine provider turn with durable post-shutdown reload. The operator test is not holder acceptance or Railway-egress proof. See [reader scope](WEB-RESEARCH.md).
+Public-page reader candidate: `c6a3a94`; backend review passed and the capability is enabled. Local evidence: 401/401 full tests before the narrow linear-parser delta; eight reader checks pass after it, seven actual-renderer source-link checks, six integrated browser checks using real HTTPS with a simulated model, and one isolated genuine provider turn with durable post-shutdown reload. A subsequent Railway-egress operator turn passed with real HTTPS, the real provider, saved sources and post-shutdown reload. All 28 runtime source hashes match; global npm is absent; the temporary verification key is revoked. Operator checks are not live holder acceptance. See [reader scope](WEB-RESEARCH.md).
 
 ## Verified
 
