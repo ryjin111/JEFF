@@ -760,7 +760,7 @@ async function walletCallbackIsolation() {
       await page.locator('[data-action="send-task"]').click();
       await bounded(suggestionFailureRequested, 'held rejected admission before choosing a suggestion');
       await page.locator('[data-pending-message="sending"]').waitFor();
-      const suggestion = page.locator('[data-action="suggestion"]').first();
+      const suggestion = page.locator('.prompt-suggestions [data-action="suggestion"]').first();
       const suggestedDraft = await suggestion.getAttribute('data-prompt');
       await suggestion.click();
       assert.equal(await page.locator('#composer-input').inputValue(), suggestedDraft);
