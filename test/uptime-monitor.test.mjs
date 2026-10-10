@@ -84,3 +84,21 @@ test('monitor refuses insecure or credentialed endpoints and invalid timeouts be
     assert.throws(() => validateMonitorConfig({ ...config, ...invalid }));
   }
 });
+
+test('required backup checks reject missing, stale, future or failed backups and accept recovery', async () => {
+  const now = () => new Date('2026-10-10T12:00:00Z');
+  const recent = '2026-10-10T10:00:00Z';
+  for (const [backup, reason] of [
+    [undefined, 'BACKUP_MISSING'],
+    [{ enabled: false, lastVerifiedAt: recent }, 'BACKUP_MISSING'],
+    [{ enabled: true, lastVerifiedAt: 'garbage' }, 'BACKUP_MISSING'],
+    [{ enabled: true, lastVerifiedAt: '2026-10-09T07:00:00Z' }, 'BACKUP_STALE'],
+    [{ enabled: true, lastVerifiedAt: '2026-10-10T12:06:00Z' }, 'BACKUP_STALE'],
+    [{ enabled: true, lastVerifiedAt: recent, lastFailureAt: '2026-10-10T11:00:00Z' }, 'BACKUP_FAILED'],
+    [{ enabled: true, lastVerifiedAt: recent, lastFailureAt: '2026-10-10T09:00:00Z' }, undefined],
+  ]) {
+    const result = await runMonitorProbe({ ...config, backupMaxAgeHours: 28 }, { ...fixture({ health: { status: 'ready', runtime: 'openclaw', backup } }), now });
+    assert.equal(result.checks[0].reason, reason); assert.equal(result.ok, reason === undefined);
+  }
+  for (const backupMaxAgeHours of [0, 169, 1.5, '28']) assert.throws(() => validateMonitorConfig({ ...config, backupMaxAgeHours }));
+});

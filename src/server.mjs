@@ -9,7 +9,8 @@ catch (error) {
   console.error(/^JEFF_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_BACKUP_EXPORT_FAILED');
   process.exit(1);
 }
-const app = await createJeffApplication({ backupExport });
+let recurringBackup;
+const app = await createJeffApplication({ backupExport, backupStatus: () => recurringBackup?.status() });
 if (backupExport) console.log(JSON.stringify(backupExport.receipt));
 let operatorPaused = false;
 process.on('SIGUSR2', () => { operatorPaused = true; app.maintenance.pause()
@@ -20,7 +21,7 @@ process.on('SIGCONT', () => {
   if (!recurringBackup.isCapturing() && !closing) app.maintenance.resume().catch(() => console.error('JEFF_MAINTENANCE_RESUME_FAILED'));
 });
 let closing = false;
-const recurringBackup = createRecurringBackup({ maintenance: app.maintenance, canResume: () => !closing && !operatorPaused });
+recurringBackup = createRecurringBackup({ maintenance: app.maintenance, canResume: () => !closing && !operatorPaused });
 recurringBackup.start();
 const shutdown = () => {
   if (closing) return;

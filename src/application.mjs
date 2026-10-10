@@ -310,7 +310,7 @@ export async function createJeffApplication(options = {}) {
       const url = new URL(request.url, origin), route = url.pathname, method = request.method;
       if (/^\/api\/(?:auth\/(?:nfts|challenge|verify|logout)|account\/auth\/(?:challenge|verify|logout)|workspace(?:\/(?:state|settings|skills))?|conversations|memory|activity|inference|schedules|jobs)$/.test(route)) diagnosticRoute = route;
       if (/^\/api\/chat\/actions\/[a-f0-9-]{36}\/(?:apply|dismiss)$/.test(route)) diagnosticRoute = '/api/chat/actions';
-      if (method === 'GET' && route === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw', scheduler: scheduler.status() });
+      if (method === 'GET' && route === '/health') return send(response, 200, { status: 'ready', runtime: 'openclaw', scheduler: scheduler.status(), ...(options.backupStatus ? { backup: await options.backupStatus() } : {}) });
       if (method === 'GET' && route === '/api/config') return send(response, 200, config());
       const bearer = request.headers.authorization?.replace(/^Bearer /, '');
       if (method === 'POST' && route === '/api/auth/nfts') return send(response, 200, await discoverNfts(await body(request)));

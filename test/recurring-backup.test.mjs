@@ -108,3 +108,22 @@ test('virtual-host buckets sign the bucket host and omit bucket from the object 
   assert.throws(() => createBackupObjectStore({ ...storeConfig, urlStyle: 'arbitrary' }), /CONFIG_INVALID/);
   assert.throws(() => createBackupObjectStore({ ...storeConfig, bucket: 'dotted.bucket', urlStyle: 'virtual-host' }), /CONFIG_INVALID/);
 });
+
+test('backup health survives restart from a verified receipt and exposes no storage or job details', async t => {
+  const dataRoot = await root(t); await mkdir(resolve(dataRoot, '.operations'));
+  const capturedAt = '2026-10-10T01:00:00Z';
+  await writeFile(resolve(dataRoot, '.operations/backup-receipt.json'), JSON.stringify({event:'JEFF_RECURRING_BACKUP_READY',readbackVerified:true,capturedAt,key:'private-object-key',jobsRetrieved:42}));
+  const f = await worker(t, {env:{JEFF_DATA_ROOT:dataRoot,JEFF_RELEASE_SHA:source,JEFF_RECURRING_BACKUP:JSON.stringify({publicKey:pem,intervalHours:24})}});
+  assert.deepEqual(await f.backup.status(),{enabled:true,lastVerifiedAt:capturedAt,lastFailureAt:null});
+  await f.backup.stop();
+});
+
+test('backup health records upload failures and later successful recovery', async t => {
+  let fail = true;
+  const f = await worker(t, {store:{putVerified:async()=>{if(fail)throw new Error('secret provider detail');return {readbackVerified:true};}}});
+  await assert.rejects(f.backup.run());
+  const failed = await f.backup.status(); assert.equal(failed.lastVerifiedAt,null); assert.ok(Date.parse(failed.lastFailureAt));
+  fail = false; await f.backup.run(); const recovered = await f.backup.status();
+  assert.ok(Date.parse(recovered.lastVerifiedAt)); assert.equal(JSON.stringify(recovered).includes('secret'),false);
+  await f.backup.stop();
+});

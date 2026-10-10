@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, publicEncrypt, randomBytes, constants } from 'node:crypto';
-import { mkdtemp, rm, mkdir, writeFile, rename } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, rename, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, dirname, basename } from 'node:path';
 import { captureBackup, encryptBackup } from './backup.mjs';
@@ -36,7 +36,7 @@ export async function sealRecurringBackup(snapshot, publicKey, releaseSha, verif
 export function createRecurringBackup({ env = process.env, maintenance, canResume = () => true,
   capture = captureBackup, seal = sealRecurringBackup, store, onReceipt = value => console.log(JSON.stringify(value)),
   onFailure = () => console.error('JEFF_RECURRING_BACKUP_FAILED') } = {}) {
-  if (!env.JEFF_RECURRING_BACKUP) return { start() {}, isCapturing() { return false; }, async stop() {}, async run() { return null; } };
+  if (!env.JEFF_RECURRING_BACKUP) return { start() {}, isCapturing() { return false; }, async status() { return { enabled: false, lastVerifiedAt: null, lastFailureAt: null }; }, async stop() {}, async run() { return null; } };
   let config;
   try { config = JSON.parse(env.JEFF_RECURRING_BACKUP); } catch { throw new Error('JEFF_BACKUP_CONFIG_INVALID'); }
   if (!config || Object.keys(config).some(key => !['publicKey', 'endpoint', 'bucket', 'region', 'prefix', 'intervalHours', 'urlStyle'].includes(key))
@@ -46,6 +46,12 @@ export function createRecurringBackup({ env = process.env, maintenance, canResum
   const objectStore = store || createBackupObjectStore({ ...config,
     accessKeyId: env.JEFF_BACKUP_ACCESS_KEY_ID, secretAccessKey: env.JEFF_BACKUP_SECRET_ACCESS_KEY });
   let stopped = false, active = null, timer, first, capturing = false;
+  let lastVerifiedAt = null, lastFailureAt = null;
+  const priorReceipt = readFile(resolve(env.JEFF_DATA_ROOT, '.operations/backup-receipt.json'), 'utf8').then(text => {
+    if (text.length > 4096) return;
+    const value = JSON.parse(text);
+    if (value.event === 'JEFF_RECURRING_BACKUP_READY' && value.readbackVerified === true && Number.isFinite(Date.parse(value.capturedAt))) lastVerifiedAt = value.capturedAt;
+  }).catch(() => {});
   async function captureAndUpload() {
     if (stopped || !canResume() || maintenance.status().phase !== 'running') return null;
     let snapshot; capturing = true;
@@ -70,17 +76,17 @@ export function createRecurringBackup({ env = process.env, maintenance, canResum
         const directory = resolve(env.JEFF_DATA_ROOT, '.operations'); await mkdir(directory, { recursive: true, mode: 0o700 });
         const temporary = resolve(directory, 'backup-receipt.json.tmp');
         await writeFile(temporary, JSON.stringify(receipt), { mode: 0o600 });
-        await rename(temporary, resolve(directory, 'backup-receipt.json')); onReceipt(receipt); return receipt;
+        await rename(temporary, resolve(directory, 'backup-receipt.json')); lastVerifiedAt = snapshot.capturedAt; onReceipt(receipt); return receipt;
       } finally { finish(); }
     } finally { sealed.bytes.fill(0); }
   }
   const run = () => {
     if (stopped) return Promise.resolve(null);
     if (active) return active;
-    active = captureAndUpload().finally(() => { active = null; }); return active;
+    active = priorReceipt.then(captureAndUpload).catch(error => { lastFailureAt = new Date().toISOString(); throw error; }).finally(() => { active = null; }); return active;
   };
   const scheduled = () => { run().catch(onFailure); };
-  return { run, isCapturing() { return capturing; }, start() {
+  return { run, isCapturing() { return capturing; }, async status() { await priorReceipt; return { enabled: true, lastVerifiedAt, lastFailureAt }; }, start() {
     if (timer || stopped) return;
     first = setTimeout(scheduled, 60000); first.unref();
     timer = setInterval(scheduled, config.intervalHours * 3600000); timer.unref();

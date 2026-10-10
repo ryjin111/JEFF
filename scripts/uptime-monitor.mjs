@@ -18,11 +18,12 @@ export function validateMonitorConfig(input) {
   if (!Number.isSafeInteger(input.chainId) || input.chainId < 1 ||
       !/^0x[0-9a-f]{40}$/i.test(input.collection) ||
       (input.expectedReleaseSha != null && !/^[0-9a-f]{40}$/.test(input.expectedReleaseSha)) ||
-      !Number.isInteger(input.timeoutMs ?? 8000) || (input.timeoutMs ?? 8000) < 100 || (input.timeoutMs ?? 8000) > 15000) {
+      !Number.isInteger(input.timeoutMs ?? 8000) || (input.timeoutMs ?? 8000) < 100 || (input.timeoutMs ?? 8000) > 15000 ||
+      (input.backupMaxAgeHours != null && (!Number.isInteger(input.backupMaxAgeHours) || input.backupMaxAgeHours < 1 || input.backupMaxAgeHours > 168))) {
     throw new Error('JEFF_MONITOR_CONFIG_INVALID');
   }
   return { origin, rpcUrl, chainId: input.chainId, collection: input.collection.toLowerCase(),
-    expectedReleaseSha: input.expectedReleaseSha ?? null, timeoutMs: input.timeoutMs ?? 8000 };
+    expectedReleaseSha: input.expectedReleaseSha ?? null, timeoutMs: input.timeoutMs ?? 8000, backupMaxAgeHours: input.backupMaxAgeHours ?? null };
 }
 
 async function boundedJson(response) {
@@ -55,7 +56,7 @@ export async function runMonitorProbe(input, { fetchImpl = fetch, now = () => ne
       return { name, ok: true, httpStatus, durationMs: Math.round(performance.now() - started), ...detail };
     } catch (error) {
       const reason = ['HTTP_ERROR', 'BODY_TOO_LARGE', 'INVALID_JSON', 'HEALTH_NOT_READY', 'CONFIG_MISMATCH',
-        'RESTORE_GUARDED', 'RPC_INVALID', 'RPC_ERROR', 'CHAIN_MISMATCH'].includes(error.message) ? error.message :
+        'RESTORE_GUARDED', 'RPC_INVALID', 'RPC_ERROR', 'CHAIN_MISMATCH', 'BACKUP_MISSING', 'BACKUP_STALE', 'BACKUP_FAILED'].includes(error.message) ? error.message :
         error.name === 'TimeoutError' || error.name === 'AbortError' ? 'TIMEOUT' : 'TRANSPORT_OR_RESPONSE_ERROR';
       return { name, ok: false, httpStatus, durationMs: Math.round(performance.now() - started), reason };
     }
@@ -63,6 +64,12 @@ export async function runMonitorProbe(input, { fetchImpl = fetch, now = () => ne
   const checks = await Promise.all([
     check('public-health', `${config.origin}/health`, value => {
       if (value.status !== 'ready' || value.runtime !== 'openclaw') throw new Error('HEALTH_NOT_READY');
+      if (config.backupMaxAgeHours !== null) {
+        const verified = Date.parse(value.backup?.lastVerifiedAt), failed = Date.parse(value.backup?.lastFailureAt), age = now().getTime() - verified;
+        if (value.backup?.enabled !== true || !Number.isFinite(verified)) throw new Error('BACKUP_MISSING');
+        if (age < -300000 || age > config.backupMaxAgeHours * 3600000) throw new Error('BACKUP_STALE');
+        if (Number.isFinite(failed) && failed > verified) throw new Error('BACKUP_FAILED');
+      }
       return {};
     }),
     check('public-config', `${config.origin}/api/config`, value => {
