@@ -500,3 +500,31 @@ test('direct submissions cannot start a writer after maintenance blocks admissio
     { message: 'JEFF_SERVICE_MAINTENANCE' });
   assert.equal(f.calls.length, 0);
 });
+
+test('maintenance joins a direct admission held before its durable job handoff', async t => {
+  const hostingEntered = deferred(), allowHosting = deferred();
+  t.after(() => allowHosting.resolve());
+  const f = await fixture(t, { hosting: {
+    enabled: false, freePassEnabled: false, plan: { tasksIncluded: 100 },
+    status: async () => ({ active: true }),
+    requireActive: async () => { hostingEntered.resolve(); await allowHosting.promise; },
+    startJob: async (_scope, start) => start(),
+  } });
+  const session = await f.login();
+  const pending = f.app.submit(session.scope, { objective: 'Complete a previously admitted direct job' });
+  await hostingEntered.promise;
+  assert.equal(f.app.maintenance.status().activeRequests, 1);
+  const paused = f.app.maintenance.pause();
+  await delay(15);
+  await assert.rejects(readFile(resolveMaintenanceMarkerPath({ env: {}, dataRoot: f.dataRoot })), { code: 'ENOENT' });
+  assert.equal(f.calls.length, 0);
+  allowHosting.resolve();
+  const job = await pending;
+  await job.completion;
+  const marker = await paused;
+  assert.equal(marker.status, 'ready');
+  assert.equal(marker.activeRequests, 0);
+  assert.equal(marker.pendingTasks, 0);
+  assert.equal(f.calls.length, 1);
+  assert.equal((await createDurableJobReader({ dataRoot: f.dataRoot, scope: session.scope, id: job.record.id })()).saved, true);
+});

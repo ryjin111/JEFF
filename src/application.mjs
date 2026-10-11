@@ -241,53 +241,56 @@ export async function createJeffApplication(options = {}) {
   accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent, persistRecord });
 
   async function submit(scope, input, session) {
-    if (maintenance.status().blocked) throw new Error('JEFF_SERVICE_MAINTENANCE');
-    requireExecution();
-    strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research','github']);
-    let githubInput;
-    if(Object.hasOwn(input,'github')){
-      if(input.source==='schedule'||Object.hasOwn(input,'research'))throw new Error('JEFF_GITHUB_REQUEST_DENIED');
-      githubInput=githubJobRequest(input.github);await github.assert(scope,githubInput.generation,session);
-    }
-    let research;
-    if (Object.hasOwn(input, 'research')) {
-      if (!researchEnabled || input.source === 'schedule') throw new Error('JEFF_RESEARCH_DENIED');
-      research = researchRequest(input.research);
-    }
-    const timeZone = chatTimeZone(input.timeZone);
-    if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) throw new Error('JEFF_OBJECTIVE_INVALID');
-    if (!modelConfigured) throw new Error('JEFF_MODEL_NOT_CONFIGURED');
-    const key = scopeId(scope);
-    if (admission.has(key)) throw new Error('JEFF_OPENCLAW_BUSY');
-    if (admittedJobs >= maximumJobs) throw new Error('JEFF_RUNTIME_BUSY');
-    admittedJobs++;
-    let handedOff = false;
-    admission.set(key, true);
+    const finish = maintenance.beginRequest();
+    if (!finish) throw new Error('JEFF_SERVICE_MAINTENANCE');
     try {
-      const current = await workspace.get(scope);
       requireExecution();
-      if (current.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
-      gateway?.preflight({ scope, model: current.settings.model.slice(6), dailyLimitMicros: current.settings.dailyBudgetMicros,
-        maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
-      let conversationId = input.conversationId;
-      if (conversationId && (!uuid.test(conversationId) || !current.conversations.some(item => item.id === conversationId))) throw new Error('JEFF_CONVERSATION_NOT_FOUND');
-      if (!conversationId) conversationId = (await workspace.createConversation(scope, { title: input.objective.trim().slice(0, 70) })).id;
-      requireExecution();
-      await hosting.requireActive(scope);
-      requireExecution();
-      if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
-      if(githubInput)await github.assert(scope,githubInput.generation,session);
-      pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone, research,github:githubInput,session });
-      const record = await hosting.startJob(scope, async () => {
+      strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research','github']);
+      let githubInput;
+      if(Object.hasOwn(input,'github')){
+        if(input.source==='schedule'||Object.hasOwn(input,'research'))throw new Error('JEFF_GITHUB_REQUEST_DENIED');
+        githubInput=githubJobRequest(input.github);await github.assert(scope,githubInput.generation,session);
+      }
+      let research;
+      if (Object.hasOwn(input, 'research')) {
+        if (!researchEnabled || input.source === 'schedule') throw new Error('JEFF_RESEARCH_DENIED');
+        research = researchRequest(input.research);
+      }
+      const timeZone = chatTimeZone(input.timeZone);
+      if (typeof input.objective !== 'string' || !input.objective.trim() || input.objective.length > 4000) throw new Error('JEFF_OBJECTIVE_INVALID');
+      if (!modelConfigured) throw new Error('JEFF_MODEL_NOT_CONFIGURED');
+      const key = scopeId(scope);
+      if (admission.has(key)) throw new Error('JEFF_OPENCLAW_BUSY');
+      if (admittedJobs >= maximumJobs) throw new Error('JEFF_RUNTIME_BUSY');
+      admittedJobs++;
+      let handedOff = false;
+      admission.set(key, true);
+      try {
+        const current = await workspace.get(scope);
         requireExecution();
+        if (current.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
+        gateway?.preflight({ scope, model: current.settings.model.slice(6), dailyLimitMicros: current.settings.dailyBudgetMicros,
+          maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
+        let conversationId = input.conversationId;
+        if (conversationId && (!uuid.test(conversationId) || !current.conversations.some(item => item.id === conversationId))) throw new Error('JEFF_CONVERSATION_NOT_FOUND');
+        if (!conversationId) conversationId = (await workspace.createConversation(scope, { title: input.objective.trim().slice(0, 70) })).id;
+        requireExecution();
+        await hosting.requireActive(scope);
+        requireExecution();
+        if (creditsEnabled && inference.balance(scope).availableMicros <= 0) throw new Error('JEFF_INFERENCE_INSUFFICIENT');
         if(githubInput)await github.assert(scope,githubInput.generation,session);
-        return activeBridge(scope).start(scope, input.objective.trim());
-      });
-      const completion = maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id: record.id }) }), `job:${record.id}`);
-      handedOff = true;
-      completion.finally(() => { admittedJobs--; }).catch(() => {});
-      return { record: { ...record, conversationId }, completion };
-    } finally { pending.delete(key); admission.delete(key); if (!handedOff) admittedJobs--; }
+        pending.set(key, { conversationId, source: input.source === 'schedule' ? 'schedule' : 'manual', timeZone, research,github:githubInput,session });
+        const record = await hosting.startJob(scope, async () => {
+          requireExecution();
+          if(githubInput)await github.assert(scope,githubInput.generation,session);
+          return activeBridge(scope).start(scope, input.objective.trim());
+        });
+        const completion = maintenance.track(waitForDurableJob({ readRecord: createDurableJobReader({ dataRoot, scope, id: record.id }) }), `job:${record.id}`);
+        handedOff = true;
+        completion.finally(() => { admittedJobs--; }).catch(() => {});
+        return { record: { ...record, conversationId }, completion };
+      } finally { pending.delete(key); admission.delete(key); if (!handedOff) admittedJobs--; }
+    } finally { finish(); }
   }
   const scheduler = createScheduler({ dataRoot, resolveOwner: authorizeScope,
     isPaused: async scope => (await workspace.get(scope)).settings.paused,
