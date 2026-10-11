@@ -21,8 +21,9 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
   paymentHash: '', paymentSubmitted: false, version: 0, notice: '', noticeError: false, runNotice: null, commands: [],
   actionConsent: new Set(), actionRequests: new Map() };
 Object.assign(S,{githubConnection:null,githubRepositories:null,githubDraft:{question:'',repositoryId:''},githubUnconfirmed:false});
-let provider, pollTimer, expiryTimer, toastTimer, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
+let provider, pollTimer, expiryTimer, toastTimer, toastReturnFocus, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
 let reviewedOutcomes = new Set(), reviewedScope = null, githubQuestionRestorePending = true;
+let commandReturnFocus = null;
 const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
@@ -105,8 +106,7 @@ function allowanceReason() {
 }
 function notify(message, error = false) {
   S.notice = message; S.noticeError = error; S.runNotice = null; refreshNotice = null;
-  const element = $('#workspace-notice'); element.textContent = message; element.hidden = !message;
-  element.classList.toggle('is-error', error);
+  toast(message, error);
 }
 function notifyRun(jobId, message, stopRequested = false) {
   if (!S.session || !JOB_ID.test(jobId)) return;
@@ -130,10 +130,34 @@ function updateRunNotice() {
     : 'Run failed. No completed result was saved. Review it in Activity before starting another run.', true);
   else if (job.status === 'interrupted') notify('Run interrupted by a server restart. It was not automatically resubmitted.', true);
 }
-function toast(message) {
-  const element = $('#toast'); clearTimeout(toastTimer); element.textContent = message; element.hidden = false;
+function scheduleToastDismissal() {
+  clearTimeout(toastTimer);
+  const element = $('#workspace-notice');
+  if (element.hidden || element.classList.contains('is-error') || element.matches(':hover') || element.contains(document.activeElement)) return;
   toastTimer = setTimeout(() => { element.hidden = true; }, 4200);
 }
+function dismissToast() {
+  clearTimeout(toastTimer);
+  const element = $('#workspace-notice'), focused = element.contains(document.activeElement);
+  element.hidden = true;
+  if (focused) (toastReturnFocus?.isConnected ? toastReturnFocus : content).focus({ preventScroll: true });
+}
+function toast(message, error = false) {
+  const element = $('#workspace-notice'); clearTimeout(toastTimer);
+  if (!message) { dismissToast(); put('#notification-message', ''); return; }
+  element.classList.toggle('is-error', error);
+  element.setAttribute('role', error ? 'alert' : 'status');
+  element.setAttribute('aria-live', error ? 'assertive' : 'polite');
+  put('#notification-message', message); element.hidden = false;
+  scheduleToastDismissal();
+}
+$('#workspace-notice').addEventListener('pointerenter', () => clearTimeout(toastTimer));
+$('#workspace-notice').addEventListener('pointerleave', scheduleToastDismissal);
+$('#workspace-notice').addEventListener('focusin', event => {
+  if (event.relatedTarget instanceof HTMLElement && !event.currentTarget.contains(event.relatedTarget)) toastReturnFocus = event.relatedTarget;
+  clearTimeout(toastTimer);
+});
+$('#workspace-notice').addEventListener('focusout', () => setTimeout(scheduleToastDismissal, 0));
 function friendly(error) {
   const labels = {
     JEFF_BUDGET_INVALID: 'Enter a daily budget above $0 and at most $1,000, using up to six decimal places.',
@@ -195,6 +219,7 @@ function restoreGithubQuestion() {
 }
 function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   const token = S.session?.token;
+  toast(''); toastReturnFocus = null; commandReturnFocus = null; S.notice = ''; S.noticeError = false;
   S.version++; refreshSequence++; clearTimeout(pollTimer); clearTimeout(expiryTimer);
   refreshFailures = 0; refreshNotice = null;
   for (const controller of pending) controller.abort(); pending.clear();
@@ -334,7 +359,7 @@ async function refresh({ quiet = false, github = false } = {}) {
     if (retry) refreshFailures = Math.min(refreshFailures + 1, refreshRetryDelays.length);
     if (S.runNotice && S.session && S.runNotice.scope === scopeKey(S.session.scope)) {
       const tracked = S.runNotice;
-      notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. ${retry ? 'Checking its saved status automatically; do not send it again.' : 'Use Refresh to retrieve its saved status; do not send it again.'}`, true);
+      notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. ${retry ? 'Checking its saved status automatically; do not send it again.' : 'Use Find anything → Refresh workspace to retrieve its saved status; do not send it again.'}`, true);
       S.runNotice = { ...tracked, message: S.notice, refreshFailed: true };
     } else {
       const recoveryMessage = refreshNotice?.scope === scopeKey(scope) ? refreshNotice.recoveryMessage : undefined;
@@ -365,7 +390,7 @@ async function mutate(operation, success) {
     await operation();
     if (version !== S.version) return;
     const refreshed = await refresh({ quiet: true });
-    if (refreshed && version === S.version && success) { notify(success); toast(success); }
+    if (refreshed && version === S.version && success) notify(success);
   } catch (error) {
     if (version === S.version && error.message !== 'JEFF_REQUEST_SUPERSEDED') {
       if (!error.refreshHandled) notify(friendly(error), true);
@@ -401,6 +426,12 @@ function openSidebar() {
   $('.nav-item.active', $('#sidebar'))?.focus();
 }
 function openDialog(selector) {
+  if (selector === '#command-dialog' && !$('#command-dialog').open) {
+    const element = document.activeElement;
+    commandReturnFocus = { element, id: element?.id, version: S.version, conversationId: S.conversationId,
+      draftVersion: S.draftVersion, value: element?.value, start: element?.selectionStart, end: element?.selectionEnd,
+      direction: element?.selectionDirection };
+  }
   closeSidebar({ restoreFocus: false });
   const dialog = $(selector);
   if (!dialog.open) dialog.showModal();
@@ -705,16 +736,7 @@ function admissionRecovery({ activity = false } = {}) {
 function renderChat() {
   const view = node('section', 'workspace-view chat-view');
   if (!signedIn()) { view.append(empty(S.session ? 'Opening your workspace…' : 'A home for your Agent NFT.', S.session ? 'Checking ownership and loading saved work.' : 'Give your agent useful work. Keep conversations and memories together, and return to the results whenever you need them.', S.session ? null : ['Connect an Agent NFT', 'connect'])); return view; }
-  const selected = conversation(), conversations = S.workspace.conversations.slice();
-  if (selected && !conversations.some(item => item.id === selected.id)) conversations.push(selected);
-  const toolbar = node('div', 'conversation-toolbar');
-  const selector = node('select', 'field conversation-select'); selector.id = 'conversation-select'; selector.setAttribute('aria-label', 'Open a saved conversation');
-  if (!conversations.length) selector.append(node('option', '', 'Start your first conversation'));
-  for (const item of conversations.reverse()) { const option = node('option', '', item.title); option.value = item.id; option.selected = item.id === S.conversationId; selector.append(option); }
-  selector.disabled = S.busy || !conversations.length;
-  toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
-  if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
-  view.append(toolbar);
+  const selected = conversation();
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
   const submitting = S.submission?.conversationId === S.conversationId ? S.submission : null;
@@ -987,6 +1009,7 @@ function render() {
   else view = ({ chat: renderChat, activity: renderActivity, skills: renderSkills, memory: renderMemory, usage: renderUsage, schedules: renderSchedules, hosting: renderHosting, settings: renderSettings }[S.view] || renderChat)();
   if (!signedIn() && S.view !== 'chat') view.append(empty('Your NFT opens the workspace.', 'Ownership is checked before private settings, memory and history are returned.', ['Connect an Agent NFT', 'connect']));
   content.replaceChildren(view);
+  if ($('#command-dialog').open) renderCommands();
   for (const dialog of $$('.receipt-dialog[open]')) {
     const current = $('.message.assistant', dialog), job = S.jobs.find(item => item.id === current?.dataset.jobId);
     if (!signedIn() || !job) { dialog.close(); continue; }
@@ -1141,26 +1164,49 @@ async function resolveChatAction(jobId, intent) {
       }
       if (version === S.version && temporaryConnectionError(error)) {
         S.actionRequests.set(jobId, 'uncertain'); S.actionConsent.delete(jobId);
-        notify('The action’s saved status could not be confirmed. Use Refresh to check it before trying again.', true);
+        notify('The action’s saved status could not be confirmed. Use Find anything → Refresh workspace to check it before trying again.', true);
         error.refreshHandled = true;
       }
       throw error;
     }
   }, intent === 'dismiss' ? 'Suggestion dismissed.' : action.type === 'memory.save' ? 'Memory saved.' : 'Scheduled work authorized.');
   if (version === S.version && accepted && S.actionRequests.has(jobId)) {
-    notify('Your request was accepted, but its saved status could not refresh. Use Refresh to check it; do not submit it again.', true);
+    notify('Your request was accepted, but its saved status could not refresh. Use Find anything → Refresh workspace to check it; do not submit it again.', true);
   }
 }
 function renderCommands() {
   const query = $('#command-search').value.trim().toLowerCase();
+  const focused = document.activeElement?.closest('#command-results button')?.id;
+  const scroll = $('#command-results').scrollTop;
   S.commands = pages.map(([view, label, iconName]) => ({ view, label, iconName }));
   S.commands.push({ action: 'connect', label: S.session ? 'Connect another Agent NFT' : 'Connect wallet', iconName: 'link' }, { action: 'theme', label: 'Switch color theme', iconName: 'moon' });
-  if (signedIn()) S.commands.push({ action: 'new-session', label: 'New conversation', iconName: 'plus' });
-  const results = $('#command-results'); results.replaceChildren();
-  for (const command of S.commands.filter(item => item.label.toLowerCase().includes(query))) {
-    const element = button(command.label, command.action || 'command-view', command.iconName, 'command-result', command.view ? { view: command.view } : {}); results.append(element);
+  if (signedIn()) {
+    S.commands.push({ action: 'new-session', label: 'New conversation', iconName: 'plus', disabled: S.busy },
+      { action: 'refresh', label: 'Refresh workspace', iconName: 'activity', disabled: S.busy });
+    const selected = conversation(), conversations = S.workspace.conversations.slice();
+    if (selected) {
+      S.commands.push({ action: 'delete-conversation', label: 'Delete current conversation', iconName: 'close', id: selected.id, disabled: S.busy || running() });
+      if (!conversations.some(item => item.id === selected.id)) conversations.push(selected);
+    }
+    for (const item of conversations.reverse()) S.commands.push({ action: 'open-conversation', label: `Open conversation: ${item.title}`,
+      iconName: 'chat', id: item.id, current: item.id === S.conversationId, disabled: S.busy, keywords: 'saved conversations chat history' });
   }
-  if (!results.children.length) results.append(node('p', 'empty-state', 'No matching pages.'));
+  const results = $('#command-results'); results.replaceChildren();
+  for (const command of S.commands.filter(item => `${item.label} ${item.keywords || ''}`.toLowerCase().includes(query))) {
+    const element = button(command.label, command.action || 'command-view', command.iconName, 'command-result', command.view ? { view: command.view } : command.id ? { id: command.id } : {});
+    element.id = `command-${command.action || command.view}${command.action === 'open-conversation' ? `-${command.id}` : ''}`;
+    if (['open-conversation', 'delete-conversation'].includes(command.action)) Object.assign(element.dataset, { scope: scopeKey(S.session.scope), version: String(S.version) });
+    element.disabled = Boolean(command.disabled);
+    if (command.current) element.setAttribute('aria-current', 'true');
+    results.append(element);
+  }
+  if (!results.children.length) results.append(node('p', 'empty-state', 'No matching pages, conversations or commands.'));
+  if (focused) {
+    const next = document.getElementById(focused);
+    if (next && !next.disabled) next.focus({ preventScroll: true });
+    else $('#command-search').focus({ preventScroll: true });
+  }
+  results.scrollTop = scroll;
 }
 async function copy(value) {
   try { await navigator.clipboard.writeText(value); toast('Copied.'); }
@@ -1210,6 +1256,7 @@ async function payInvoice() {
 document.addEventListener('click', async event => {
   const element = event.target.closest('button'); if (!element || element.disabled) return;
   const action = element.dataset.action;
+  if (action === 'dismiss-notice') { dismissToast(); return; }
   if (action === 'research-example') {
     if (!signedIn() || S.busy || S.researchDraft.unconfirmed || S.config.webResearch?.enabled !== true) return;
     S.researchDraft = { question: 'Report the latest OpenClaw release tag and publication date from this source. State whether release notes appear in the supplied excerpt, and identify missing or truncated coverage.', urls: 'https://api.github.com/repos/openclaw/openclaw/releases/latest', consent: false, unconfirmed: false };
@@ -1246,7 +1293,21 @@ document.addEventListener('click', async event => {
   if (action === 'theme') { setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); return; }
   if (action === 'command-view') { go(element.dataset.view); return; }
   if (action === 'logout') { clearPrivate(); $('#connect-dialog').close(); notify('Signed out. Private content was cleared from this tab.'); return; }
-  if (action === 'refresh') { await refresh({ github: true }); return; }
+  if (action === 'refresh') {
+    if (S.busy) return;
+    const dialog = element.closest('#command-dialog'), prior = dialog ? commandReturnFocus : null;
+    dialog?.close(); commandReturnFocus = null;
+    if (prior?.version === S.version) {
+      const field = prior.id ? document.getElementById(prior.id) : prior.element;
+      const unchanged = field?.value === prior.value && (prior.id !== 'composer-input'
+        || (prior.conversationId === S.conversationId && prior.draftVersion === S.draftVersion));
+      if (field?.isConnected && !field.disabled && unchanged) {
+        field.focus({ preventScroll: true });
+        if (typeof prior.start === 'number' && field.setSelectionRange) field.setSelectionRange(prior.start, prior.end, prior.direction);
+      }
+    }
+    await refresh({ github: true }); return;
+  }
   if (action === 'discover-agents') { if (openConnection('nft')) await connect({ discoverOnly: true }); return; }
   if (action === 'select-agent') { if (element.dataset.token === S.session?.scope.tokenId) return; if (openConnection('nft')) await connect({ preferredToken: element.dataset.token }); return; }
   if (action === 'switch-network') {
@@ -1254,6 +1315,13 @@ document.addEventListener('click', async event => {
     catch (error) { put('#connect-status', friendly(error)); } return;
   }
   if (!signedIn()) return;
+  if (action === 'open-conversation') {
+    if (S.busy || element.dataset.scope !== scopeKey(S.session.scope) || element.dataset.version !== String(S.version)) return;
+    const selected = conversation();
+    if (!S.workspace.conversations.some(item => item.id === element.dataset.id) && selected?.id !== element.dataset.id) { renderCommands(); return; }
+    if (S.conversationId !== element.dataset.id) { S.conversationId = element.dataset.id; S.draft = ''; S.draftVersion++; }
+    go('chat'); return;
+  }
   if (action === 'apply-chat-action' || action === 'dismiss-chat-action') { await resolveChatAction(element.dataset.id, action === 'apply-chat-action' ? 'apply' : 'dismiss'); return; }
   if (action === 'check-chat-action') {
     if (S.busy) return;
@@ -1272,7 +1340,9 @@ document.addEventListener('click', async event => {
   }
   if (action === 'pause') { await mutate(() => api('/api/workspace/settings', { method: 'PATCH', body: { revision: S.workspace.revision, paused: !S.workspace.settings.paused } }), S.workspace.settings.paused ? 'Future runs resumed.' : 'Future runs paused. Active work is controlled with Stop.'); return; }
   if (action === 'delete-conversation') {
-    if (!conversation() || !confirm('Delete this conversation from the workspace? Saved runs remain in Activity.')) return;
+    if (S.busy || running() || element.dataset.scope !== scopeKey(S.session.scope) || element.dataset.version !== String(S.version)
+      || !conversation() || element.dataset.id !== conversation().id || !confirm('Delete this conversation from the workspace? Saved runs remain in Activity.')) return;
+    element.closest('#command-dialog')?.close();
     const selected = conversation(); await mutate(async () => {
       await api(`/api/conversations/${selected.id}`, { method: 'DELETE' });
       if (S.admitted?.conversationId === selected.id) S.admitted = null;
@@ -1290,7 +1360,7 @@ document.addEventListener('click', async event => {
   if (action === 'cancel-schedule') { await mutate(() => api(`/api/schedules/${element.dataset.id}`, { method: 'DELETE' }), 'Schedule cancelled. Future occurrences will not start.'); return; }
   const job = S.jobs.find(item => item.id === element.dataset.id);
   if (action === 'open-job') {
-    if (!job) { notify('This run is not available in the current job history. Refresh the workspace.', true); return; }
+    if (!job) { notify('This run is not available in the current job history. Use Find anything → Refresh workspace.', true); return; }
     openReceipt(job); return;
   }
   if (!job) return;
@@ -1339,7 +1409,6 @@ document.addEventListener('change', event => {
     event.target.checked ? S.actionConsent.add(jobId) : S.actionConsent.delete(jobId);
     render(); return;
   }
-  if (event.target.id === 'conversation-select') { S.conversationId = event.target.value; S.draft = ''; S.draftVersion++; render(); }
   if (event.target.closest('#settings-form') || event.target.closest('#schedule-form')) event.target.dispatchEvent(new Event('input', { bubbles: true }));
 });
 document.addEventListener('submit', async event => {
@@ -1407,7 +1476,7 @@ document.addEventListener('keydown', event => {
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   if (event.target.closest('#command-dialog') && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
-    const items = $$('button.command-result', $('#command-results')); if (!items.length) return;
+    const items = $$('button.command-result:not(:disabled)', $('#command-results')); if (!items.length) return;
     const current = items.indexOf(document.activeElement); event.preventDefault(); items[(current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
   }
 });

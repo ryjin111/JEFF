@@ -4,7 +4,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const base = process.env.JEFF_QA_ORIGIN || 'http://127.0.0.1:8421';
-const output = path.resolve(__dirname, '..', 'evidence', 'release');
+const output = path.resolve(process.env.JEFF_QA_OUTPUT || path.join(__dirname, '..', 'evidence', 'release'));
 const report = { origin: base, fixture: true, checks: [], screenshots: [], pageErrors: [], consoleErrors: [], externalRequests: [], injectedFailures: [], failures: [] };
 const expectedHttpErrors = new WeakMap();
 let browser;
@@ -89,9 +89,13 @@ async function ready(page) {
   await page.waitForFunction(() => !document.querySelector('#composer-input')?.disabled);
 }
 async function refresh(page) {
-  if (await page.locator('[data-action="refresh"]').count()) await page.locator('[data-action="refresh"]').first().click();
-  else { await nav(page, 'chat'); await page.locator('[data-action="refresh"]').click(); }
+  await workspaceCommand(page, 'Refresh workspace');
   await page.waitForTimeout(100);
+}
+async function workspaceCommand(page, label) {
+  await page.keyboard.press('Control+k');
+  await page.locator('#command-search').fill(label);
+  await page.locator('#command-results').getByRole('button', { name: label, exact: true }).click();
 }
 async function sidebarAction(page, selector, keyboard = false) {
   if (await page.locator('[data-action="sidebar"]').isVisible() && !await page.locator('#sidebar').evaluate(e => e.classList.contains('open'))) await page.locator('[data-action="sidebar"]').click();
@@ -205,7 +209,7 @@ async function settingsConcurrency(page, memoryTitle) {
   async function reloadState(target) {
     await nav(target, 'activity');
     const response = target.waitForResponse(item => new URL(item.url()).pathname === '/api/workspace/state' && item.request().method() === 'GET');
-    await target.locator('[data-action="refresh"]').click(); await response;
+    await refresh(target); await response;
     await target.waitForFunction(() => document.querySelector('#workspace-notice').textContent === 'Workspace refreshed.');
     await nav(target, 'settings');
   }
@@ -363,7 +367,7 @@ async function walletCallbackIsolation() {
     assert.equal(await page.locator('[data-action="pay-invoice"]').isDisabled(), true);
     await page.evaluate(() => window.__qaWalletPrompts.rejectPayment()); await page.waitForTimeout(100);
     const refreshed = page.waitForResponse(item => new URL(item.url()).pathname === '/api/workspace/state');
-    await page.locator('[data-action="refresh"]').click(); await refreshed;
+    await refresh(page); await refreshed;
     await page.waitForFunction(() => document.querySelector('#workspace-notice').textContent === 'Workspace refreshed.');
     assert.equal(await page.locator('[data-action="pay-invoice"]').isDisabled(), true);
     assert.equal(await page.locator('[data-action="create-invoice"]').isDisabled(), true);
@@ -591,14 +595,14 @@ async function walletCallbackIsolation() {
     assert.equal(persistedWorkspace.conversations.length, 1);
     assert.deepEqual(persistedWorkspace.conversations[0].jobIds, [job.id]);
     assert.equal(persistedWorkspace.conversations[0].id, conversationId);
-    assert.equal(await page.locator('#conversation-select').inputValue(), conversationId);
+    assert.deepEqual(await page.locator('#chat-feed .message.assistant').evaluateAll(nodes => nodes.map(element => element.dataset.jobId)), [job.id]);
     assert.equal(job.id, acceptedRecord.id);
     assert.equal(createHash('sha256').update(job.text).digest('hex'), job.textSha256);
     assert.equal(await page.evaluate(() => window.qaInjected), undefined);
     checked('Real persisted task polls to Saved, hash verifies, and supplied HTML renders as text');
     await page.reload(); await ready(page);
     await page.locator('.message.assistant .pill').filter({ hasText: 'Saved' }).last().waitFor();
-    assert.equal(await page.locator('#conversation-select').inputValue(), conversationId);
+    assert.deepEqual(await page.locator('#chat-feed .message.assistant').evaluateAll(nodes => nodes.map(element => element.dataset.jobId)), [job.id]);
     assert.deepEqual(await page.locator('.message.user .user-bubble').evaluateAll(nodes => nodes.map(element => element.textContent)), [objective]);
     assert.equal((await api(page, '/api/jobs')).value.jobs.filter(item => item.objective === objective).length, 1);
     assert.equal(submissions.length, 2); assert.equal(conversationPosts, 0);
@@ -881,9 +885,12 @@ async function walletCallbackIsolation() {
     await page.locator('.memory-card').filter({ hasText: unique }).locator('[data-action="delete-memory"]').click();
     await page.locator('.memory-card').filter({ hasText: unique }).waitFor({ state: 'detached' });
     checked('Returning to an NFT restores its saved memory; deletion persists');
-    await nav(page, 'chat'); await page.locator('#conversation-select').selectOption(conversationId);
-    await page.locator('[data-action="delete-conversation"]').click();
-    await page.waitForFunction(id => ![...document.querySelectorAll('#conversation-select option')].some(o => o.value === id), conversationId);
+    await nav(page, 'chat');
+    await page.keyboard.press('Control+k');
+    await page.locator('#command-search').fill('saved conversations');
+    await page.locator(`#command-results [data-action="open-conversation"][data-id="${conversationId}"]`).click();
+    await workspaceCommand(page, 'Delete current conversation');
+    assert.equal((await api(page, '/api/workspace')).value.conversations.some(item => item.id === conversationId), false);
     assert.equal((await api(page, '/api/jobs')).value.jobs.some(item => item.id === job.id), true);
     checked('Conversation removal keeps saved run receipts available in Activity');
     await nav(page, 'activity'); await page.locator(`[data-action="open-job"][data-id="${job.id}"]`).click();
@@ -902,7 +909,7 @@ async function walletCallbackIsolation() {
     };
     page.on('request', observeInvalidatedMutation);
     await page.route('**/api/workspace/state', invalidationRoute);
-    await page.locator('[data-action="refresh"]').click();
+    await refresh(page);
     await page.waitForFunction(() => document.getElementById('workspace-notice').classList.contains('is-error'));
     assert.equal(invalidatedRecoveryGets, 1);
     await page.evaluate(() => window.__qaWallet.emit('accountsChanged', ['0x' + '99'.repeat(20)]));

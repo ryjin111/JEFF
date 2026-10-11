@@ -92,7 +92,6 @@
           <button class="icon-button inspector-button" data-action="toggle-inspector" aria-label="Toggle agent details" aria-controls="context-panel" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
         </div>
       </header>
-      <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
       <div class="workspace-columns">
         <main id="workspace-content" class="workspace-content" tabindex="-1" aria-label="Agent workspace"></main>
         <aside id="context-panel" class="context-panel" aria-label="Selected agent details">
@@ -124,7 +123,7 @@
   </div>
 
   <dialog id="command-dialog" class="command-dialog" aria-labelledby="command-heading">
-    <div class="command-input-wrap"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><label id="command-heading" class="sr-only" for="command-search">Find agents and workspace pages</label><input id="command-search" placeholder="Find an agent or jump to a page…" autocomplete="off"><button class="icon-button" data-action="close-dialog" aria-label="Close search"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="command-input-wrap"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><label id="command-heading" class="sr-only" for="command-search">Find conversations, agents and workspace commands</label><input id="command-search" placeholder="Find a conversation, page or command…" autocomplete="off"><button class="icon-button" data-action="close-dialog" aria-label="Close search"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
     <div id="command-results" class="command-results"></div><div class="command-footer"><span>Jump straight into your workspace</span><kbd>ESC to close</kbd></div>
   </dialog>
   <dialog id="connect-dialog" class="connect-dialog" aria-labelledby="connect-heading">
@@ -140,6 +139,6 @@
       <button id="disconnect-wallet" class="button button-outline full-width" type="button" data-action="logout" hidden>Sign out of this workspace</button>
     </form>
   </dialog>
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="workspace-notice" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden><span id="notification-message"></span><button type="button" class="icon-button toast-dismiss" data-action="dismiss-notice" aria-label="Dismiss notification"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
 </body>
 </html>

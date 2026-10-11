@@ -80,3 +80,7 @@ html[data-theme=dark] .skill-icon,html[data-theme=dark] .chart-bar{border-color:
 .personal-context .text-button { min-height:36px; font-size:13px; }
 .personal-context .preview-info,.personal-context .text-button { color:var(--subtle); }
 @media(max-width:600px) { .personal-context { grid-template-columns:1fr; gap:8px; } }
+.toast{display:flex;align-items:flex-start;gap:12px;top:112px;right:20px;bottom:auto;left:auto;transform:none;width:360px;max-width:calc(100vw - 40px);max-height:calc(100dvh - 140px);overflow:auto;padding:14px 12px 14px 16px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-inline-start:3px solid var(--gold);border-radius:10px;box-shadow:0 12px 36px #15201924;font-size:12px;line-height:1.65;text-align:left;z-index:100}
+.toast[hidden]{display:none}.toast>span{flex:1;min-width:0;overflow-wrap:anywhere}.toast-dismiss{width:28px;height:28px;flex-shrink:0;margin:-3px -2px -3px 0;color:inherit}.toast-dismiss .icon{width:14px;height:14px}.toast.is-error{background:#fff5f1;color:#86432e;border-color:#e5c5b7;border-inline-start-color:#b76345}
+html[data-theme=dark] .toast.is-error{background:#36251e;color:#e6b69d;border-color:#614534;border-inline-start-color:#c38a6b}
+@media(max-width:760px){.toast{top:104px;right:12px;width:340px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 128px);font-size:11px;padding:12px}}

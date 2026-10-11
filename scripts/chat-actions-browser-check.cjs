@@ -46,7 +46,11 @@ async function send(page, objective) {
   await message.locator('.pill').filter({ hasText: /^Saved$/ }).waitFor({ timeout: 20000 });
   return { id: job.id, message, card: message.locator('.chat-action-card') };
 }
-async function refresh(page) { await page.locator('[data-action="refresh"]').first().click(); }
+async function refresh(page) {
+  await page.keyboard.press('Control+k');
+  await page.locator('#command-search').fill('Refresh workspace');
+  await page.locator('#command-results').getByRole('button', { name: 'Refresh workspace', exact: true }).click();
+}
 async function geometry(page) {
   const measured = await page.evaluate(() => ({ viewport: innerWidth, page: document.documentElement.scrollWidth,
     content: document.getElementById('workspace-content').clientWidth, scroll: document.getElementById('workspace-content').scrollWidth }));
@@ -97,12 +101,12 @@ async function geometry(page) {
     check('Pending memory shows exact safe text and sends browser timezone; no note exists before confirmation');
 
     await page.locator('#composer-input').fill('A draft to keep while saving.');
-    const selected = await page.locator('#conversation-select').inputValue();
+    const selected = await page.locator('#chat-feed .message.assistant').evaluateAll(nodes => nodes.map(element => element.dataset.jobId));
     await memory.card.locator('[data-action="apply-chat-action"]').evaluate(el => { el.click(); el.click(); });
     await memory.card.filter({ has: page.locator('h3', { hasText: /^Saved to memory$/ }) }).waitFor();
     assert.equal(actionPosts.filter(p => p.route.includes(memory.id)).length, 1);
     assert.equal(await page.locator('#composer-input').inputValue(), 'A draft to keep while saving.');
-    assert.equal(await page.locator('#conversation-select').inputValue(), selected);
+    assert.deepEqual(await page.locator('#chat-feed .message.assistant').evaluateAll(nodes => nodes.map(element => element.dataset.jobId)), selected);
     state = (await api(page, '/api/workspace/state')).value;
     assert.equal(state.workspace.memories.length, 1);
     assert.equal(state.workspace.memories[0].text, state.workspace.jobBindings[memory.id].action.parameters.text);
