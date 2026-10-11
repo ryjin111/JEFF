@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { scopeId } from './scope.mjs';
+import { normalizeScope, scopeId } from './scope.mjs';
 
 const fail = code => new Error(`JEFF_INFERENCE_${code}`);
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -20,13 +20,15 @@ const cost = (input, output, policy) => {
 
 // Bankr's documented /v1/usage returns aggregate billed totals, not attributable
 // call charges (https://docs.bankr.bot/llm-gateway/api-reference/, checked 2026-10-07).
-// This gateway therefore charges a separately configured, versioned operator
-// token tariff using measured response usage. It never labels this provider debit.
+// Prepaid mode charges a separately configured, versioned operator token tariff
+// using measured response usage. It never labels this provider debit.
 // No tariff is inferred from a model name or a wallet balance difference.
-export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allowedModels = [], pricing = {},
+// Operator-funded mode validates usage without touching holder credit balances.
+export function createInferenceGateway({ ledger, billingMode = 'prepaid', upstreamUrl, upstreamKey, allowedModels = [], pricing = {},
   maxCalls = 1, maxInputTokens = 16384, maxOutputTokens = 4096, fetchImpl = fetch, now = Date.now,
   track = promise => promise, maxJobs = 4096 } = {}) {
-  if (!ledger || typeof ledger.reserve !== 'function' || typeof fetchImpl !== 'function'
+  if (!['prepaid', 'operator-funded'].includes(billingMode)
+    || (billingMode === 'prepaid' && (!ledger || typeof ledger.reserve !== 'function')) || typeof fetchImpl !== 'function'
     || !positive(maxCalls) || maxCalls > 16 || !positive(maxInputTokens) || maxInputTokens > 131072
     || !positive(maxOutputTokens) || maxOutputTokens > 32768 || typeof now !== 'function'
     || typeof track !== 'function' || !positive(maxJobs) || maxJobs > 65536) throw fail('GATEWAY_CONFIG_INVALID');
@@ -43,6 +45,14 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
   const jobs = new Map(), credentials = new Map();
   let server, baseUrl, stopping = false;
   const inFlight = new Set(), inFlightByJob = new Map(), controllers = new Set();
+  const prepaid = billingMode === 'prepaid';
+  function operatorScope(scope) {
+    try {
+      const normalized = normalizeScope(scope);
+      if (/^0x0{40}$/i.test(normalized.owner)) throw fail('SCOPE_INVALID');
+      return normalized;
+    } catch { throw fail('SCOPE_INVALID'); }
+  }
   function expire() {
     for (const [id, job] of jobs) {
       if (now() >= job.expiresAt && !job.busy) { credentials.delete(job.apiKey); jobs.delete(id); }
@@ -62,7 +72,11 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       ? scopeId(scope) : undefined;
   }
   function preflight({ scope, model, dailyLimitMicros, maxChargeMicros } = {}) {
-    if (!models.has(model) || !positive(dailyLimitMicros) || !positive(maxChargeMicros)) throw fail('JOB_CONFIG_INVALID');
+    if (!models.has(model) || (prepaid && (!positive(dailyLimitMicros) || !positive(maxChargeMicros)))) throw fail('JOB_CONFIG_INVALID');
+    if (!prepaid) {
+      operatorScope(scope);
+      return { billingMode, maxCalls, maxInputTokens, maxOutputTokens };
+    }
     const policy = policyFor(model), requiredMicros = Math.max(1, cost(maxInputTokens, maxOutputTokens, policy));
     if (requiredMicros > maxChargeMicros) throw fail('JOB_LIMIT_REACHED');
     return { ...ledger.checkReservation({ scope, amountMicros: requiredMicros, dailyLimitMicros, budgetScopeId: budgetFor(scope) }),
@@ -138,7 +152,7 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       return JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } finally { if (bytes > 1024 * 1024 || signal.aborted) await reader.cancel().catch(() => {}); reader.releaseLock(); }
   }
-  function measuredCost(output, job, cap) {
+  function measuredUsage(output, job, cap) {
     const usage = output?.usage;
     if (!output || output.error || !Array.isArray(output.choices) || output.choices.length !== 1
       || typeof output.choices[0]?.message?.content !== 'string' || !usage
@@ -151,12 +165,16 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       || (outputDetails !== undefined && (!outputDetails || typeof outputDetails !== 'object' || Array.isArray(outputDetails)))) throw fail('USAGE_UNVERIFIED');
     for (const value of Object.values(inputDetails || {})) if (!nonnegative(value) || value > usage.prompt_tokens) throw fail('USAGE_UNVERIFIED');
     for (const value of Object.values(outputDetails || {})) if (!nonnegative(value) || value > usage.completion_tokens) throw fail('USAGE_UNVERIFIED');
+    return { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens,
+      providerRequestId: typeof output.id === 'string' ? output.id.slice(0, 160) : null };
+  }
+  function measuredCost(output, job, cap) {
+    const usage = measuredUsage(output, job, cap);
     // The declared tariff bills all prompt and completion tokens equally,
     // including cached prompt and reasoning tokens included in those totals.
-    return { chargedMicros: cost(usage.prompt_tokens, usage.completion_tokens, job.policy), details: {
+    return { chargedMicros: cost(usage.inputTokens, usage.outputTokens, job.policy), details: {
       pricingBasis: 'operator-token-tariff', pricingPolicyId: job.policy.policyId,
-      providerDebitVerified: false, inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens,
-      providerRequestId: typeof output.id === 'string' ? output.id.slice(0, 160) : null } };
+      providerDebitVerified: false, ...usage } };
   }
   function deliver(response, output, streaming) {
     if (response.destroyed || response.writableEnded) return;
@@ -186,16 +204,21 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       if (job.revoked || now() >= job.expiresAt) throw fail('CREDENTIAL_DENIED');
       const validated = validateRequest(input, job);
       if (job.calls >= maxCalls || job.busy) throw fail('CALL_LIMIT_REACHED');
-      const reservationMicros = Math.max(1, cost(maxInputTokens, validated.cap, job.policy));
-      if (reservationMicros > job.maxChargeMicros - job.committedMicros) throw fail('JOB_LIMIT_REACHED');
-      reservationId = `${job.jobId}:${randomUUID()}`;
-      ledger.reserve({ id: reservationId, scope: job.scope, amountMicros: reservationMicros, dailyLimitMicros: job.dailyLimitMicros,
-        budgetScopeId: job.budgetScopeId,
-        details: { jobId: job.jobId, model: job.model, agentScope: job.agentScope,
-          pricingBasis: 'operator-token-tariff', pricingPolicyId: job.policy.policyId } });
-      job.calls++; job.busy = true; ownsBusy = true; job.committedMicros += reservationMicros;
-      if (job.revoked || stopping) { ledger.release(reservationId); throw fail('CREDENTIAL_DENIED'); }
-      ledger.markForwarded(reservationId); forwarded = true;
+      let reservationMicros;
+      if (prepaid) {
+        reservationMicros = Math.max(1, cost(maxInputTokens, validated.cap, job.policy));
+        if (reservationMicros > job.maxChargeMicros - job.committedMicros) throw fail('JOB_LIMIT_REACHED');
+        reservationId = `${job.jobId}:${randomUUID()}`;
+        ledger.reserve({ id: reservationId, scope: job.scope, amountMicros: reservationMicros, dailyLimitMicros: job.dailyLimitMicros,
+          budgetScopeId: job.budgetScopeId,
+          details: { jobId: job.jobId, model: job.model, agentScope: job.agentScope,
+            pricingBasis: 'operator-token-tariff', pricingPolicyId: job.policy.policyId } });
+        job.committedMicros += reservationMicros;
+      }
+      job.calls++; job.busy = true; ownsBusy = true;
+      if (job.revoked || stopping) { if (prepaid) ledger.release(reservationId); throw fail('CREDENTIAL_DENIED'); }
+      if (prepaid) ledger.markForwarded(reservationId);
+      forwarded = true;
       const controller = new AbortController();
       controllers.add(controller); job.controllers.add(controller);
       const timer = setTimeout(() => controller.abort(), 120000);
@@ -207,9 +230,11 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
         if (!upstreamResponse.ok) throw fail('PROVIDER_OUTCOME_UNKNOWN');
         output = await boundedResponse(upstreamResponse, controller.signal);
       } finally { clearTimeout(timer); controllers.delete(controller); job.controllers.delete(controller); }
-      const measured = measuredCost(output, job, validated.cap);
-      ledger.settle({ id: reservationId, outcome: 'charged', ...measured });
-      job.committedMicros -= reservationMicros - measured.chargedMicros;
+      if (prepaid) {
+        const measured = measuredCost(output, job, validated.cap);
+        ledger.settle({ id: reservationId, outcome: 'charged', ...measured });
+        job.committedMicros -= reservationMicros - measured.chargedMicros;
+      } else measuredUsage(output, job, validated.cap);
       deliver(response, output, validated.streaming);
     } catch (error) {
       if (reservationId) {
@@ -254,20 +279,21 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
     issue({ jobId, scope, model, dailyLimitMicros, maxChargeMicros } = {}) {
       expire();
       if (!baseUrl || stopping || typeof jobId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,119}$/.test(jobId)
-        || jobs.has(jobId) || !models.has(model) || !positive(dailyLimitMicros) || !positive(maxChargeMicros)) throw fail('JOB_CONFIG_INVALID');
+        || jobs.has(jobId) || !models.has(model) || (prepaid && (!positive(dailyLimitMicros) || !positive(maxChargeMicros)))) throw fail('JOB_CONFIG_INVALID');
       if (jobs.size >= maxJobs) throw fail('CAPACITY_REACHED');
-      const current = ledger.balance(scope);
-      if (current.restoreBlocked || current.paused) throw fail('PAUSED');
-      const policy = policyFor(model);
-      if (!current.availableMicros) throw fail('BALANCE_EXHAUSTED');
+      const current = prepaid ? ledger.balance(scope) : operatorScope(scope);
+      if (prepaid && (current.restoreBlocked || current.paused)) throw fail('PAUSED');
+      const policy = prepaid ? policyFor(model) : undefined;
+      if (prepaid && !current.availableMicros) throw fail('BALANCE_EXHAUSTED');
       const apiKey = randomBytes(32).toString('base64url');
       const agentScope = scope.kind === 'account' ? { kind: 'account' } : {
         kind: 'nft', collection: /^0x[a-fA-F0-9]{40}$/.test(scope.collection || '') ? scope.collection.toLowerCase() : null,
         tokenId: /^(0|[1-9][0-9]{0,77})$/.test(scope.tokenId || '') ? scope.tokenId : null,
         ownerEpoch: Number.isSafeInteger(scope.ownerEpoch) && scope.ownerEpoch >= 0 ? scope.ownerEpoch : null };
-      const budgetScopeId = budgetFor(scope);
-      const job = { jobId, scope: { chainId: current.chainId, owner: current.wallet }, model, dailyLimitMicros, maxChargeMicros,
-        apiKey, policy, agentScope, budgetScopeId, controllers: new Set(), calls: 0, committedMicros: 0, busy: false, revoked: false, expiresAt: now() + 180000 };
+      const financial = prepaid ? { scope: { chainId: current.chainId, owner: current.wallet }, dailyLimitMicros, maxChargeMicros,
+        policy, budgetScopeId: budgetFor(scope), committedMicros: 0 } : { scope: current };
+      const job = { jobId, model, ...financial, apiKey, agentScope, controllers: new Set(), calls: 0,
+        busy: false, revoked: false, expiresAt: now() + 180000 };
       jobs.set(jobId, job); credentials.set(apiKey, job);
       return { baseUrl, apiKey, model, maxInputTokens, maxOutputTokens };
     },
