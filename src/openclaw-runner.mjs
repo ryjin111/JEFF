@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadAndVerifyJeffSoulBundle } from 'jeff-agent-nft/soul';
 import { hostedActionInstructions } from './chat-actions.mjs';
+import { createOpenClawWarmPool } from './openclaw-warm-runner.mjs';
 
 export const OPENCLAW_RUNTIME_POLICY = Object.freeze({ contextTokens: 16384, maxOutputTokens: 4096 });
 const cancelled = () => new Error('JEFF_OPENCLAW_CANCELLED');
@@ -81,13 +82,16 @@ function validBaseUrl(value) {
 export function createOpenClawRunner({ node = process.execPath, cli = resolve('node_modules/openclaw/openclaw.mjs'),
   model = process.env.JEFF_MODEL || 'bankr/gpt-5.4-mini',
   providerUrl = process.env.BANKR_LLM_URL || 'https://llm.bankr.bot/v1', env = process.env,
-  onDiagnostics = () => {}, allowedModels = [model], spawnProcess = spawn, timeoutMs = 150000 } = {}) {
+  onDiagnostics = () => {}, allowedModels = [model], spawnProcess = spawn, timeoutMs = 150000,
+  mode = 'cli', warm = {}, settleInference } = {}) {
   if (!Array.isArray(allowedModels) || !allowedModels.length || allowedModels.length > 64
-    || typeof spawnProcess !== 'function' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    || typeof spawnProcess !== 'function' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1
+    || !['cli', 'warm-gateway'].includes(mode)) {
     throw new Error('JEFF_OPENCLAW_CONFIG_INVALID');
   }
   const models = new Set(allowedModels.map(normalizeModel));
-  return async ({ scope, objective, workspace, stateRoot, jobId, signal, executionContext, inferenceGateway }) => {
+  const pool = mode === 'warm-gateway' ? createOpenClawWarmPool({ ...warm, node, cli, env, timeoutMs, spawnProcess, settleInference }) : null;
+  const execute = async ({ scope, objective, workspace, stateRoot, jobId, signal, executionContext, inferenceGateway }, worker) => {
     if (signal?.aborted) throw cancelled();
     if (typeof objective !== 'string' || !objective.trim() || objective.length > 4000) throw new Error('JEFF_OPENCLAW_OBJECTIVE_INVALID');
     const selectedModel = inferenceGateway ? normalizeModel(inferenceGateway.model) : executionContext?.settings?.model ?? model;
@@ -128,7 +132,7 @@ export function createOpenClawRunner({ node = process.execPath, cli = resolve('n
           contextTokens: OPENCLAW_RUNTIME_POLICY.contextTokens, maxTokens: OPENCLAW_RUNTIME_POLICY.maxOutputTokens, input: ['text'] }] } } },
       gateway: { mode: 'local', bind: 'loopback' },
     };
-    await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    if (!pool) await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     await mkdir(resolve(stateRoot, 'tmp'), { recursive: true, mode: 0o700 });
     if (signal?.aborted) throw cancelled();
     const childEnv = Object.fromEntries(['PATH', 'Path', 'SystemRoot', 'WINDIR', 'HOME', 'USERPROFILE', 'COMSPEC', 'LANG']
@@ -139,7 +143,7 @@ export function createOpenClawRunner({ node = process.execPath, cli = resolve('n
     const contextBytes = inferenceGateway?.maxInputTokens <= 16384
       ? Math.max(0, 2500 - Math.max(0, Buffer.byteLength(objective) - 512)) : 16000;
     const message = contextMessage(objective, executionContext, contextBytes);
-    const output = await new Promise((resolveOutput, reject) => {
+    const output = pool ? await pool.execute(worker, { config, apiKey, message }) : await new Promise((resolveOutput, reject) => {
       let child;
       try { child = spawnProcess(node, [cli, 'agent', '--local', '--agent', 'main', '--session-id', jobId,
         '--message', message, '--json', '--timeout', '120'], { env: childEnv, cwd: stateRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); }
@@ -189,4 +193,9 @@ export function createOpenClawRunner({ node = process.execPath, cli = resolve('n
     const usage = tokenUsage(output);
     return { text, model: selectedModel, ...(usage ? { usage } : {}) };
   };
+  const run = input => pool ? pool.run(input, (worker, signal) => execute({ ...input, signal }, worker)) : execute(input);
+  run.close = () => pool ? pool.close() : Promise.resolve();
+  run.drainIdle = () => pool ? pool.drainIdle() : Promise.resolve();
+  run.retireScope = scope => pool ? pool.retireScope(scope) : Promise.resolve();
+  return run;
 }
