@@ -164,17 +164,19 @@ async function geometry(page) {
     await nav(page, 'chat');
     check('Explicit schedule authorization creates exactly one immutable schedule and opens Scheduled work without losing draft');
     assert.equal(await page.locator('.personal-context').count(), 0);
+    assert.equal(await page.locator('.return-summary').count(), 0);
     assert.equal(await page.getByText('What I’m working on', { exact: true }).count(), 0);
     assert.equal(await page.getByText('Saved context I remember', { exact: true }).count(), 0);
     await refresh(page);
     assert.equal(await page.locator('.personal-context').count(), 0);
+    assert.equal(await page.locator('.return-summary').count(), 0);
     assert.equal((await api(page, '/api/schedules')).value.schedules.length, 1);
     assert.equal((await api(page, '/api/workspace/state')).value.workspace.memories.length, 2);
     await page.setViewportSize({ width: 390, height: 844 });
     await geometry(page);
     await page.screenshot({ path: path.join(output, 'conversation-mobile.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    check('Conversation omits the removed context panels after refresh while saved memory and schedules persist and mobile fits');
+    check('Conversation omits recent results and context panels after refresh while saved memory and schedules persist and mobile fits');
 
     const dismissed = await send(page, 'Fixture action: one-off draft');
     assert.match(await dismissed.card.textContent(), /One run/);

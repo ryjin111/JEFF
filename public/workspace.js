@@ -675,29 +675,22 @@ function personalContext(selected) {
   memory.append(button('Open Memory', 'open-chat-action', 'book', 'text-button', { target: 'memory' }));
   panel.append(work, memory); return panel;
 }
-function returnSummary(selected) {
+function returnSummary() {
   const outcomes = unseenOutcomes(S.jobs, reviewedOutcomes);
   if (!outcomes.length) return null;
-  const panel = node('details', 'personal-context-section return-summary');
-  const key = selected?.id || 'new';
-  panel.dataset.context = JSON.stringify([scopeKey(S.session.scope), key]);
-  panel.open = personalPanels.get(key)?.results ?? false;
-  panel.addEventListener('toggle', () => { if (panel.isConnected) personalPanels.set(key, { ...personalPanels.get(key), results: panel.open }); });
-  const heading = node('summary', '', `Recent results (${outcomes.length})`); heading.id = 'recent-results-toggle';
-  panel.append(heading, node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
+  const panel = node('section', 'personal-context-section return-summary');
+  panel.setAttribute('aria-label', 'Since your last visit');
+  panel.append(node('h2', '', 'Since your last visit'), node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
   const shown = outcomes.slice(0, 5);
   for (const job of shown) {
     const item = node('div', 'personal-responsibility');
-    const open = button('Open result', 'open-job', 'arrow', 'text-button', { id: job.id }); open.id = `recent-result-${job.id}`;
-    item.append(node('strong', '', job.objective), pill(job.status === 'completed' ? 'Saved' : job.status === 'interrupted' ? 'Interrupted' : 'Failed', job.status === 'completed' ? 'success' : ''), open);
+    item.append(node('strong', '', job.objective), pill(job.status === 'completed' ? 'Saved' : job.status === 'interrupted' ? 'Interrupted' : 'Failed', job.status === 'completed' ? 'success' : ''), button('Open result', 'open-job', 'arrow', 'text-button', { id: job.id }));
     panel.append(item);
   }
-  if (outcomes.length > 5) {
-    const all = button('View all runs', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }); all.id = 'recent-results-all'; panel.append(all);
-  }
-  const review = button('Mark these reviewed', 'review-outcomes', 'check', 'button button-subtle', {
+  if (outcomes.length > 5) panel.append(button('View all runs', 'open-chat-action', 'activity', 'text-button', { target: 'activity' }));
+  panel.append(button('Mark these reviewed', 'review-outcomes', 'check', 'button button-subtle', {
     ids: JSON.stringify(shown.map(job => job.id)), scope: scopeKey(S.session.scope),
-  }); review.id = 'recent-results-review'; panel.append(review);
+  }));
   return panel;
 }
 function admissionRecovery({ activity = false } = {}) {
@@ -722,7 +715,6 @@ function renderChat() {
   toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
   if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
   view.append(toolbar);
-  const returned = returnSummary(selected); if (returned) view.append(returned);
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
   const submitting = S.submission?.conversationId === S.conversationId ? S.submission : null;
@@ -986,8 +978,6 @@ function renderHosting() {
 }
 function render() {
   const focus = document.activeElement?.id;
-  const recent = $('.return-summary', content);
-  const recentState = recent && { context: recent.dataset.context, open: recent.open, scrollTop: recent.scrollTop, focused: recent.contains(document.activeElement) };
   const start = document.activeElement?.selectionStart, end = document.activeElement?.selectionEnd;
   const scroll = $('#chat-feed')?.scrollTop || content.scrollTop;
   const atBottom = $('#chat-feed') ? $('#chat-feed').scrollHeight - $('#chat-feed').scrollTop - $('#chat-feed').clientHeight < 120 : false;
@@ -1004,12 +994,10 @@ function render() {
       || current.dataset.chatActionState !== chatActionViewState(job.id)) current.replaceWith(resultMessage(job, true));
   }
   if (S.busy) $$('form input, form textarea, form select', content).forEach(element => { if (element.id !== 'composer-input') element.disabled = true; });
-  const nextRecent = $('.return-summary', content), sameRecent = nextRecent && nextRecent.dataset.context === recentState?.context;
-  if (focus && (!recentState?.focused || sameRecent) && $(`#${focus}`, content)) {
+  if (focus && $(`#${focus}`, content)) {
     const element = $(`#${focus}`, content);
     if (!element.disabled) { element.focus({ preventScroll: true }); if (typeof start === 'number' && element.setSelectionRange && !['number', 'checkbox'].includes(element.type)) element.setSelectionRange(start, end); }
   }
-  if (sameRecent && recentState.open && nextRecent.open) nextRecent.scrollTop = recentState.scrollTop;
   const feed = $('#chat-feed'); if (feed) feed.scrollTop = atBottom ? feed.scrollHeight : scroll; else content.scrollTop = scroll;
 }
 
