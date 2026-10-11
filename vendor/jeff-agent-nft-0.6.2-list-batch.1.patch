@@ -1,0 +1,73 @@
+--- a/api/_lib/jeff-openclaw-nft.mjs
++++ b/api/_lib/jeff-openclaw-nft.mjs
+@@ -98,6 +98,26 @@
+       throw error;
+     } finally { busy.delete(location.id); }
+   }
++  // Only authorized public operations call this private reader. Batch reads
++  // recheck authority once after the complete batch, before releasing results.
++  async function readRecord(scope, id) {
++    if (!jobId.test(id ?? '')) throw new Error('JEFF_OPENCLAW_JOB_ID_INVALID');
++    let result;
++    try { result = pending.get(keyFor(scope, id)) ?? JSON.parse(await readFile(resolve(paths(scope).results, `${id}.json`), 'utf8')); }
++    catch { throw new Error('JEFF_OPENCLAW_RESULT_NOT_FOUND'); }
++    if (workspaceId(result.scope) !== workspaceId(scope)
++      || result.id !== id || result.schema !== 'jeff-openclaw-job-v1'
++      || (['completed','completed_unsaved'].includes(result.status) && hash(result.text) !== result.textSha256)) {
++      throw new Error('JEFF_OPENCLAW_RESULT_INVALID');
++    }
++    return structuredClone(result);
++  }
++  function runtimeStatus(scope, result) {
++    if (result.status === 'running' && !completions.has(keyFor(scope, result.id))) {
++      return { ...result, status: 'interrupted', error: 'JEFF_OPENCLAW_PROCESS_RESTARTED' };
++    }
++    return result;
++  }
+   const bridge = {
+     async start(input, objective) {
+       const scope = await authorize(input);
+@@ -128,29 +148,18 @@
+     },
+     async retrieve(input, id) {
+       const scope = await authorize(input);
+-      if (!jobId.test(id ?? '')) throw new Error('JEFF_OPENCLAW_JOB_ID_INVALID');
+-      let result;
+-      try { result = pending.get(keyFor(scope, id)) ?? JSON.parse(await readFile(resolve(paths(scope).results, `${id}.json`), 'utf8')); }
+-      catch { throw new Error('JEFF_OPENCLAW_RESULT_NOT_FOUND'); }
+-      if (workspaceId(result.scope) !== workspaceId(scope)
+-        || result.id !== id || result.schema !== 'jeff-openclaw-job-v1'
+-        || (['completed','completed_unsaved'].includes(result.status) && hash(result.text) !== result.textSha256)) {
+-        throw new Error('JEFF_OPENCLAW_RESULT_INVALID');
+-      }
++      const result = await readRecord(scope, id);
+       await authorize(scope);
+-      if (result.status === 'running' && !completions.has(keyFor(scope, id))) {
+-        return { ...result, status: 'interrupted', error: 'JEFF_OPENCLAW_PROCESS_RESTARTED' };
+-      }
+-      return structuredClone(result);
++      return runtimeStatus(scope, result);
+     },
+     async list(input) {
+       const scope = await authorize(input);
+       let files;
+       try { files = await readdir(paths(scope).results); }
+-      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
++      catch (error) { if (error.code === 'ENOENT') files = []; else throw error; }
+       const records = [];
+       for (const file of files.filter(file => /^[a-f0-9-]{36}\.json$/.test(file))) {
+-        records.push(await bridge.retrieve(scope, file.slice(0, -5)));
++        records.push(runtimeStatus(scope, await readRecord(scope, file.slice(0, -5))));
+       }
+       await authorize(scope);
+       return records.sort((a,b) => b.startedAt.localeCompare(a.startedAt));
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "jeff-agent-nft",
+-  "version": "0.6.1",
++  "version": "0.6.2-list-batch.1",
+   "description": "Open, token-agnostic shadow decision model and benchmark for Agent NFTs.",
+   "type": "module",
+   "license": "MIT",
