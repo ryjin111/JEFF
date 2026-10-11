@@ -1,6 +1,11 @@
-﻿import { createJeffApplication } from './application.mjs';
-
-import { createRecurringBackup } from './recurring-backup.mjs';
+﻿import { verifyStartupMount } from './startup-mount.mjs';
+try { await verifyStartupMount(); }
+catch (error) {
+  console.error(/^JEFF_STORAGE_[A-Z_]+$/.test(error.message) ? error.message : 'JEFF_STORAGE_MOUNT_UNAVAILABLE');
+  process.exit(1);
+}
+const { createJeffApplication } = await import('./application.mjs');
+const { createRecurringBackup } = await import('./recurring-backup.mjs');
 if (process.env.JEFF_HOSTED_HARDENING === 'true') await import('./runtime-hardening.mjs');
 const { prepareStartupBackup } = await import('./startup-backup.mjs');
 let backupExport;
