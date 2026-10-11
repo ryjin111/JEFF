@@ -25,6 +25,7 @@ let provider, pollTimer, expiryTimer, toastTimer, toastReturnFocus, refreshSeque
 let reviewedOutcomes = new Set(), reviewedScope = null, githubQuestionRestorePending = true;
 let displayedToast = null, dismissedNotice = null;
 let commandReturnFocus = null;
+let githubRefreshRequest = null;
 const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
 const pending = new Set();
@@ -238,6 +239,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   S.actionConsent.clear(); S.actionRequests.clear();
   personalPanels.clear();
   S.researchDraft = { question: '', urls: '', consent: false, unconfirmed: false };
+  githubRefreshRequest = null;
   S.githubConnection=null;S.githubRepositories=null;S.githubDraft={question:'',repositoryId:''};S.githubUnconfirmed=false;
   githubQuestionRestorePending = false;
   try { sessionStorage.removeItem(GITHUB_QUESTION_KEY); } catch {}
@@ -341,8 +343,6 @@ async function refresh({ quiet = false, github = false } = {}) {
     reconcileSettingsDraft(workspace);
     S.workspace = workspace; S.jobs = jobs; S.hosting = hosting; S.usage = usage; S.schedules = value.schedules;
     restoreGithubQuestion();
-    if(github||!S.githubConnection)await refreshGithub();
-    if(version!==S.version||sequence!==refreshSequence)return;
     if (reviewedScope !== scopeKey(scope)) {
       reviewedScope = scopeKey(scope);
       try { reviewedOutcomes = parseReviewed(localStorage.getItem(reviewedKey(scope))); }
@@ -361,6 +361,7 @@ async function refresh({ quiet = false, github = false } = {}) {
     if (!workspace.conversations.some(item => item.id === S.conversationId) && !conversation()) S.conversationId = workspace.conversations.at(-1)?.id || null;
     render(); schedulePoll();
     if (!quiet && !trackedRun && !recovered) notify('Workspace refreshed.');
+    if (github || !S.githubConnection) refreshGithub({ background: true }).catch(() => {});
     return true;
   } catch (error) {
     if (version !== S.version || sequence !== refreshSequence || error.message === 'JEFF_REQUEST_SUPERSEDED') return false;
@@ -844,24 +845,38 @@ function renderSkills() {
   view.append(grid, node('p', 'state-notice tools-notice', 'Prompt recipes do not grant tool access. Shell execution, wallet spending and outbound messages are unavailable.'));
   return view;
 }
-async function refreshGithub(){
-  const version=S.version;
-  try{
-    const connection=await api('/api/connectors/github');if(version!==S.version)return;
-    if(!['not_configured','not_connected','connected','reconnect_required','unavailable'].includes(connection.status))throw new Error('JEFF_RESULT_INVALID');
-    if(S.githubConnection?.generation!==connection.generation){S.githubDraft.repositoryId='';S.githubRepositories=null;}
-    S.githubConnection=connection;
-    const repositories=connection.status==='connected'?await api('/api/connectors/github/repositories'):null;
-    if(version!==S.version)return;
-    S.githubRepositories=repositories;
-  }catch(error){
-    if(version===S.version){
-      try{const status=await api('/api/connectors/github');if(version===S.version)S.githubConnection=status;}
-      catch{if(version===S.version)S.githubConnection={status:'unavailable'};}
-      if(version===S.version)S.githubRepositories=null;
+function refreshGithub({ background = false } = {}) {
+  if (!S.session) return Promise.resolve();
+  const version = S.version, scope = scopeKey(S.session.scope);
+  if (background && githubRefreshRequest?.version === version && githubRefreshRequest.scope === scope) return githubRefreshRequest.promise;
+  // Explicit connector actions require a fresh read after any connection change.
+  const request = { version, scope, promise: null };
+  githubRefreshRequest = request;
+  const current = () => githubRefreshRequest === request && version === S.version
+    && S.session && scopeKey(S.session.scope) === scope;
+  request.promise = (async () => {
+    try {
+      const connection = await api('/api/connectors/github'); if (!current()) return;
+      if (!['not_configured', 'not_connected', 'connected', 'reconnect_required', 'unavailable'].includes(connection.status)) throw new Error('JEFF_RESULT_INVALID');
+      if (S.githubConnection?.generation !== connection.generation) { S.githubDraft.repositoryId = ''; S.githubRepositories = null; }
+      S.githubConnection = connection;
+      const repositories = connection.status === 'connected' ? await api('/api/connectors/github/repositories') : null;
+      if (!current()) return;
+      S.githubRepositories = repositories;
+    } catch (error) {
+      if (!current() || error.message === 'JEFF_REQUEST_SUPERSEDED') return;
+      try {
+        const status = await api('/api/connectors/github');
+        if (current()) S.githubConnection = status;
+      } catch { if (current()) S.githubConnection = { status: 'unavailable' }; }
+      if (current()) S.githubRepositories = null;
     }
-    if(error.message==='JEFF_REQUEST_SUPERSEDED')return;
-  }
+  })().finally(() => {
+    if (!current()) return;
+    githubRefreshRequest = null;
+    if (background && S.view === 'skills') render();
+  });
+  return request.promise;
 }
 async function readGithub(input){
   if(!signedIn()||S.busy||allowanceReason()||S.githubUnconfirmed||S.researchDraft.unconfirmed||S.submission)return;
