@@ -491,3 +491,12 @@ test('maintenance quiesces idle runner writers before publishing readiness', asy
   assert.equal(drains, 1);
   assert.equal(marker.status, 'ready');
 });
+
+test('direct submissions cannot start a writer after maintenance blocks admission', async t => {
+  const f = await fixture(t);
+  const session = await f.login();
+  await f.app.maintenance.pause();
+  await assert.rejects(f.app.submit(session.scope, { objective: 'Do not begin during capture' }),
+    { message: 'JEFF_SERVICE_MAINTENANCE' });
+  assert.equal(f.calls.length, 0);
+});

@@ -241,6 +241,7 @@ export async function createJeffApplication(options = {}) {
   accountBridge = createJeffOpenClawAccountBridge({ dataRoot, resolveAccount: accountSessions.registered, runAgent, persistRecord });
 
   async function submit(scope, input, session) {
+    if (maintenance.status().blocked) throw new Error('JEFF_SERVICE_MAINTENANCE');
     requireExecution();
     strict(input, ['objective', 'conversationId', 'source', 'occurrenceId', 'timeZone', 'research','github']);
     let githubInput;
