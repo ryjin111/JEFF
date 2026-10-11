@@ -1,0 +1,29 @@
+--- a/api/_lib/jeff-openclaw-nft.mjs
++++ b/api/_lib/jeff-openclaw-nft.mjs
+@@ -152,6 +152,16 @@
+       await authorize(scope);
+       return runtimeStatus(scope, result);
+     },
++    async retrieveMany(input, ids) {
++      if (!Array.isArray(ids) || ids.length > 8) throw new Error('JEFF_OPENCLAW_JOB_IDS_INVALID');
++      const selected = [...ids];
++      if (selected.some(id => typeof id !== 'string' || !jobId.test(id))) throw new Error('JEFF_OPENCLAW_JOB_ID_INVALID');
++      const scope = await authorize(input);
++      const records = [];
++      for (const id of selected) records.push(await readRecord(scope, id));
++      await authorize(scope);
++      return records.map(record => runtimeStatus(scope, record));
++    },
+     async list(input) {
+       const scope = await authorize(input);
+       let files;
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "jeff-agent-nft",
+-  "version": "0.6.2-list-batch.1",
++  "version": "0.6.2-list-batch.2",
+   "description": "Open, token-agnostic shadow decision model and benchmark for Agent NFTs.",
+   "type": "module",
+   "license": "MIT",

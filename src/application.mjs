@@ -122,10 +122,10 @@ export async function createJeffApplication(options = {}) {
       await workspace.bindJob(args.scope, { jobId: args.jobId, conversationId: binding.conversationId, objective: args.objective, source: binding.source });
       const context = await workspace.executionContext(args.scope, binding.conversationId);
       if (context.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
+      const historyIds = context.jobIds.slice(-8).filter(id => id !== args.jobId);
+      const records = historyIds.length ? await activeBridge(args.scope).retrieveMany(args.scope, historyIds) : [];
       const history = [];
-      for (const id of context.jobIds.slice(-8)) {
-        if (id === args.jobId) continue;
-        const record = await activeBridge(args.scope).retrieve(args.scope, id);
+      for (const record of records) {
         if (record.status === 'completed') history.push({ objective: record.objective.slice(0, 2000), text: record.text.slice(0, 6000) });
       }
       if (closing || controller.signal.aborted) throw new Error('JEFF_OPENCLAW_CANCELLED');

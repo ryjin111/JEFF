@@ -14,7 +14,7 @@
   "overrides": { "npm": "$npm" },
   "dependencies": {
     "npm": "file:vendor/jeff-disabled-npm-1.0.0.tgz",
-    "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.2-list-batch.1.tgz",
+    "jeff-agent-nft": "file:vendor/jeff-agent-nft-0.6.2-list-batch.2.tgz",
     "openclaw": "2026.9.9",
     "viem": "2.57.3"
   }
