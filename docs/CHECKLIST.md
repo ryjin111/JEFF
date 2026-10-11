@@ -1,6 +1,6 @@
 # JEFF: OpenClaw for Agent NFTs
 
-Updated 10 October 2026. Staging application and monitor runtime source are `587d4a09b63f94208075896ce2e100cfb3de355e`. Production remains on the original pilot, `4a014572`. Final validation source is `06d8e79`, which changes only the maintenance fixture and audit documentation. The source archive has its own commit/hash manifest.
+Updated 11 October 2026. Staging application and monitor are pinned to `d61aa6c2a02b3a72b1b71c569db5b1c930a0631f`, the verified CSS-only successor to `a0ecee8`. All 28 public assets and 31 container source modules match; monitor and a fresh automatic backup pass. Production remains on the original pilot, `4a014572`. Historical 469/469 validation on `06d8e79` carries forward with unchanged tests and non-CSS runtime/build inputs. See [current deployment and release evidence](RELEASE-20261011.md).
 
 ## Complete
 
