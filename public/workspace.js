@@ -23,6 +23,7 @@ const S = { config: null, session: null, workspace: null, jobs: [], hosting: nul
 Object.assign(S,{githubConnection:null,githubRepositories:null,githubDraft:{question:'',repositoryId:''},githubUnconfirmed:false});
 let provider, pollTimer, expiryTimer, toastTimer, toastReturnFocus, refreshSequence = 0, refreshFailures = 0, refreshNotice = null, sidebarReturnFocus;
 let reviewedOutcomes = new Set(), reviewedScope = null, githubQuestionRestorePending = true;
+let displayedToast = null, dismissedNotice = null;
 let commandReturnFocus = null;
 const reviewedKey = scope => `jeff:reviewed-outcomes:v1:${scopeKey(scope)}`;
 const refreshRetryDelays = [2000, 5000, 10000, 30000];
@@ -104,9 +105,10 @@ function allowanceReason() {
   if (running()) return `${S.workspace.settings.name} is working. You can draft your next message while you wait.`;
   return '';
 }
-function notify(message, error = false) {
+function notify(message, error = false, preserveDismissed = false) {
   S.notice = message; S.noticeError = error; S.runNotice = null; refreshNotice = null;
-  toast(message, error);
+  if (!preserveDismissed) dismissedNotice = null;
+  toast(message, error, true);
 }
 function notifyRun(jobId, message, stopRequested = false) {
   if (!S.session || !JOB_ID.test(jobId)) return;
@@ -139,12 +141,19 @@ function scheduleToastDismissal() {
 function dismissToast() {
   clearTimeout(toastTimer);
   const element = $('#workspace-notice'), focused = element.contains(document.activeElement);
+  if (!element.hidden && displayedToast?.tracked) dismissedNotice = displayedToast.key;
   element.hidden = true;
   if (focused) (toastReturnFocus?.isConnected ? toastReturnFocus : content).focus({ preventScroll: true });
 }
-function toast(message, error = false) {
-  const element = $('#workspace-notice'); clearTimeout(toastTimer);
-  if (!message) { dismissToast(); put('#notification-message', ''); return; }
+function toast(message, error = false, tracked = false) {
+  const element = $('#workspace-notice');
+  if (!message) { dismissToast(); put('#notification-message', ''); displayedToast = null; dismissedNotice = null; return; }
+  const key = JSON.stringify([S.version, message, error]);
+  if (tracked) {
+    if (dismissedNotice === key) return;
+    dismissedNotice = null;
+  } else if (!element.hidden && displayedToast?.error) return;
+  clearTimeout(toastTimer); displayedToast = { key, error, tracked };
   element.classList.toggle('is-error', error);
   element.setAttribute('role', error ? 'alert' : 'status');
   element.setAttribute('aria-live', error ? 'assertive' : 'polite');
@@ -359,11 +368,11 @@ async function refresh({ quiet = false, github = false } = {}) {
     if (retry) refreshFailures = Math.min(refreshFailures + 1, refreshRetryDelays.length);
     if (S.runNotice && S.session && S.runNotice.scope === scopeKey(S.session.scope)) {
       const tracked = S.runNotice;
-      notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. ${retry ? 'Checking its saved status automatically; do not send it again.' : 'Use Find anything → Refresh workspace to retrieve its saved status; do not send it again.'}`, true);
+      notify(`Task ${tracked.jobId} was admitted, but the workspace could not refresh. ${retry ? 'Checking its saved status automatically; do not send it again.' : 'Use Find anything → Refresh workspace to retrieve its saved status; do not send it again.'}`, true, quiet);
       S.runNotice = { ...tracked, message: S.notice, refreshFailed: true };
     } else {
       const recoveryMessage = refreshNotice?.scope === scopeKey(scope) ? refreshNotice.recoveryMessage : undefined;
-      notify(retry ? `${error.message === 'JEFF_CHAIN_UNAVAILABLE' ? 'Ownership verification is temporarily unavailable.' : 'The connection is temporarily unavailable.'} Reconnecting to check saved work. Your task will not be sent again.` : friendly(error), true);
+      notify(retry ? `${error.message === 'JEFF_CHAIN_UNAVAILABLE' ? 'Ownership verification is temporarily unavailable.' : 'The connection is temporarily unavailable.'} Reconnecting to check saved work. Your task will not be sent again.` : friendly(error), true, quiet);
       if (retry) refreshNotice = { scope: scopeKey(scope), message: S.notice, recoveryMessage };
     }
     render();
@@ -385,6 +394,7 @@ function scheduleExpiry() {
 }
 async function mutate(operation, success) {
   if (S.busy || !S.session) return;
+  dismissedNotice = null;
   const version = S.version; S.busy = true; render();
   try {
     await operation();
