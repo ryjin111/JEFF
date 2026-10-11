@@ -114,6 +114,10 @@ export function createOpenClawWarmPool({ node, cli, env, timeoutMs, settleInfere
     assertCurrent();
     const configPath = resolve(worker.stateRoot, 'openclaw.json');
     const config = structuredClone(prepared.config);
+    // OpenClaw restores its previous config if a later complete config loses
+    // the metadata envelope. Keep that envelope without importing old policy
+    // or credentials when maintenance starts a fresh worker on the same root.
+    config.meta = {};
     config.models.providers.bankr.apiKey = worker.inactiveKey;
     config.agents.defaults.heartbeat = { every: '0m' };
     config.agents.defaults.timeoutSeconds = modelTimeoutSeconds;

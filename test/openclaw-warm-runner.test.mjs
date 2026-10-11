@@ -104,6 +104,26 @@ test('shorter outer deadlines also cap model execution below the legacy 120 seco
   assert.equal(JSON.parse(await readFile(resolve(f.input(1).stateRoot, 'openclaw.json'))).agents.defaults.timeoutSeconds, 35);
 });
 
+test('maintenance restart rebuilds fresh credentials without dropping the config metadata envelope', async t => {
+  const f = await fixture(t); await f.runner(f.input(1));
+  const path = resolve(f.input(1).stateRoot, 'openclaw.json');
+  const previous = JSON.parse(await readFile(path));
+  assert.deepEqual(previous.meta, {});
+  // Actual OpenClaw adds this stamp on config.patch and treats its removal as
+  // an incomplete overwrite, restoring the old Gateway port and auth token.
+  previous.meta = { lastTouchedVersion: '2026.9.9' };
+  previous.syntheticUntrustedPolicy = true;
+  await writeFile(path, JSON.stringify(previous));
+  await f.runner.drainIdle(); await f.runner(f.input(2));
+  const next = JSON.parse(await readFile(path));
+  assert.deepEqual(next.meta, {});
+  assert.notEqual(next.gateway.auth.token, previous.gateway.auth.token);
+  assert.notEqual(next.models.providers.bankr.apiKey, previous.models.providers.bankr.apiKey);
+  assert.equal(next.syntheticUntrustedPolicy, undefined);
+  assert.equal(f.children.length, 2); assert.equal(f.children[0].child.kills.length, 1);
+  assert.equal(f.agents[1].params.message.includes('Synthetic request 1'), false);
+});
+
 test('current canonical identity and host action context are rewritten before each fresh session', async t => {
   const f = await fixture(t); await f.runner(f.input(1));
   const next = f.input(2); next.executionContext = { settings: { name: 'Changed fixture' }, chatActions: { enabled: false } };
