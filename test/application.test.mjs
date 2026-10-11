@@ -443,3 +443,41 @@ test('shutdown cancels the already running child and waits for its failed record
   assert.equal(record.status, 'failed');
   assert.equal(record.saved, true);
 });
+
+test('shutdown waits for idle runner resources and closes them once', async t => {
+  const closeStarted = deferred(), releaseClose = deferred();
+  let closes = 0;
+  const runAgent = async () => { throw new Error('Unexpected model request'); };
+  runAgent.close = async () => { closes++; closeStarted.resolve(); await releaseClose.promise; };
+  const f = await fixture(t, { runAgent });
+  const closed = f.app.close();
+  assert.equal(f.app.close(), closed);
+  await closeStarted.promise;
+  let settled = false;
+  closed.then(() => { settled = true; });
+  await delay(10);
+  assert.equal(settled, false);
+  assert.equal(closes, 1);
+  releaseClose.resolve();
+  await closed;
+  assert.equal(closes, 1);
+});
+
+for (const env of [{ JEFF_OPENCLAW_RUNNER_MODE: 'unknown' }, { JEFF_OPENCLAW_RUNNER_MODE: 'warm-gateway' }]) {
+  test('invalid or unmetered warm runner configuration fails before starting resources', async () => {
+    await assert.rejects(createJeffApplication({ env }), { message: 'JEFF_RUNTIME_CONFIG_INVALID' });
+  });
+}
+
+test('unsafe maintenance shutdown still closes idle runner resources', async t => {
+  const dataRoot = await mkdtemp(resolve('test', '.warm-shutdown-'));
+  let closes = 0;
+  const runAgent = async () => { throw new Error('Unexpected model request'); };
+  runAgent.close = async () => { closes++; };
+  const app = await createJeffApplication({ dataRoot, startScheduler: false, fixture: true,
+    env: { JEFF_MODEL: 'bankr/fixture-model' }, runAgent });
+  t.after(async () => { await app.close().catch(() => {}); await rm(dataRoot, { recursive: true, force: true }); });
+  await assert.rejects(app.maintenance.track(Promise.reject(new Error('Fixture durable writer failed')), 'failed-writer'));
+  await assert.rejects(app.close(), { message: 'JEFF_MAINTENANCE_TASK_UNSAFE' });
+  assert.equal(closes, 1);
+});

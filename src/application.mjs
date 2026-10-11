@@ -46,6 +46,9 @@ function failureDetails(error) {
 // Injectable dependencies support isolated tests. Production has no auth bypass.
 export async function createJeffApplication(options = {}) {
   const env = options.env || process.env;
+  const runnerMode = env.JEFF_OPENCLAW_RUNNER_MODE || 'cli';
+  if (!['cli', 'warm-gateway'].includes(runnerMode)
+    || runnerMode === 'warm-gateway' && env.JEFF_INFERENCE_CREDITS_ENABLED !== 'true') throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
   const port = Number(env.PORT || 8788);
   const origin = options.origin || env.JEFF_PUBLIC_ORIGIN || `http://127.0.0.1:${port}`;
   const chainId = Number(env.JEFF_CHAIN_ID || 4663);
@@ -84,8 +87,15 @@ export async function createJeffApplication(options = {}) {
     upstreamKey: env.BANKR_LLM_API_KEY, allowedModels: allowedModels.map(model => model.slice(6)), pricing,
     maxInputTokens: 65536,
     track: (promise, label) => maintenance.track(promise, label) }) : null;
-  if (gateway) await gateway.start();
-  const runner = options.runAgent || createOpenClawRunner({ env, allowedModels });
+  let runner;
+  try {
+    runner = options.runAgent || createOpenClawRunner({ env, allowedModels, mode: runnerMode,
+      settleInference: gateway ? async jobId => { gateway.revoke(jobId); await gateway.drain(jobId); } : undefined });
+    if (gateway) await gateway.start();
+  } catch (error) {
+    try { await gateway?.stop(); } finally { inference.close(); }
+    throw error;
+  }
   const modelConfigured = Boolean(options.runAgent || env.BANKR_LLM_API_KEY);
   const researchEnabled = env.JEFF_WEB_RESEARCH_ENABLED === 'true';
   const maximumJobs = Number(env.JEFF_MAX_CONCURRENT_JOBS || 2);
@@ -500,6 +510,8 @@ export async function createJeffApplication(options = {}) {
     close() {
       if (closePromise) return closePromise;
       closing = true;
+      let runnerClosePromise;
+      const closeRunner = () => runnerClosePromise ||= Promise.resolve().then(() => runner.close?.());
       // pause blocks immediately; await its drain only after cancelling children.
       const paused = maintenance.pause();
       closePromise = (async () => {
@@ -508,11 +520,12 @@ export async function createJeffApplication(options = {}) {
           await scheduler.stop();
           if (server.listening) await new Promise(resolveClosed => { server.close(resolveClosed); server.closeIdleConnections();for(const[socket,count]of transports)if(!count)socket.destroy(); });
           await paused;
+          await closeRunner();
           await gateway?.drain();
           inference.checkpoint();
         } finally {
-          await gateway?.stop();
-          inference.close();
+          try { await closeRunner(); }
+          finally { try { await gateway?.stop(); } finally { inference.close(); } }
         }
       })();
       return closePromise;
