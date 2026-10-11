@@ -47,8 +47,7 @@ function failureDetails(error) {
 export async function createJeffApplication(options = {}) {
   const env = options.env || process.env;
   const runnerMode = env.JEFF_OPENCLAW_RUNNER_MODE || 'cli';
-  if (!['cli', 'warm-gateway'].includes(runnerMode)
-    || runnerMode === 'warm-gateway' && env.JEFF_INFERENCE_CREDITS_ENABLED !== 'true') throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
+  if (!['cli', 'warm-gateway'].includes(runnerMode)) throw new Error('JEFF_RUNTIME_CONFIG_INVALID');
   const port = Number(env.PORT || 8788);
   const origin = options.origin || env.JEFF_PUBLIC_ORIGIN || `http://127.0.0.1:${port}`;
   const chainId = Number(env.JEFF_CHAIN_ID || 4663);
@@ -85,11 +84,13 @@ export async function createJeffApplication(options = {}) {
   if (env.JEFF_INFERENCE_PRICING) {
     try { pricing = JSON.parse(env.JEFF_INFERENCE_PRICING); } catch { throw new Error('JEFF_INFERENCE_CONFIG_INVALID'); }
   }
-  const gateway = creditsEnabled ? createInferenceGateway({ ledger: inference, upstreamUrl: env.BANKR_LLM_URL || 'https://llm.bankr.bot/v1',
-    upstreamKey: env.BANKR_LLM_API_KEY, allowedModels: allowedModels.map(model => model.slice(6)), pricing,
-    maxInputTokens: 65536,
-    track: (promise, label) => maintenance.track(promise, label) }) : null;
+  let gateway;
   try {
+    gateway = creditsEnabled || runnerMode === 'warm-gateway' ? createInferenceGateway({ ledger: inference,
+      billingMode: creditsEnabled ? 'prepaid' : 'operator-funded', upstreamUrl: env.BANKR_LLM_URL || 'https://llm.bankr.bot/v1',
+      upstreamKey: env.BANKR_LLM_API_KEY, allowedModels: allowedModels.map(model => model.slice(6)), pricing,
+      maxInputTokens: 65536,
+      track: (promise, label) => maintenance.track(promise, label) }) : null;
     runner = options.runAgent || createOpenClawRunner({ env, allowedModels, mode: runnerMode,
       settleInference: gateway ? async jobId => { gateway.revoke(jobId); await gateway.drain(jobId); } : undefined });
     if (gateway) await gateway.start();

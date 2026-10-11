@@ -463,11 +463,34 @@ test('shutdown waits for idle runner resources and closes them once', async t =>
   assert.equal(closes, 1);
 });
 
-for (const env of [{ JEFF_OPENCLAW_RUNNER_MODE: 'unknown' }, { JEFF_OPENCLAW_RUNNER_MODE: 'warm-gateway' }]) {
-  test('invalid or unmetered warm runner configuration fails before starting resources', async () => {
-    await assert.rejects(createJeffApplication({ env }), { message: 'JEFF_RUNTIME_CONFIG_INVALID' });
+test('invalid runner mode fails before starting resources', async () => {
+  await assert.rejects(createJeffApplication({ env: { JEFF_OPENCLAW_RUNNER_MODE: 'unknown' } }),
+    { message: 'JEFF_RUNTIME_CONFIG_INVALID' });
+});
+
+test('warm mode preserves operator funding and issues a revocable proxy without holder credits', async t => {
+  let proxy;
+  const f = await fixture(t, {
+    env: { JEFF_CHAIN_ID: '4663', JEFF_COLLECTION: collection, JEFF_MODEL: 'bankr/fixture-model',
+      JEFF_OPENCLAW_RUNNER_MODE: 'warm-gateway', BANKR_LLM_API_KEY: 'operator-funded-fixture-key',
+      BANKR_LLM_URL: 'http://127.0.0.1:1/v1' },
+    runAgent: async args => { proxy = args.inferenceGateway; return { text: 'Operator funded fixture answer', model: 'bankr/fixture-model' }; },
   });
-}
+  const session = await f.login();
+  assert.equal((await f.api('/api/config')).value.creditsEnabled, false);
+  const job = await f.app.submit(session.scope, { objective: 'Run without a prepaid balance' });
+  await job.completion;
+  assert.match(proxy.baseUrl, /^http:\/\/127\.0\.0\.1:\d+\/v1$/);
+  assert.notEqual(proxy.apiKey, 'operator-funded-fixture-key');
+  assert.equal(proxy.model, 'fixture-model');
+  const denied = await fetch(proxy.baseUrl + '/chat/completions', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + proxy.apiKey, 'Content-Type': 'application/json' }, body: '{}',
+  });
+  assert.equal(denied.status, 401);
+  await denied.body?.cancel();
+  assert.equal(f.app.inference.balance(session.scope).availableMicros, 0);
+  assert.equal(f.app.inference.list(session.scope).length, 0);
+});
 
 test('unsafe maintenance shutdown still closes idle runner resources', async t => {
   const dataRoot = await mkdtemp(resolve('test', '.warm-shutdown-'));
