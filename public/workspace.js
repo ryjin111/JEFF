@@ -675,12 +675,15 @@ function personalContext(selected) {
   memory.append(button('Open Memory', 'open-chat-action', 'book', 'text-button', { target: 'memory' }));
   panel.append(work, memory); return panel;
 }
-function returnSummary() {
+function returnSummary(selected) {
   const outcomes = unseenOutcomes(S.jobs, reviewedOutcomes);
   if (!outcomes.length) return null;
-  const panel = node('section', 'personal-context-section return-summary');
-  panel.setAttribute('aria-label', 'Since your last visit');
-  panel.append(node('h2', '', 'Since your last visit'), node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
+  const panel = node('details', 'personal-context-section return-summary');
+  const key = selected?.id || 'new';
+  panel.open = personalPanels.get(key)?.results ?? false;
+  panel.addEventListener('toggle', () => { if (panel.isConnected) personalPanels.set(key, { ...personalPanels.get(key), results: panel.open }); });
+  const heading = node('summary', '', `Recent results (${outcomes.length})`); heading.id = 'recent-results-toggle';
+  panel.append(heading, node('p', 'preview-info', `${outcomes.length} saved or unsuccessful ${outcomes.length === 1 ? 'run' : 'runs'} not marked reviewed in this browser.`));
   const shown = outcomes.slice(0, 5);
   for (const job of shown) {
     const item = node('div', 'personal-responsibility');
@@ -715,7 +718,7 @@ function renderChat() {
   toolbar.append(selector, button('Refresh', 'refresh', 'activity', 'button button-subtle'));
   if (conversation()) { const del = button('Delete conversation', 'delete-conversation', 'close', 'icon-button'); del.replaceChildren(icon('close')); del.setAttribute('aria-label', 'Delete this conversation'); del.disabled = S.busy || running(); toolbar.append(del); }
   view.append(toolbar);
-  const returned = returnSummary(); if (returned) view.append(returned);
+  const returned = returnSummary(selected); if (returned) view.append(returned);
   view.append(personalContext(selected));
   const feed = node('div', 'chat-feed'); feed.id = 'chat-feed'; feed.setAttribute('aria-live', running() ? 'off' : 'polite');
   const selectedJobs = selected ? selected.jobIds.map(id => S.jobs.find(job => job.id === id)).filter(Boolean) : [];
