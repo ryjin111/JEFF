@@ -124,6 +124,7 @@ export function createOpenClawRunner({ node = process.execPath, cli = resolve('n
         : executionContext?.chatActions?.enabled === false ? '\nThis is scheduled work, not a new manual request. Do not propose memory writes or additional schedules. Return the requested answer as ordinary text.\n' : ''), { mode: 0o600 });
     const configPath = resolve(stateRoot, 'openclaw.json');
     const config = {
+      meta: {},
       agents: { defaults: { workspace, model: { primary: selectedModel }, skipBootstrap: true, skills: [] } },
       plugins: { enabled: false },
       tools: { profile: 'minimal', deny: ['*'] },

@@ -72,6 +72,30 @@ test('warm mode is explicit and requires the host per-job settlement capability'
   const legacy = createOpenClawRunner(); await legacy.close(); await legacy.retireScope(scope);
 });
 
+test('CLI fallback reconstructs metadata and policy after a warm worker is retired', async t => {
+  const f = await fixture(t);
+  await f.runner(f.input(1));
+  await f.runner.drainIdle();
+  const configPath = resolve(f.input(1).stateRoot, 'openclaw.json');
+  const previous = JSON.parse(await readFile(configPath));
+  assert.ok(previous.gateway.auth.token);
+  const legacy = createOpenClawRunner({ ...f.factory, mode: 'cli', spawnProcess: () => {
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.kill = () => { setImmediate(() => child.emit('close', null)); return true; };
+    setImmediate(() => { child.stdout.emit('data', Buffer.from(JSON.stringify({ payloads: [{ text: 'Synthetic CLI answer' }] }))); child.emit('close', 0); });
+    return child;
+  } });
+  assert.equal((await legacy(f.input(2))).text, 'Synthetic CLI answer');
+  const current = JSON.parse(await readFile(configPath));
+  assert.deepEqual(current.meta, {});
+  assert.deepEqual(current.gateway, { mode: 'local', bind: 'loopback' });
+  assert.equal(current.models.providers.bankr.apiKey, '${JEFF_INFERENCE_API_KEY}');
+  assert.deepEqual(current.tools, { profile: 'minimal', deny: ['*'] });
+  assert.equal(JSON.stringify(current).includes(previous.gateway.auth.token), false);
+  assert.equal(JSON.stringify(current).includes(previous.models.providers.bankr.apiKey), false);
+  await legacy.close();
+});
+
 test('two jobs reuse one worker with fresh sessions, final response, usage and exact token clearing', async t => {
   const f = await fixture(t);
   const first = await f.runner(f.input(1)), second = await f.runner(f.input(2));
