@@ -237,7 +237,7 @@ function clearPrivate({ preserveInventory = false, revoke = true } = {}) {
   if (!preserveInventory) { S.inventory = null; S.wallet = null; }
   saveSession();
   if (token && revoke) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }).catch(() => {});
-  render(); renderConnection();
+  render(); renderConnection(); $('#command-search').value = ''; renderCommands();
 }
 async function api(path, { method = 'GET', body, authenticated = true } = {}) {
   const version = S.version;
