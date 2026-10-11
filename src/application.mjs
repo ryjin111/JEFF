@@ -122,6 +122,16 @@ export async function createJeffApplication(options = {}) {
       await workspace.bindJob(args.scope, { jobId: args.jobId, conversationId: binding.conversationId, objective: args.objective, source: binding.source });
       const context = await workspace.executionContext(args.scope, binding.conversationId);
       if (context.settings.paused) throw new Error('JEFF_AGENT_PAUSED');
+      const manual = binding.source === 'manual';
+      const directRequest = manual && !binding.github && !binding.research ? directMemoryRequest(args.objective) : null;
+      if (directRequest) {
+        beforeCommit();
+        await workspace.proposeChatAction(args.scope, args.jobId, directRequest, { timeZone: binding.timeZone, beforeCommit });
+        beforeCommit();
+        await workspace.applyChatMemory(args.scope, args.jobId, { beforeCommit });
+        beforeCommit();
+        return { text: 'Saved to memory. I’ll use this note in future conversations.', model: null };
+      }
       const historyIds = context.jobIds.slice(-8).filter(id => id !== args.jobId);
       const records = historyIds.length ? await activeBridge(args.scope).retrieveMany(args.scope, historyIds) : [];
       const history = [];
@@ -132,7 +142,6 @@ export async function createJeffApplication(options = {}) {
       requireExecution();
       const inferenceGateway = gateway?.issue({ jobId: args.jobId, scope: args.scope, model: context.settings.model.slice(6),
         dailyLimitMicros: context.settings.dailyBudgetMicros, maxChargeMicros: Number(env.JEFF_MAX_JOB_CHARGE_MICROS || 100000) });
-      const manual = binding.source === 'manual';
       let research;
       if(binding.github){
         if(!manual)throw new Error('JEFF_GITHUB_SCHEDULE_DENIED');

@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createJeffApplication } from '../src/application.mjs';
 import { createDurableJobReader } from '../src/maintenance.mjs';
+import { createJobRecordPersister } from '../src/job-records.mjs';
 import { scopeDirectory } from '../src/scope.mjs';
 
 const testRoot = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,8 @@ const deferred = () => {
 const scheduleAction = (overrides = {}) => ({ type: 'schedule.create', objective: 'Draft a project summary.',
   intervalMinutes: 60, maxRuns: 3, expiresAt: new Date(Date.now() + 86400000).toISOString(), ...overrides });
 
-async function fixture(t, { respond = async () => envelope(null, 'Fixture answer.'), hosting: suppliedHosting, onOwnerRead = async () => {} } = {}) {
+async function fixture(t, { respond = async () => envelope(null, 'Fixture answer.'), hosting: suppliedHosting, onOwnerRead = async () => {},
+  onRunningRecord = async () => {}, persistJobRecord, credits = false } = {}) {
   const dataRoot = await mkdtemp(resolve(testRoot, '.application-actions-'));
   const ownership = new Map(['35', '36'].map(tokenId => [tokenId, { owner: first.address.toLowerCase(), ownerEpoch: 0 }]));
   const calls = [], errors = [];
@@ -34,11 +36,23 @@ async function fixture(t, { respond = async () => envelope(null, 'Fixture answer
       usage: { remaining: 100, hourlyRemaining: 10, resetsAt: '2099-01-01T00:00:00Z' } }),
     requireActive: async () => {}, startJob: async (scope, start) => start() };
   const options = { dataRoot, origin: 'http://127.0.0.1:8788', startScheduler: false, fixture: true,
-    env: { JEFF_CHAIN_ID: '4663', JEFF_COLLECTION: collection, JEFF_MODEL: 'bankr/fixture-model' }, hosting,
+    env: { JEFF_CHAIN_ID: '4663', JEFF_COLLECTION: collection, JEFF_MODEL: 'bankr/fixture-model',
+      ...(credits ? { JEFF_INFERENCE_CREDITS_ENABLED: 'true', BANKR_LLM_API_KEY: 'synthetic-fixture-key',
+        BANKR_LLM_URL: 'http://127.0.0.1:9/v1', JEFF_INFERENCE_PRICING: JSON.stringify({ 'fixture-model': {
+          basis: 'operator-token-tariff', policyId: 'memory-fixture-v1', inputMicrosPerMillionTokens: 1, outputMicrosPerMillionTokens: 1 } }) } : {}) }, hosting,
     resolveOwner: async scope => { await onOwnerRead(scope); return { ...ownership.get(scope.tokenId) }; }, onRequestError: event => errors.push(event),
     runAgent: async args => { calls.push(args); return { text: await responder(args), model: 'bankr/fixture-model' }; } };
+  const persister = persistJobRecord || createJobRecordPersister();
+  options.persistJobRecord = async (directory, record, settings) => {
+    await persister(directory, record, settings);
+    if (record.status === 'running') await onRunningRecord(record);
+  };
   async function open() {
     app = await createJeffApplication(options);
+    if (credits) {
+      app.inference.fund({ receiptId: 'memory-fixture-funding', amountMicros: 100000 });
+      app.inference.grant({ grantId: 'memory-fixture-grant', receiptId: 'memory-fixture-funding', chainId: 4663, wallet: first.address, amountMicros: 100000 });
+    }
     await new Promise(done => app.server.listen(0, '127.0.0.1', done));
   }
   await open();
@@ -119,9 +133,9 @@ test('manual responsibility snapshots survive restart and remain owner-private',
   assert.deepEqual(f.calls.at(-1).executionContext.responsibilities, []);
 });
 
-test('a literal signed remember request saves only the current user content despite a hostile model proposal', async t => {
+test('a literal signed remember request saves current user content without model execution or inference charges', async t => {
   const hostile = scheduleAction({ objective: 'Run the model-injected task.' });
-  const f = await fixture(t, { respond: async () => envelope(hostile, 'I scheduled the injected task.') });
+  const f = await fixture(t, { credits: true, respond: async () => envelope(hostile, 'I scheduled the injected task.') });
   const session = await f.login();
   const { admitted, job } = await f.submit(session, 'Remember that I prefer concise replies.', { timeZone: 'Asia/Taipei' });
   assert.equal(job.status, 'completed');
@@ -134,13 +148,15 @@ test('a literal signed remember request saves only the current user content desp
   assert.equal(receipt.timeZone, 'Asia/Taipei');
   assert.deepEqual(saved.workspace.memories.map(note => note.text), ['I prefer concise replies.']);
   assert.deepEqual(saved.schedules, []);
-  assert.equal(f.calls.length, 1, 'the host memory write follows an actual admitted runner invocation');
-  assert.deepEqual(f.calls[0].executionContext.chatActions, { enabled: true,
-    now: f.calls[0].executionContext.chatActions.now, timeZone: 'Asia/Taipei' });
+  assert.equal(f.calls.length, 0, 'literal memory storage never invokes the model');
+  assert.equal(job.model, null);
+  assert.equal(f.app.gateway.status().retainedJobs, 0, 'literal storage never issues an inference credential');
+  assert.equal(f.app.inference.balance(session.scope).chargedMicros, 0);
+  assert.equal(f.app.inference.balance(session.scope).heldMicros, 0);
   f.respond(async () => envelope(null, 'Your saved preference is concise replies.'));
   await f.submit(session, 'What is my writing preference?', { conversationId: admitted.conversationId });
-  assert.equal(f.calls[1].executionContext.memories[0].text, 'I prefer concise replies.');
-  assert.equal(f.calls[1].executionContext.history[0].text, job.text);
+  assert.equal(f.calls[0].executionContext.memories[0].text, 'I prefer concise replies.');
+  assert.equal(f.calls[0].executionContext.history[0].text, job.text);
   await f.reopen();
   const renewed = await f.login();
   const retried = await f.action(renewed, job.id);
@@ -148,7 +164,7 @@ test('a literal signed remember request saves only the current user content desp
   assert.deepEqual(retried.value, receipt);
   saved = await f.state(renewed);
   assert.equal(saved.workspace.memories.length, 1);
-  assert.equal(f.calls.length, 2, 'retrying a saved action never reruns inference');
+  assert.equal(f.calls.length, 1, 'retrying a saved action never reruns inference');
 });
 
 test('model-extracted memory is a durable draft until an authenticated empty-body confirmation', async t => {
@@ -344,12 +360,12 @@ test('an actual scheduled occurrence cannot journal model-requested memory or ch
   }
 });
 
-test('stop during a model turn prevents a literal memory request from committing', async t => {
+test('stop during a model turn prevents a model-extracted memory proposal from committing', async t => {
   const entered = deferred(), release = deferred();
   const f = await fixture(t, { respond: async () => { entered.resolve(); await release.promise; return envelope(memory); } });
   t.after(() => release.resolve());
   const session = await f.login();
-  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Remember that my cancellation matters.' } });
+  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Prepare a note about my cancellation preference.' } });
   assert.equal(admitted.status, 202);
   await entered.promise;
   const stopped = await f.api(`/api/jobs/${admitted.value.id}/stop`, { method: 'POST', session, input: {} });
@@ -362,15 +378,15 @@ test('stop during a model turn prevents a literal memory request from committing
   assert.equal(Object.hasOwn(saved.workspace.jobBindings[admitted.value.id], 'action'), false);
 });
 
-for (const heldRead of [4, 5]) {
+for (const heldRead of [9, 10]) {
   test(`Stop during memory authorization read ${heldRead} prevents the final note commit`, { timeout: 15000 }, async t => {
     const entered = deferred(), release = deferred();
-    let afterModel = false, ownerReads = 0;
+    let running = false, held = false, ownerReads = 0;
     const f = await fixture(t, {
-      respond: async () => { afterModel = true; return envelope(null, 'Fixture answer.'); },
+      onRunningRecord: async () => { running = true; },
       onOwnerRead: async () => {
-        // Proposal reads are 1-3; memory checks are initial (4) and pre-write (5).
-        if (afterModel && ++ownerReads === heldRead) { entered.resolve(); await release.promise; }
+        // Bind/context use five reads; proposal uses three; memory starts at nine.
+        if (running && !held && ++ownerReads === heldRead) { held = true; entered.resolve(); await release.promise; }
       },
     });
     t.after(() => release.resolve());
@@ -382,7 +398,7 @@ for (const heldRead of [4, 5]) {
     const stopped = await f.api(`/api/jobs/${admitted.value.id}/stop`, { method: 'POST', session, input: {} });
     assert.equal(stopped.status, 200);
     assert.equal(stopped.value.stopRequested, true);
-    assert.equal(f.calls[0].signal.aborted, true);
+    assert.equal(f.calls.length, 0);
     release.resolve();
     assert.equal((await f.terminal(session, admitted.value.id)).status, 'failed');
     const saved = await f.state(session);
@@ -391,12 +407,12 @@ for (const heldRead of [4, 5]) {
   });
 }
 
-test('pause while a model turn is pending prevents the proposed memory write', async t => {
+test('pause while a model turn is pending prevents a model-extracted memory write', async t => {
   const entered = deferred(), release = deferred();
   const f = await fixture(t, { respond: async () => { entered.resolve(); await release.promise; return envelope(memory); } });
   t.after(() => release.resolve());
   const session = await f.login();
-  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Remember that paused agents must not save this.' } });
+  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Prepare a memory about my pause preference.' } });
   assert.equal(admitted.status, 202); await entered.promise;
   assert.equal((await f.api('/api/workspace/settings', { method: 'PATCH', session, input: { paused: true } })).status, 200);
   release.resolve();
@@ -411,7 +427,7 @@ test('a restore guard appearing during inference blocks host action writes befor
   const f = await fixture(t, { respond: async () => { entered.resolve(); await release.promise; return envelope(memory); } });
   t.after(() => release.resolve());
   const session = await f.login();
-  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Remember that restored storage is guarded.' } });
+  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Prepare a memory about guarded storage.' } });
   assert.equal(admitted.status, 202); await entered.promise;
   await mkdir(resolve(f.dataRoot, 'hosting'), { recursive: true });
   await writeFile(resolve(f.dataRoot, 'hosting', 'restore-guard.json'), '{}');
@@ -427,7 +443,7 @@ test('transfer during inference discards the proposal before any old-holder memo
   const f = await fixture(t, { respond: async () => { entered.resolve(); await release.promise; return envelope(memory); } });
   t.after(() => release.resolve());
   const session = await f.login();
-  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Remember that only the current holder can save this.' } });
+  const admitted = await f.api('/api/jobs', { method: 'POST', session, input: { objective: 'Prepare a memory about current-holder access.' } });
   assert.equal(admitted.status, 202); await entered.promise;
   f.change('35', second, 1); release.resolve();
   const read = createDurableJobReader({ dataRoot: f.dataRoot, scope: session.scope, id: admitted.value.id });
@@ -439,7 +455,7 @@ test('transfer during inference discards the proposal before any old-holder memo
   assert.equal(Object.hasOwn(oldState.jobBindings[admitted.value.id], 'action'), false);
 });
 
-test('malformed claimed action envelopes fail closed without persisting a literal memory command', async t => {
+test('malformed model-extracted action envelopes fail closed without persisting memory', async t => {
   const outputs = [
     '{"schema":"jeff-chat-response-v1","text":"Saved","action":',
     JSON.stringify({ schema: 'jeff-chat-response-v1', text: 'Saved', action: memory, privileged: true }),
@@ -448,7 +464,7 @@ test('malformed claimed action envelopes fail closed without persisting a litera
   ];
   for (const output of outputs) {
     const f = await fixture(t, { respond: async () => output });
-    const session = await f.login(), { job } = await f.submit(session, 'Remember that invalid outputs never authorize writes.');
+    const session = await f.login(), { job } = await f.submit(session, 'Prepare a memory about invalid outputs.');
     assert.equal(job.status, 'failed');
     const saved = await f.state(session);
     assert.deepEqual(saved.workspace.memories, []);
@@ -510,4 +526,125 @@ test('applied receipts stay readable under pause and restore guards while pendin
   const saved = await f.state(session);
   assert.equal(saved.workspace.memories.length, 1);
   assert.equal(saved.workspace.jobBindings[pendingJob.id].action.status, 'pending');
+});
+
+async function holdLiteralAuthorization(t, heldRead) {
+  const entered = deferred(), release = deferred();
+  let running = false, held = false, reads = 0;
+  const f = await fixture(t, {
+    onRunningRecord: async () => { running = true; },
+    onOwnerRead: async () => {
+      if (running && !held && ++reads === heldRead) {
+        held = true; entered.resolve(); await release.promise;
+      }
+    },
+  });
+  t.after(() => release.resolve());
+  const session = await f.login();
+  const admitted = await f.api('/api/jobs', { method: 'POST', session,
+    input: { objective: 'Remember that only an authorized current request may commit this note.' } });
+  assert.equal(admitted.status, 202);
+  await entered.promise;
+  return { f, session, id: admitted.value.id, release };
+}
+
+async function failedDurableJob(f, session, id) {
+  const read = createDurableJobReader({ dataRoot: f.dataRoot, scope: session.scope, id });
+  for (let i = 0; i < 150; i++) { const row = await read(); if (row.status === 'failed') return row; await delay(10); }
+  assert.fail('Expected a durable failed receipt');
+}
+
+test('stop at initial literal proposal authorization prevents any action journal', { timeout: 15000 }, async t => {
+  const { f, session, id, release } = await holdLiteralAuthorization(t, 6);
+  assert.equal((await f.api(`/api/jobs/${id}/stop`, { method: 'POST', session, input: {} })).value.stopRequested, true);
+  release.resolve(); assert.equal((await f.terminal(session, id)).status, 'failed');
+  const state = await f.state(session);
+  assert.deepEqual(state.workspace.memories, []);
+  assert.equal(Object.hasOwn(state.workspace.jobBindings[id], 'action'), false);
+  assert.equal(f.calls.length, 0);
+});
+
+test('a pause queued during literal context authorization blocks the memory proposal', { timeout: 15000 }, async t => {
+  const { f, session, id, release } = await holdLiteralAuthorization(t, 5);
+  // Queue a real settings mutation ahead of the proposal while context finishes.
+  const paused = f.app.workspace.updateSettings(session.scope, { paused: true });
+  release.resolve(); await paused;
+  assert.equal((await f.terminal(session, id)).status, 'failed');
+  const state = await f.state(session);
+  assert.equal(state.workspace.settings.paused, true); assert.deepEqual(state.workspace.memories, []);
+  assert.equal(Object.hasOwn(state.workspace.jobBindings[id], 'action'), false);
+  assert.equal(f.calls.length, 0);
+});
+
+for (const heldRead of [6, 9]) test(`restore guard at literal authorization ${heldRead} blocks the note write`, { timeout: 15000 }, async t => {
+  const { f, session, id, release } = await holdLiteralAuthorization(t, heldRead);
+  await mkdir(resolve(f.dataRoot, 'hosting'), { recursive: true });
+  await writeFile(resolve(f.dataRoot, 'hosting', 'restore-guard.json'), '{}');
+  release.resolve(); assert.equal((await f.terminal(session, id)).status, 'failed');
+  const state = await f.state(session); assert.deepEqual(state.workspace.memories, []);
+  assert.equal(Object.hasOwn(state.workspace.jobBindings[id], 'action'), heldRead === 9);
+  assert.equal(f.calls.length, 0);
+});
+
+for (const heldRead of [6, 10]) test(`holder transfer at literal authorization ${heldRead} blocks the note write`, { timeout: 15000 }, async t => {
+  const { f, session, id, release } = await holdLiteralAuthorization(t, heldRead);
+  f.change('35', second, 1); release.resolve(); await failedDurableJob(f, session, id);
+  assert.equal((await f.action(session, id)).status, 401);
+  const state = JSON.parse(await readFile(resolve(scopeDirectory(f.dataRoot, session.scope), 'workspace-state.json'), 'utf8'));
+  assert.deepEqual(state.memories, []);
+  assert.equal(Object.hasOwn(state.jobBindings[id], 'action'), heldRead === 10);
+  assert.equal(f.calls.length, 0);
+});
+
+test('service shutdown at literal proposal authorization cancels before memory writes', { timeout: 15000 }, async t => {
+  const { f, session, id, release } = await holdLiteralAuthorization(t, 6);
+  const closed = f.app.close(); release.resolve(); await closed;
+  await failedDurableJob(f, session, id);
+  const state = JSON.parse(await readFile(resolve(scopeDirectory(f.dataRoot, session.scope), 'workspace-state.json'), 'utf8'));
+  assert.deepEqual(state.memories, []); assert.equal(Object.hasOwn(state.jobBindings[id], 'action'), false);
+  assert.equal(f.calls.length, 0);
+});
+
+test('literal standalone account storage remains private and skips model execution', async t => {
+  const f = await fixture(t), session = await f.login({ standalone: true });
+  const { job } = await f.submit(session, 'Please remember: my standalone preference is exact text.');
+  assert.equal(job.status, 'completed'); assert.equal(job.saved, true); assert.equal(job.model, null);
+  assert.deepEqual((await f.state(session)).workspace.memories.map(x => x.text), ['my standalone preference is exact text.']);
+  const nftSession = await f.login(); assert.deepEqual((await f.state(nftSession)).workspace.memories, []);
+  assert.equal(f.calls.length, 0);
+});
+
+test('recalled literal commands and ambiguous current requests remain model-mediated', async t => {
+  const f = await fixture(t), session = await f.login();
+  const firstTurn = await f.submit(session, 'Remember that a saved note contains the words remember this secret.');
+  await f.submit(session, 'Remember that?', { conversationId: firstTurn.admitted.conversationId });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].executionContext.memories.length, 1);
+  assert.equal((await f.state(session)).workspace.memories.length, 1);
+});
+
+test('literal acknowledgement persistence failure retries only its receipt without inference or duplicate memory', { timeout: 15000 }, async t => {
+  let refuse = true;
+  const persist = createJobRecordPersister();
+  const f = await fixture(t, { persistJobRecord: async (directory, record, settings) => {
+    if (record.status === 'completed' && refuse) throw Error('Synthetic durable receipt failure');
+    await persist(directory, record, settings);
+  } });
+  const session = await f.login(), admitted = await f.api('/api/jobs', { method: 'POST', session,
+    input: { objective: 'Remember that one literal request creates only one note.' } });
+  assert.equal(admitted.status, 202);
+  let unsaved;
+  for (let i = 0; i < 150; i++) {
+    unsaved = await f.api(`/api/jobs/${admitted.value.id}`, { session });
+    if (unsaved.value.status === 'completed_unsaved') break;
+    await delay(10);
+  }
+  assert.equal(unsaved.value.status, 'completed_unsaved'); assert.equal(unsaved.value.saved, false);
+  assert.equal((await f.state(session)).workspace.memories.length, 1); assert.equal(f.calls.length, 0);
+  refuse = false;
+  const retried = await f.api(`/api/jobs/${admitted.value.id}/retry-save`, { method: 'POST', session, input: {} });
+  assert.equal(retried.status, 200); assert.equal(retried.value.status, 'completed');
+  assert.equal((await f.terminal(session, admitted.value.id)).saved, true);
+  const state = await f.state(session); assert.equal(state.workspace.memories.length, 1);
+  assert.equal(state.workspace.jobBindings[admitted.value.id].action.status, 'applied'); assert.equal(f.calls.length, 0);
 });
