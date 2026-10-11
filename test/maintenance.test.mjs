@@ -16,11 +16,11 @@ function deferred() {
   return { promise, resolve: resolvePromise, reject };
 }
 
-async function fixture(t, { open = true } = {}) {
+async function fixture(t, { open = true, beforeReady } = {}) {
   const root = await mkdtemp(resolve('test', '.maintenance-'));
   const markerPath = resolve(root, 'ready.json');
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gate = createMaintenanceGate({ markerPath, releaseSha: 'release-test', pid: 12345 });
+  const gate = createMaintenanceGate({ markerPath, releaseSha: 'release-test', pid: 12345, beforeReady });
   if (open) await gate.resume();
   return { root, markerPath, gate };
 }
@@ -35,6 +35,50 @@ function track(gate, promise, label) {
   if (tracked?.catch) tracked.catch(() => {});
   return tracked;
 }
+
+test('readiness waits for admitted work and then for external writers to exit', async t => {
+  const started = deferred(), release = deferred();
+  let calls = 0;
+  const f = await fixture(t, { beforeReady: async () => { calls++; started.resolve(); await release.promise; } });
+  const finish = f.gate.beginRequest(), paused = f.gate.pause();
+  await new Promise(setImmediate);
+  assert.equal(calls, 0);
+  finish();
+  await started.promise;
+  assert.equal(f.gate.status().blocked, true);
+  await noMarker(f.markerPath);
+  release.resolve();
+  const marker = await paused;
+  assert.equal(marker.status, 'ready');
+  assert.equal(JSON.parse(await readFile(f.markerPath, 'utf8')).status, 'ready');
+  assert.equal(f.gate.pause(), paused);
+  assert.equal(calls, 1);
+});
+
+test('uncertain external writer shutdown prevents a ready marker', async t => {
+  const f = await fixture(t, { beforeReady: async () => { throw new Error('JEFF_OPENCLAW_GATEWAY_STOP_TIMEOUT'); } });
+  await assert.rejects(f.gate.pause(), { message: 'JEFF_OPENCLAW_GATEWAY_STOP_TIMEOUT' });
+  await noMarker(f.markerPath);
+  assert.equal(f.gate.status().blocked, true);
+});
+
+test('resume joins a pending external writer drain and prevents stale readiness', async t => {
+  const started = deferred(), release = deferred();
+  const f = await fixture(t, { beforeReady: async () => { started.resolve(); await release.promise; } });
+  const paused = f.gate.pause();
+  await started.promise;
+  let resumed = false;
+  const resume = f.gate.resume().then(() => { resumed = true; });
+  await new Promise(setImmediate);
+  assert.equal(resumed, false);
+  assert.equal(f.gate.status().blocked, true);
+  await noMarker(f.markerPath);
+  release.resolve();
+  await resume;
+  assert.equal(await paused, null);
+  assert.equal(f.gate.status().phase, 'running');
+  await noMarker(f.markerPath);
+});
 
 test('backup reader and maintenance writer share data-root defaults and explicit marker overrides', async t => {
   const { root } = await fixture(t, { open: false });

@@ -481,3 +481,13 @@ test('unsafe maintenance shutdown still closes idle runner resources', async t =
   await assert.rejects(app.close(), { message: 'JEFF_MAINTENANCE_TASK_UNSAFE' });
   assert.equal(closes, 1);
 });
+
+test('maintenance quiesces idle runner writers before publishing readiness', async t => {
+  let drains = 0;
+  const runAgent = async () => { throw new Error('Unexpected model request'); };
+  runAgent.drainIdle = async () => { drains++; };
+  const f = await fixture(t, { runAgent });
+  const marker = await f.app.maintenance.pause();
+  assert.equal(drains, 1);
+  assert.equal(marker.status, 'ready');
+});

@@ -76,7 +76,9 @@ export async function createJeffApplication(options = {}) {
   const hosting = options.hosting || createHostingLedger({ dataRoot, resolveOwner,
     quotePayment: createClockersUsdQuote({ rpcUrl, chainId, token: env.CLOCKERS_TOKEN_ADDRESS }),
     verifyPayment: createClockersPaymentVerifier({ rpcUrl, chainId }) });
-  const maintenance = createMaintenanceGate({ markerPath: resolveMaintenanceMarkerPath({ env, dataRoot }), releaseSha: env.JEFF_RELEASE_SHA || null });
+  let runner;
+  const maintenance = createMaintenanceGate({ markerPath: resolveMaintenanceMarkerPath({ env, dataRoot }), releaseSha: env.JEFF_RELEASE_SHA || null,
+    beforeReady: () => runner?.drainIdle?.() });
   const creditsEnabled = env.JEFF_INFERENCE_CREDITS_ENABLED === 'true';
   const inference = createInferenceLedger({ dataRoot });
   let pricing = {};
@@ -87,7 +89,6 @@ export async function createJeffApplication(options = {}) {
     upstreamKey: env.BANKR_LLM_API_KEY, allowedModels: allowedModels.map(model => model.slice(6)), pricing,
     maxInputTokens: 65536,
     track: (promise, label) => maintenance.track(promise, label) }) : null;
-  let runner;
   try {
     runner = options.runAgent || createOpenClawRunner({ env, allowedModels, mode: runnerMode,
       settleInference: gateway ? async jobId => { gateway.revoke(jobId); await gateway.drain(jobId); } : undefined });

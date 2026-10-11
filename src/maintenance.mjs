@@ -44,9 +44,11 @@ export async function waitForDurableJob({ bridge, scope, id, readRecord, pollMs 
 }
 
 // Every durable writer must belong to an admitted request or a tracked task.
-export function createMaintenanceGate({ markerPath = '/tmp/simple-jeff-maintenance.json', releaseSha = null, pid = process.pid } = {}) {
+export function createMaintenanceGate({ markerPath = '/tmp/simple-jeff-maintenance.json', releaseSha = null, pid = process.pid,
+  beforeReady = () => {} } = {}) {
+  if (typeof beforeReady !== 'function') throw new Error('JEFF_MAINTENANCE_CONFIG_INVALID');
   let blocked = true, phase = 'starting', generation = 0, activeRequests = 0, taskSequence = 0;
-  let pausePromise = null, markerQueue = Promise.resolve();
+  let pausePromise = null, markerQueue = Promise.resolve(), quiescing = null;
   const tasks = new Set(), failures = new Map(), listeners = new Set();
   const changed = () => { for (const listener of listeners) listener(); listeners.clear(); };
   const status = () => ({ blocked, phase, activeRequests, pendingTasks: tasks.size, failures: [...failures.keys()] });
@@ -85,6 +87,10 @@ export function createMaintenanceGate({ markerPath = '/tmp/simple-jeff-maintenan
       }
       if (token !== generation) return null;
       if (failures.size) throw new Error('JEFF_MAINTENANCE_TASK_UNSAFE');
+      const drain = Promise.resolve().then(beforeReady);
+      quiescing = drain;
+      try { await drain; } finally { if (quiescing === drain) quiescing = null; }
+      if (token !== generation) return null;
       const marker = { schema: 'simple-jeff-maintenance-v1', status: 'ready', pid, releaseSha,
         readyAt: new Date().toISOString(), activeRequests, pendingTasks: tasks.size };
       await markerOperation(async () => {
@@ -109,6 +115,7 @@ export function createMaintenanceGate({ markerPath = '/tmp/simple-jeff-maintenan
     blocked = true; phase = 'resuming';
     const token = ++generation;
     changed();
+    if (quiescing) await quiescing;
     // Remove the ready marker before any new request may write again.
     await markerOperation(() => rm(markerPath, { force: true }));
     if (token === generation) { blocked = false; phase = 'running'; pausePromise = null; changed(); }
