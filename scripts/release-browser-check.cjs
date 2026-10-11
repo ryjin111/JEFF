@@ -934,8 +934,8 @@ async function walletCallbackIsolation() {
     await page.locator('#settings-name').fill(originalSettings.name); await page.locator('#settings-budget').fill(String(originalSettings.dailyBudgetMicros / 1000000));
     await page.locator('#settings-form button[type="submit"]').click(); await page.waitForFunction(name => document.getElementById('agent-title').textContent === name, originalSettings.name);
     await nav(page, 'chat'); await capture(page, 'desktop-final');
-    await page.locator('[data-action="theme"]').click(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark'); await capture(page, 'desktop-dark');
-    await page.locator('[data-action="theme"]').click();
+    await page.locator('.header-actions [data-action="theme"]').click(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark'); await capture(page, 'desktop-dark');
+    await page.locator('.header-actions [data-action="theme"]').click();
     await page.setViewportSize({ width: 1024, height: 600 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.locator('#sidebar [data-view="settings"]').scrollIntoViewIfNeeded();
@@ -981,9 +981,9 @@ async function walletCallbackIsolation() {
     }
     checked('All eight mobile views fit 390px width');
     await nav(mp, 'chat'); await mp.locator('[data-action="toggle-inspector"]').click(); await capture(mp, 'mobile-agent-details'); await mp.keyboard.press('Escape');
-    await mp.locator('[data-action="theme"]').click(); assert.equal(await mp.locator('html').getAttribute('data-theme'), 'dark'); await capture(mp, 'mobile-dark');
+    await mp.locator('.header-actions [data-action="theme"]').click(); assert.equal(await mp.locator('html').getAttribute('data-theme'), 'dark'); await capture(mp, 'mobile-dark');
     checked('Mobile agent details and theme switch remain usable');
-    await mp.locator('[data-action="theme"]').click();
+    await mp.locator('.header-actions [data-action="theme"]').click();
     await sidebarAction(mp, '.sidebar-section-heading [data-action="connect"]');
     await signStandalone(mp);
     await mp.reload(); await mp.locator('#composer-input').waitFor();
