@@ -42,7 +42,7 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
   if (!Array.isArray(allowedModels) || allowedModels.some(model => !modelName(model))) throw fail('GATEWAY_CONFIG_INVALID');
   const jobs = new Map(), credentials = new Map();
   let server, baseUrl, stopping = false;
-  const inFlight = new Set(), controllers = new Set();
+  const inFlight = new Set(), inFlightByJob = new Map(), controllers = new Set();
   function expire() {
     for (const [id, job] of jobs) {
       if (now() >= job.expiresAt && !job.busy) { credentials.delete(job.apiKey); jobs.delete(id); }
@@ -170,7 +170,7 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
     response.write(`data: ${JSON.stringify({ ...common, choices: [{ index: 0, delta: {}, finish_reason: output.choices[0].finish_reason || 'stop' }], usage: output.usage })}\n\n`);
     response.end('data: [DONE]\n\n');
   }
-  async function handle(request, response) {
+  async function handle(request, response, requestState) {
     let reservationId, forwarded = false, job, ownsBusy = false;
     try {
       if (stopping || request.method !== 'POST' || request.url !== '/v1/chat/completions'
@@ -180,6 +180,8 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       const key = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
       job = credentials.get(key);
       if (!job || !same(job.apiKey, key) || job.revoked || now() >= job.expiresAt) return send(response, 401, 'JEFF_INFERENCE_CREDENTIAL_DENIED');
+      // Associate body reads with the job before the handler first yields.
+      requestState.jobId = job.jobId;
       const input = await readRequest(request);
       if (job.revoked || now() >= job.expiresAt) throw fail('CREDENTIAL_DENIED');
       const validated = validateRequest(input, job);
@@ -228,8 +230,20 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       if (server) return { baseUrl };
       stopping = false;
       server = createServer((request, response) => {
-        const promise = handle(request, response); inFlight.add(promise);
-        promise.finally(() => inFlight.delete(promise)).catch(() => {});
+        const requestState = {}, promise = handle(request, response, requestState); inFlight.add(promise);
+        let jobRequests;
+        if (requestState.jobId !== undefined) {
+          jobRequests = inFlightByJob.get(requestState.jobId);
+          if (!jobRequests) { jobRequests = new Set(); inFlightByJob.set(requestState.jobId, jobRequests); }
+          jobRequests.add(promise);
+        }
+        promise.finally(() => {
+          inFlight.delete(promise);
+          if (jobRequests) {
+            jobRequests.delete(promise);
+            if (!jobRequests.size) inFlightByJob.delete(requestState.jobId);
+          }
+        }).catch(() => {});
         Promise.resolve(track(promise, `inference:${randomUUID()}`)).catch(() => {});
       });
       server.requestTimeout = 130000; server.headersTimeout = 10000;
@@ -261,7 +275,11 @@ export function createInferenceGateway({ ledger, upstreamUrl, upstreamKey, allow
       job.revoked = true; credentials.delete(job.apiKey);
       for (const controller of job.controllers) controller.abort();
     } },
-    async drain() { while (inFlight.size) await Promise.allSettled([...inFlight]); },
+    async drain(jobId) {
+      if (jobId !== undefined && (typeof jobId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,119}$/.test(jobId))) throw fail('JOB_CONFIG_INVALID');
+      const requests = jobId === undefined ? inFlight : inFlightByJob.get(jobId);
+      while (requests?.size) await Promise.allSettled([...requests]);
+    },
     status() { expire(); return { activeRequests: inFlight.size, activeCredentials: credentials.size, retainedJobs: jobs.size, maxJobs, stopping }; },
     async stop() {
       stopping = true;
