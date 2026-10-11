@@ -117,11 +117,24 @@ for (const [name, mutate] of [
   ['excess input', value => { value.usage.prompt_tokens = 513; value.usage.total_tokens = 518; }],
   ['excess output', value => { value.usage.completion_tokens = 33; value.usage.total_tokens = 43; }],
   ['negative detail', value => { value.usage.prompt_tokens_details = { cached_tokens: -1 }; }],
-  ['wrong model', value => { value.model = 'other'; }], ['bad choice', value => { value.choices = []; }],
+  ['nonstring model', value => { value.model = 7; }], ['oversized model', value => { value.model = 'x'.repeat(121); }],
+  ['bad choice', value => { value.choices = []; }],
 ]) test('operator validates measured usage without tariff: ' + name, async t => {
   const f = await fixture(t, { fetchImpl: async () => { const value = output(); mutate(value); return new Response(JSON.stringify(value)); } }), credential = f.issue('usage');
   const response = await f.request(credential); assert.equal(response.status, 503); assert.match((await response.json()).error.message, /JEFF_INFERENCE_USAGE_UNVERIFIED/);
   await f.gateway.drain('usage'); assert.equal((await f.request(credential)).status, 429); assert.equal(f.calls(), 1);
+});
+
+test('operator preserves bounded provider-prefixed and dated response model aliases without changing requested model', async t => {
+  const aliases = ['openai/fixture-2026-10-11', 'openrouter/fixture'], forwarded = [];
+  const f = await fixture(t, { fetchImpl: async (_url, init) => { const requested = JSON.parse(init.body); forwarded.push(requested.model);
+    return new Response(JSON.stringify({ ...output(), model: aliases[forwarded.length - 1] })); } });
+  for (const [index, alias] of aliases.entries()) {
+    const credential = f.issue('alias-' + index), response = await f.request(credential);
+    assert.equal(response.status, 200); assert.equal((await response.json()).model, alias);
+    f.gateway.revoke('alias-' + index); await f.gateway.drain('alias-' + index);
+  }
+  assert.deepEqual(forwarded, ['fixture', 'fixture']); assert.equal(f.calls(), 2);
 });
 
 test('operator unknown provider outcomes remain bounded and cannot be retried with the same credential', async t => {

@@ -159,7 +159,7 @@ export function createInferenceGateway({ ledger, billingMode = 'prepaid', upstre
       || !nonnegative(usage.prompt_tokens) || !nonnegative(usage.completion_tokens)
       || !nonnegative(usage.total_tokens) || usage.total_tokens !== usage.prompt_tokens + usage.completion_tokens
       || usage.prompt_tokens > maxInputTokens || usage.completion_tokens > cap
-      || (output.model !== undefined && output.model !== job.model)) throw fail('USAGE_UNVERIFIED');
+      || (output.model !== undefined && (prepaid ? output.model !== job.model : !modelName(output.model)))) throw fail('USAGE_UNVERIFIED');
     const inputDetails = usage.prompt_tokens_details, outputDetails = usage.completion_tokens_details;
     if ((inputDetails !== undefined && (!inputDetails || typeof inputDetails !== 'object' || Array.isArray(inputDetails)))
       || (outputDetails !== undefined && (!outputDetails || typeof outputDetails !== 'object' || Array.isArray(outputDetails)))) throw fail('USAGE_UNVERIFIED');
